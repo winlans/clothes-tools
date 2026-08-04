@@ -71,6 +71,55 @@ const screenshotPath = process.env.SCREENSHOT_PATH;
   assert.notEqual(afterPan, beforePan, "space plus left drag must pan the canvas");
 
   await page.getByRole("button", { name: "适合内容" }).click();
+  const pageWidth = Number(await canvas.getAttribute("data-page-width"));
+  const pageHeight = Number(await canvas.getAttribute("data-page-height"));
+  const pageDimensionsBefore = { pageWidth, pageHeight };
+
+  async function cellCenter(row, column) {
+    const currentBox = await canvas.boundingBox();
+    assert(currentBox, "layout canvas must remain visible");
+    const scale = Number(await canvas.getAttribute("data-camera-scale"));
+    const cameraX = Number(await canvas.getAttribute("data-camera-x"));
+    const cameraY = Number(await canvas.getAttribute("data-camera-y"));
+    return {
+      x: currentBox.x + cameraX + (column * pageWidth + pageWidth / 2) * scale,
+      y: currentBox.y + cameraY + (row * pageHeight + pageHeight / 2) * scale,
+    };
+  }
+
+  const firstPage = await cellCenter(0, 0);
+  const fifthCell = await cellCenter(1, 1);
+  await page.mouse.move(firstPage.x, firstPage.y);
+  await page.mouse.down();
+  await page.mouse.move(fifthCell.x, fifthCell.y, { steps: 8 });
+  assert.equal(await canvas.getAttribute("data-drop-row"), "1");
+  assert.equal(await canvas.getAttribute("data-drop-column"), "1");
+  await page.mouse.up();
+  await page.waitForFunction(
+    () =>
+      document.querySelector(".layout-canvas")?.getAttribute("data-layout-cells") ===
+      "2,3,4,5,1,6,7,8,9,10,11,12,13,14,15",
+  );
+  const movedLayout = await canvas.getAttribute("data-layout-cells");
+
+  const lastPage = await cellCenter(2, 4);
+  const firstCell = await cellCenter(0, 0);
+  await page.mouse.move(lastPage.x, lastPage.y);
+  await page.mouse.down();
+  await page.mouse.move(firstCell.x, firstCell.y, { steps: 8 });
+  assert.equal(await canvas.getAttribute("data-dragging-page"), "15");
+  await page.keyboard.press("Escape");
+  await page.mouse.up();
+  assert.equal(await canvas.getAttribute("data-layout-cells"), movedLayout);
+  assert.equal(await canvas.getAttribute("data-dragging-page"), null);
+  assert.deepEqual(
+    {
+      pageWidth: Number(await canvas.getAttribute("data-page-width")),
+      pageHeight: Number(await canvas.getAttribute("data-page-height")),
+    },
+    pageDimensionsBefore,
+  );
+
   assert.equal(pageErrors.length, 0, `page errors: ${pageErrors.join("; ")}`);
   if (screenshotPath) await page.screenshot({ path: screenshotPath, fullPage: true });
 
@@ -83,6 +132,9 @@ const screenshotPath = process.env.SCREENSHOT_PATH;
       afterZoom,
       beforePan,
       afterPan,
+      movedLayout,
+      cancelledDragPreservedLayout: true,
+      pageDimensions: pageDimensionsBefore,
       pageErrors,
     }),
   );

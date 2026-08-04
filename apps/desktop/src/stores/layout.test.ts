@@ -22,4 +22,15 @@ describe("layout store", () => {
     expect(store.layout).toMatchObject({ rows: 3, columns: 5 });
     expect(store.errorMessage).toContain("正整数");
   });
+
+  it("commits stable page moves without duplicates", () => {
+    const store = useLayoutStore();
+    store.initialize("pdf-1", 6);
+
+    expect(store.movePageTo(2, { row: 1, column: 1 })).toBe(true);
+    const pageNumbers = store.layout?.cells
+      .flat()
+      .flatMap((cell) => (cell?.kind === "page" ? [cell.pageNumber] : []));
+    expect(pageNumbers?.sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6]);
+  });
 });

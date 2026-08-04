@@ -1,4 +1,10 @@
-import { createAutomaticLayout, Pdf2PltError, type LayoutGrid } from "@pdf2plt/core";
+import {
+  createAutomaticLayout,
+  moveLayoutPage,
+  Pdf2PltError,
+  type GridPosition,
+  type LayoutGrid,
+} from "@pdf2plt/core";
 import { defineStore } from "pinia";
 
 export const useLayoutStore = defineStore("layout", {
@@ -27,6 +33,18 @@ export const useLayoutStore = defineStore("layout", {
       } catch (error) {
         this.errorMessage =
           error instanceof Pdf2PltError ? error.message : "无法创建自动布局。";
+        return false;
+      }
+    },
+    movePageTo(pageNumber: number, target: GridPosition): boolean {
+      if (!this.layout) return false;
+      try {
+        this.layout = moveLayoutPage(this.layout, pageNumber, target);
+        this.errorMessage = "";
+        return true;
+      } catch (error) {
+        this.errorMessage =
+          error instanceof Pdf2PltError ? error.message : "无法移动页面。";
         return false;
       }
     },

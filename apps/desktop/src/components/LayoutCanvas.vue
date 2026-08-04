@@ -1,5 +1,10 @@
 <script setup lang="ts">
-import type { LayoutGrid, PageSizePt } from "@pdf2plt/core";
+import {
+  flattenLayout,
+  type GridPosition,
+  type LayoutGrid,
+  type PageSizePt,
+} from "@pdf2plt/core";
 import Konva from "konva";
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
@@ -20,7 +25,15 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   zoomChange: [scale: number];
+  movePage: [pageNumber: number, target: GridPosition];
 }>();
+
+interface ActiveDrag {
+  group: Konva.Group;
+  pageNumber: number;
+  source: GridPosition;
+  target: GridPosition | undefined;
+}
 
 const host = ref<HTMLDivElement>();
 let stage: Konva.Stage | undefined;
@@ -31,6 +44,8 @@ let spacePressed = false;
 let pointerInside = false;
 let panning = false;
 let lastPointer: Point | undefined;
+let activeDrag: ActiveDrag | undefined;
+let dropHighlight: Konva.Rect | undefined;
 const imageCache = new Map<string, HTMLImageElement>();
 
 function applyCamera(nextCamera: Camera) {
@@ -83,12 +98,185 @@ function loadPreview(url: string, node: Konva.Image) {
   image.src = url;
 }
 
+function positionForCell(position: GridPosition): Point {
+  return {
+    x: position.column * props.pageSize.width,
+    y: position.row * props.pageSize.height,
+  };
+}
+
+function getDragTarget(group: Konva.Group): GridPosition | undefined {
+  const column = Math.floor(
+    (group.x() + props.pageSize.width / 2) / props.pageSize.width,
+  );
+  const row = Math.floor(
+    (group.y() + props.pageSize.height / 2) / props.pageSize.height,
+  );
+  if (
+    row < 0 ||
+    row >= props.layout.rows ||
+    column < 0 ||
+    column >= props.layout.columns
+  ) {
+    return undefined;
+  }
+  return { row, column };
+}
+
+function showDropTarget(target?: GridPosition) {
+  if (!dropHighlight || !target) {
+    if (host.value) {
+      delete host.value.dataset.dropRow;
+      delete host.value.dataset.dropColumn;
+    }
+    dropHighlight?.hide();
+    contentLayer?.batchDraw();
+    return;
+  }
+  if (host.value) {
+    host.value.dataset.dropRow = String(target.row);
+    host.value.dataset.dropColumn = String(target.column);
+  }
+  dropHighlight.position(positionForCell(target));
+  dropHighlight.show();
+  dropHighlight.moveToTop();
+  contentLayer?.batchDraw();
+}
+
+function restoreDraggedGroup(drag: ActiveDrag) {
+  if (host.value) delete host.value.dataset.draggingPage;
+  drag.group.position(positionForCell(drag.source));
+  drag.group.opacity(1);
+  showDropTarget();
+  if (stage) stage.container().style.cursor = "grab";
+  contentLayer?.batchDraw();
+}
+
+function cancelActiveDrag() {
+  const drag = activeDrag;
+  if (!drag) return;
+  activeDrag = undefined;
+  drag.group.stopDrag();
+  restoreDraggedGroup(drag);
+}
+
+function createPageGroup(
+  pageNumber: number,
+  source: GridPosition,
+  preview?: PreviewState,
+): Konva.Group {
+  const origin = positionForCell(source);
+  const group = new Konva.Group({
+    ...origin,
+    width: props.pageSize.width,
+    height: props.pageSize.height,
+    draggable: true,
+    name: "layout-page",
+  });
+  group.setAttr("pageNumber", pageNumber);
+  group.add(
+    new Konva.Rect({
+      width: props.pageSize.width,
+      height: props.pageSize.height,
+      fill: "#ffffff",
+    }),
+  );
+
+  if (preview) {
+    const previewNode = new Konva.Image({
+      image: imageCache.get(preview.url) ?? new window.Image(),
+      width: props.pageSize.width,
+      height: props.pageSize.height,
+      listening: false,
+    });
+    loadPreview(preview.url, previewNode);
+    group.add(previewNode);
+  }
+
+  group.add(
+    new Konva.Rect({
+      width: props.pageSize.width,
+      height: props.pageSize.height,
+      stroke: "#314a59",
+      strokeWidth: 1.5,
+      strokeScaleEnabled: false,
+      listening: false,
+    }),
+  );
+  group.add(
+    new Konva.Label({ x: 18, y: 18, listening: false })
+      .add(
+        new Konva.Tag({
+          fill: "#10212b",
+          opacity: 0.9,
+          cornerRadius: 8,
+        }),
+      )
+      .add(
+        new Konva.Text({
+          text: `${pageNumber}`,
+          fill: "#e8f4fa",
+          fontSize: 30,
+          fontStyle: "bold",
+          padding: 11,
+        }),
+      ),
+  );
+
+  group.on("mouseenter", () => {
+    if (stage && !spacePressed) stage.container().style.cursor = "grab";
+  });
+  group.on("mouseleave", () => {
+    if (stage && !panning && !activeDrag) stage.container().style.cursor = "default";
+  });
+  group.on("dragstart", () => {
+    activeDrag = { group, pageNumber, source, target: undefined };
+    if (host.value) host.value.dataset.draggingPage = String(pageNumber);
+    group.opacity(0.78);
+    group.moveToTop();
+    if (stage) stage.container().style.cursor = "grabbing";
+  });
+  group.on("dragmove", () => {
+    if (!activeDrag || activeDrag.group !== group) return;
+    activeDrag.target = getDragTarget(group);
+    showDropTarget(activeDrag.target);
+  });
+  group.on("dragend", () => {
+    const drag = activeDrag;
+    activeDrag = undefined;
+    if (!drag || drag.group !== group || !drag.target) {
+      restoreDraggedGroup({ group, pageNumber, source, target: undefined });
+      return;
+    }
+
+    group.position(positionForCell(drag.target));
+    group.opacity(1);
+    if (host.value) delete host.value.dataset.draggingPage;
+    showDropTarget();
+    if (stage) stage.container().style.cursor = "grab";
+    emit("movePage", pageNumber, drag.target);
+  });
+
+  return group;
+}
+
 function renderScene() {
   if (!contentLayer) return;
+  activeDrag = undefined;
+  dropHighlight = undefined;
   contentLayer.destroyChildren();
   const previewByPage = new Map(
     props.previews.map((preview) => [preview.pageNumber, preview]),
   );
+  if (host.value) {
+    host.value.dataset.layoutCells = flattenLayout(props.layout)
+      .map((cell) => (cell?.kind === "page" ? cell.pageNumber : "-"))
+      .join(",");
+    host.value.dataset.pageWidth = String(props.pageSize.width);
+    host.value.dataset.pageHeight = String(props.pageSize.height);
+    host.value.dataset.layoutRows = String(props.layout.rows);
+    host.value.dataset.layoutColumns = String(props.layout.columns);
+  }
 
   for (let row = 0; row < props.layout.rows; row += 1) {
     for (let column = 0; column < props.layout.columns; column += 1) {
@@ -110,54 +298,30 @@ function renderScene() {
         }),
       );
 
-      if (cell?.kind !== "page") continue;
-      const preview = previewByPage.get(cell.pageNumber);
-      if (preview) {
-        const previewNode = new Konva.Image({
-          image: imageCache.get(preview.url) ?? new window.Image(),
-          x,
-          y,
-          width: props.pageSize.width,
-          height: props.pageSize.height,
-          listening: false,
-        });
-        loadPreview(preview.url, previewNode);
-        contentLayer.add(previewNode);
-      }
-
-      contentLayer.add(
-        new Konva.Rect({
-          x,
-          y,
-          width: props.pageSize.width,
-          height: props.pageSize.height,
-          stroke: "#314a59",
-          strokeWidth: 1.5,
-          strokeScaleEnabled: false,
-          listening: false,
-        }),
-      );
-      contentLayer.add(
-        new Konva.Label({ x: x + 18, y: y + 18, listening: false })
-          .add(
-            new Konva.Tag({
-              fill: "#10212b",
-              opacity: 0.9,
-              cornerRadius: 8,
-            }),
-          )
-          .add(
-            new Konva.Text({
-              text: `${cell.pageNumber}`,
-              fill: "#e8f4fa",
-              fontSize: 30,
-              fontStyle: "bold",
-              padding: 11,
-            }),
+      if (cell?.kind === "page") {
+        contentLayer.add(
+          createPageGroup(
+            cell.pageNumber,
+            { row, column },
+            previewByPage.get(cell.pageNumber),
           ),
-      );
+        );
+      }
     }
   }
+
+  dropHighlight = new Konva.Rect({
+    width: props.pageSize.width,
+    height: props.pageSize.height,
+    fill: "#63b9df",
+    opacity: 0.22,
+    stroke: "#8fdcff",
+    strokeWidth: 3,
+    strokeScaleEnabled: false,
+    listening: false,
+    visible: false,
+  });
+  contentLayer.add(dropHighlight);
 
   contentLayer.batchDraw();
 }
@@ -184,21 +348,29 @@ function stopPan() {
 }
 
 function handleKeyDown(event: KeyboardEvent) {
+  if (event.code === "Escape" && activeDrag) {
+    event.preventDefault();
+    cancelActiveDrag();
+    return;
+  }
   if (event.code !== "Space") return;
   if (!pointerInside && document.activeElement !== host.value) return;
   event.preventDefault();
   spacePressed = true;
+  contentLayer?.find(".layout-page").forEach((node) => node.draggable(false));
   if (stage && !panning) stage.container().style.cursor = "grab";
 }
 
 function handleKeyUp(event: KeyboardEvent) {
   if (event.code !== "Space") return;
   spacePressed = false;
+  contentLayer?.find(".layout-page").forEach((node) => node.draggable(true));
   stopPan();
 }
 
 function handleBlur() {
   spacePressed = false;
+  contentLayer?.find(".layout-page").forEach((node) => node.draggable(true));
   stopPan();
 }
 

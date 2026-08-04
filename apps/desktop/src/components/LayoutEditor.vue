@@ -77,11 +77,12 @@ watch(
       :page-size="props.pageSize"
       :previews="props.previews"
       @zoom-change="zoom = $event"
+      @move-page="layoutStore.movePageTo"
     />
 
     <footer class="canvas-status">
       <span>缩放 {{ Math.round(zoom * 100) }}%</span>
-      <span>滚轮缩放 · 空格键 + 左键或中键平移</span>
+      <span>拖动页面吸附重排 · 滚轮缩放 · 空格键 + 左键或中键平移</span>
     </footer>
   </section>
 </template>
