@@ -116,8 +116,8 @@ exportSvg(documentId: string, project: ExportProject): Promise<ExportResult>
 
 - 调用与桌面应用相同的 `packages/core`；
 - 运行时使用 MuPDF WASM，不调用 Python、Poppler 或 librsvg；
-- Linux 和 Windows 发布包包含对应的 `pdf-pattern-svg` 可执行文件和相邻的
-  `mupdf-wasm.wasm`；
+- Linux 和 Windows 发布包包含内嵌 MuPDF WASM 的单文件 `pdf-pattern-svg`
+  可执行程序；
 - CLI 与桌面应用对同一工程必须得到相同 SVG。
 
 ## 6. 领域模型

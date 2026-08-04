@@ -12,6 +12,7 @@
     "cli": "bun src/index.ts",
     "release:linux": "bun scripts/build-release.ts linux-x64",
     "release:windows": "bun scripts/build-release.ts windows-x64",
+    "verify:release": "bun scripts/verify-release.ts",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

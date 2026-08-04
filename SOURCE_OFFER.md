@@ -36,8 +36,8 @@ pnpm release:desktop
 
 The CI recipe in `.github/workflows/linux-release.yml` is the authoritative,
 machine-readable reconstruction procedure. JavaScript and Rust dependency
-versions are pinned by the lock files; the CLI's adjacent `mupdf-wasm.wasm` is
-copied without modification from `mupdf@1.28.0`.
+versions are pinned by the lock files; `mupdf-wasm.wasm` is embedded without
+modification into the standalone CLI executable from `mupdf@1.28.0`.
 
 ## 重建 Windows x64 发布物
 

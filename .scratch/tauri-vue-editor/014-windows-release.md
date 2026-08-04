@@ -13,7 +13,7 @@ Windows x64 CLI `.zip`。Windows 与 Linux 使用独立的平台配置和 CI 工
 
 - [x] Windows 平台配置声明 NSIS 和 MSI 两种安装包。
 - [x] 根级构建命令可分别生成 Windows 桌面安装包和 Windows CLI。
-- [x] Windows CLI 使用兼容旧 CPU 的 Bun x64 baseline 目标，包含相邻 WASM。
+- [x] Windows CLI 使用兼容旧 CPU 的 Bun x64 baseline 目标并内嵌 MuPDF WASM。
 - [x] Windows GitHub Actions 定义在 `windows-2022` 原生构建并上传全部发布物。
 - [x] CI 检查安装包、CLI、WASM、许可证、源码说明和源码归档均存在。
 - [x] Linux 原有构建命令和发布工作流保持兼容。
@@ -26,7 +26,7 @@ Windows x64 CLI `.zip`。Windows 与 Linux 使用独立的平台配置和 CI 工
 - `pnpm test`
 - `pnpm build`
 - `pnpm release:cli:windows`
-- 检查 `pdf2plt-cli-windows-x64.zip` 的 PE 可执行文件、WASM 和许可文件。
+- 检查 `pdf2plt-cli-windows-x64.zip` 的单文件 PE 可执行程序和许可文件。
 - Wine 中使用 15 页真实 PDF 完成 Windows CLI 转换，输出单根 SVG 和 15 个页面实例。
 - GitHub Actions `Windows release` 成功生成 `.exe` 与 `.msi`。
 - Windows 10/11 实机完成桌面端安装与真实 PDF 转换，因此本任务保持 HITL。

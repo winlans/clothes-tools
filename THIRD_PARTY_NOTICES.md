@@ -29,7 +29,8 @@ instructions are in `SOURCE_OFFER.md`.
 
 ## CLI runtime
 
-The standalone `pdf-pattern-svg` executable embeds the Bun runtime. Bun is
+The standalone `pdf-pattern-svg` executable embeds the Bun runtime and the
+unmodified MuPDF WASM binary. Bun is
 Copyright © Jarred Sumner and contributors and is distributed under the MIT
 license. Its JavaScriptCore and other bundled third-party notices are available
 from <https://bun.sh/docs/project/licensing>.

@@ -42,12 +42,11 @@ librsvg、Node.js 或 Bun。
 
 ## 独立 CLI
 
-Windows 解压 `pdf2plt-cli-windows-x64.zip`，保持 `.exe` 与 WASM 相邻：
+Windows 解压 `pdf2plt-cli-windows-x64.zip` 后可直接使用单文件 CLI：
 
 ```text
 pdf2plt-cli-windows-x64/
   pdf-pattern-svg.exe
-  mupdf-wasm.wasm
   LICENSE
   THIRD_PARTY_NOTICES.md
   SOURCE_OFFER.md
@@ -61,12 +60,11 @@ PowerShell 示例：
 .\pdf-pattern-svg.exe -i input.pdf -p '1-3|6-4|-,7-9'
 ```
 
-Linux 解压 `pdf2plt-cli-linux-x64.tar.gz` 后，必须保持可执行文件与 WASM 相邻：
+Linux 解压 `pdf2plt-cli-linux-x64.tar.gz` 后可直接使用单文件 CLI：
 
 ```text
 pdf2plt-cli-linux-x64/
   pdf-pattern-svg
-  mupdf-wasm.wasm
   LICENSE
   THIRD_PARTY_NOTICES.md
   SOURCE_OFFER.md
@@ -87,7 +85,8 @@ PDF point，`72 pt = 1 inch`。
 
 ## 故障排查
 
-- 提示缺少 `mupdf-wasm.wasm`：把发布包内的 WASM 放回可执行文件同一目录。
+- `pdf-pattern-svg.exe` 是命令行转换器，不会打开图形界面；Windows 图形版请运行
+  `pdf2plt_0.1.0_x64-setup.exe` 或安装 `.msi`。
 - 自动红线检测失败：直接填写缺少的拼接线，或关闭“裁切页间接缝”。
 - SVG 已存在：更换输出名，或确认后使用 CLI 的 `--overwrite`。
 

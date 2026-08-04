@@ -60,11 +60,8 @@ jobs:
             HEAD
           if ($LASTEXITCODE -ne 0) { throw "git archive failed" }
 
-          & dist/release/pdf2plt-cli-windows-x64/pdf-pattern-svg.exe --help
-          if ($LASTEXITCODE -ne 0) { throw "Windows CLI smoke check failed" }
-          if (-not (Test-Path dist/release/pdf2plt-cli-windows-x64/mupdf-wasm.wasm)) {
-            throw "Windows CLI bundle is missing mupdf-wasm.wasm"
-          }
+          pnpm --filter @pdf2plt/cli verify:release windows-x64
+          if ($LASTEXITCODE -ne 0) { throw "Windows standalone CLI check failed" }
 
           $zipEntries = tar -tf dist/release/pdf2plt-cli-windows-x64.zip
           if ($LASTEXITCODE -ne 0) { throw "Windows CLI zip is invalid" }

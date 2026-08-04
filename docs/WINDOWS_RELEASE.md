@@ -29,7 +29,6 @@ dist/release/
   pdf2plt-cli-windows-x64.zip
   pdf2plt-cli-windows-x64/
     pdf-pattern-svg.exe
-    mupdf-wasm.wasm
     LICENSE
     THIRD_PARTY_NOTICES.md
     SOURCE_OFFER.md
@@ -53,7 +52,7 @@ Tauri 安装器默认在系统缺少 WebView2 时下载 bootstrapper。离线部
 Windows CI 会执行以下检查：
 
 1. TypeScript、Vue 和 Rust 测试全部通过。
-2. Windows CLI 可执行 `--help`，且相邻 WASM 存在。
+2. Windows CLI 单独复制到无外部 WASM 的空目录后仍可执行 `--help`。
 3. CLI ZIP 包包含许可证、第三方声明、源码说明和用户文档。
 4. NSIS、MSI 和同提交源码归档均存在且非空。
 5. 输出安装包与 CLI ZIP 的 SHA-256。

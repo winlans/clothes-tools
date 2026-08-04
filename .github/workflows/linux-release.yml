@@ -65,8 +65,7 @@ jobs:
             --prefix=pdf2plt-0.1.0-source/ \
             --output=dist/release/pdf2plt-0.1.0-source.tar.gz \
             HEAD
-          dist/release/pdf2plt-cli-linux-x64/pdf-pattern-svg --help
-          test -s dist/release/pdf2plt-cli-linux-x64/mupdf-wasm.wasm
+          pnpm --filter @pdf2plt/cli verify:release linux-x64
           tar -tzf dist/release/pdf2plt-cli-linux-x64.tar.gz | grep -q '/LICENSE$'
           tar -tzf dist/release/pdf2plt-cli-linux-x64.tar.gz | grep -q '/SOURCE_OFFER.md$'
           test -s dist/release/pdf2plt-0.1.0-source.tar.gz

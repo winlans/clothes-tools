@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 
 import { Pdf2PltError } from "@pdf2plt/core";
-import { existsSync, readFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { readFileSync } from "node:fs";
+import mupdfWasmPath from "../node_modules/mupdf/dist/mupdf-wasm.wasm" with { type: "file" };
 
 import { HELP_TEXT, parseCliArguments } from "./arguments";
 import { CliUsageError, normalizeCliError } from "./errors";
@@ -12,20 +12,10 @@ interface MuPdfModuleConfig {
 }
 
 function configurePackagedMuPdf() {
-  const executableName = basename(process.execPath);
-  const isCompiledExecutable = executableName !== "bun" && executableName !== "bun.exe";
-  if (!isCompiledExecutable) return;
-
-  const wasmPath = join(dirname(process.execPath), "mupdf-wasm.wasm");
-  if (!existsSync(wasmPath)) {
-    throw new CliUsageError(
-      `缺少 MuPDF WASM：${wasmPath}\n请保持 mupdf-wasm.wasm 与 pdf-pattern-svg 在同一目录。`,
-    );
-  }
   (globalThis as typeof globalThis & {
     $libmupdf_wasm_Module?: MuPdfModuleConfig;
   }).$libmupdf_wasm_Module = {
-    wasmBinary: new Uint8Array(readFileSync(wasmPath)),
+    wasmBinary: new Uint8Array(readFileSync(mupdfWasmPath)),
   };
 }
 

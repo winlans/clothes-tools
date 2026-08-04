@@ -26,7 +26,6 @@ dist/release/
   pdf2plt-cli-linux-x64.tar.gz
   pdf2plt-cli-linux-x64/
     pdf-pattern-svg
-    mupdf-wasm.wasm
     LICENSE
     THIRD_PARTY_NOTICES.md
     SOURCE_OFFER.md
@@ -52,8 +51,8 @@ sha256sum dist/release/*
 1. 在干净 Ubuntu 22.04 环境安装 `deb`，启动 `pdf2plt`，导入真实 PDF，完成
    自动排版与微调，再导出 SVG。
 2. 使用 `APPIMAGE_EXTRACT_AND_RUN=1` 启动 AppImage，确认主窗口可用。
-3. 在未安装 Node/Bun 的环境解压 CLI 包，确认可执行文件能找到相邻
-   `mupdf-wasm.wasm` 并转换真实 PDF。
+3. 在未安装 Node/Bun 的环境解压 CLI 包，把可执行文件单独复制到空目录，确认
+   内嵌 MuPDF WASM 后仍能转换真实 PDF。
 4. 用桌面端与 CLI 从同一个 `.pattern-layout.json` 导出，比较 SHA-256；输出应
    完全一致。
 5. 检查 SVG 只有一个根 `<svg>`，页面实例数与工程一致，且不是整页位图。

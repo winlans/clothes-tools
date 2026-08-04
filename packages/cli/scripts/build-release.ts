@@ -77,7 +77,6 @@ await run([
 if (releaseTarget === "linux-x64") await chmod(executablePath, 0o755);
 
 for (const [source, destination] of [
-  [resolve(packageDirectory, "node_modules/mupdf/dist/mupdf-wasm.wasm"), "mupdf-wasm.wasm"],
   [resolve(repositoryRoot, "LICENSE"), "LICENSE"],
   [resolve(repositoryRoot, "THIRD_PARTY_NOTICES.md"), "THIRD_PARTY_NOTICES.md"],
   [resolve(repositoryRoot, "SOURCE_OFFER.md"), "SOURCE_OFFER.md"],

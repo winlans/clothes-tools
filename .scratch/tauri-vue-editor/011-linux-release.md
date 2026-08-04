@@ -12,7 +12,7 @@
 
 - [x] CI 在兼容基线系统构建 AppImage、deb 和 CLI 发布包。
 - [x] 安装后的桌面应用不依赖 Python、Poppler、librsvg、Node 或 Bun。
-- [x] CLI 发布包能定位相邻 MuPDF WASM 并完成真实 PDF 转换。
+- [x] CLI 发布包内嵌 MuPDF WASM，单独复制可执行文件后仍能完成真实 PDF 转换。
 - [x] 发布物包含 AGPL-3.0-or-later、MuPDF 版权声明和对应源码说明。
 - [x] 干净 Linux 虚拟机通过桌面端和 CLI 冒烟测试。
 - [ ] 人工在 CorelDRAW 或等价矢量编辑器中确认尺寸与路径可编辑性。

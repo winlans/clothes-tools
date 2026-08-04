@@ -85,6 +85,9 @@ pnpm release:desktop
 pnpm release:cli:windows
 ```
 
+ZIP 中的 `pdf-pattern-svg.exe` 是单文件命令行转换器；图形桌面版请使用下面生成
+的 NSIS `.exe` 或 WiX `.msi` 安装包。
+
 在 Windows x64 构建 NSIS `.exe` 和 WiX `.msi` 安装包：
 
 ```powershell
