@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { mount } from "@vue/test-utils";
+import { enableAutoUnmount, mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { defineComponent, h, nextTick } from "vue";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useLayoutStore } from "../stores/layout";
 import { useGuideStore } from "../stores/guides";
@@ -10,18 +10,28 @@ import { useProjectStore } from "../stores/project";
 import LayoutEditor from "./LayoutEditor.vue";
 
 const fitContent = vi.fn();
+const setZoom = vi.fn();
 const LayoutCanvasStub = defineComponent({
   name: "LayoutCanvas",
-  setup(_, { expose }) {
-    expose({ fitContent });
-    return () => h("div", { "data-testid": "layout-canvas" });
+  props: {
+    editable: { type: Boolean, default: true },
+  },
+  setup(props, { expose }) {
+    expose({ fitContent, setZoom });
+    return () => h("div", {
+      "data-testid": "layout-canvas",
+      "data-editable": String(props.editable),
+    });
   },
 });
+
+enableAutoUnmount(afterEach);
 
 describe("LayoutEditor", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     fitContent.mockClear();
+    setZoom.mockClear();
   });
 
   function mountEditor() {
@@ -84,6 +94,44 @@ describe("LayoutEditor", () => {
 
     await fitButton?.trigger("click");
     expect(fitContent).toHaveBeenCalledOnce();
+  });
+
+  it("accepts exact decimal zoom percentages and 0.1% micro-adjustments", async () => {
+    const { wrapper } = mountEditor();
+    const input = wrapper.get('.canvas-preview-actions input[aria-label="缩放百分比"]');
+
+    await input.setValue("37.125");
+    await input.trigger("change");
+    expect(setZoom).toHaveBeenLastCalledWith(0.37125);
+
+    await wrapper.get('.canvas-preview-actions [aria-label="放大 0.1%"]')
+      .trigger("click");
+    expect(setZoom).toHaveBeenLastCalledWith(0.37225);
+  });
+
+  it("opens a full-screen read-only preview with independent precise zoom", async () => {
+    const { wrapper } = mountEditor();
+    const fullscreenButton = wrapper.findAll("button").find(
+      (button) => button.text() === "全屏预览",
+    );
+
+    await fullscreenButton?.trigger("click");
+    await nextTick();
+
+    const preview = wrapper.get('.fullscreen-preview[role="dialog"]');
+    expect(document.body.classList.contains("fullscreen-preview-open")).toBe(true);
+    expect(preview.get('[data-testid="layout-canvas"]').attributes("data-editable"))
+      .toBe("false");
+
+    const zoomInput = preview.get('input[aria-label="缩放百分比"]');
+    await zoomInput.setValue("62.375");
+    await zoomInput.trigger("change");
+    expect(setZoom).toHaveBeenLastCalledWith(0.62375);
+
+    await preview.get(".fullscreen-preview__close").trigger("click");
+    await nextTick();
+    expect(wrapper.find(".fullscreen-preview").exists()).toBe(false);
+    expect(document.body.classList.contains("fullscreen-preview-open")).toBe(false);
   });
 
   it("lets users repair missing guides with point coordinates", async () => {

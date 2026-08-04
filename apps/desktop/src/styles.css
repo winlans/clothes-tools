@@ -18,6 +18,10 @@ body {
     #101317;
 }
 
+body.fullscreen-preview-open {
+  overflow: hidden;
+}
+
 button {
   font: inherit;
 }
@@ -553,6 +557,119 @@ h1 {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+}
+
+.canvas-preview-actions,
+.fullscreen-preview__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.zoom-control {
+  display: grid;
+  grid-template-columns: 28px minmax(86px, 112px) 28px;
+  overflow: hidden;
+  border: 1px solid #344650;
+  border-radius: 7px;
+  background: #10171b;
+}
+
+.zoom-control button {
+  border: 0;
+  padding: 0;
+  color: #b9cad3;
+  background: #20282e;
+  cursor: pointer;
+}
+
+.zoom-control button:first-child {
+  border-right: 1px solid #344650;
+}
+
+.zoom-control button:last-child {
+  border-left: 1px solid #344650;
+}
+
+.zoom-control button:hover {
+  color: #f0f7fa;
+  background: #2a3942;
+}
+
+.zoom-control label {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 2px;
+  padding-right: 7px;
+  color: #8fa4ae;
+  font-size: 12px;
+}
+
+.zoom-control input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  padding: 6px 2px 6px 7px;
+  color: #e5f4fb;
+  background: transparent;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  outline: none;
+}
+
+.zoom-control input[aria-invalid="true"] {
+  color: #f1a4aa;
+  background: rgb(184 90 99 / 12%);
+}
+
+.fullscreen-preview {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 12px;
+  background: #090d10;
+}
+
+.fullscreen-preview__toolbar,
+.fullscreen-preview__status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.fullscreen-preview__title {
+  display: grid;
+  gap: 3px;
+}
+
+.fullscreen-preview__title strong {
+  color: #edf4f7;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.fullscreen-preview__close {
+  padding-block: 7px;
+}
+
+.fullscreen-preview__canvas.layout-canvas {
+  height: 100%;
+  min-height: 0;
+  border-color: #415864;
+}
+
+.fullscreen-preview__status {
+  color: #78909b;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 .advanced-inspector {

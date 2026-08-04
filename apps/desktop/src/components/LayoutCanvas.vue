@@ -14,18 +14,22 @@ import type { PreviewState } from "../stores/pdf-document";
 import {
   fitCameraToContent,
   panCameraBy,
+  setCameraZoomAtPoint,
   zoomCameraAtPoint,
   type Camera,
   type Point,
 } from "../canvas/camera";
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   layout: LayoutGrid;
   pageSize: PageSizePt;
   previews: PreviewState[];
   guides: GuideCoordinates | undefined;
   initialCamera: Camera | undefined;
-}>();
+  editable?: boolean;
+}>(), {
+  editable: true,
+});
 
 const emit = defineEmits<{
   zoomChange: [scale: number];
@@ -93,6 +97,15 @@ function fitContent() {
       { x: 0, y: 0, ...content },
     ),
   );
+}
+
+function setZoom(scale: number) {
+  if (!stage || !Number.isFinite(scale)) return;
+  const viewportCenter = {
+    x: stage.width() / 2,
+    y: stage.height() / 2,
+  };
+  applyCamera(setCameraZoomAtPoint(camera, viewportCenter, scale));
 }
 
 function loadPreview(url: string, node: Konva.Image) {
@@ -271,7 +284,7 @@ function createPageGroup(
     clipY: 0,
     clipWidth: frame.width,
     clipHeight: frame.height,
-    draggable: true,
+    draggable: props.editable,
     name: "layout-item layout-page",
   });
   group.setAttr("pageNumber", pageNumber);
@@ -326,7 +339,7 @@ function createPageGroup(
       ),
   );
 
-  bindCellDrag(group, { kind: "page", pageNumber }, source);
+  if (props.editable) bindCellDrag(group, { kind: "page", pageNumber }, source);
 
   return group;
 }
@@ -338,7 +351,7 @@ function createSpacerGroup(spacerId: string, source: GridPosition): Konva.Group 
     y: frame.y,
     width: frame.width,
     height: frame.height,
-    draggable: true,
+    draggable: props.editable,
     name: "layout-item layout-spacer",
   });
   group.add(
@@ -364,8 +377,10 @@ function createSpacerGroup(spacerId: string, source: GridPosition): Konva.Group 
       listening: false,
     }),
   );
-  group.on("dblclick dbltap", () => emit("deleteSpacer", spacerId));
-  bindCellDrag(group, { kind: "spacer", spacerId }, source);
+  if (props.editable) {
+    group.on("dblclick dbltap", () => emit("deleteSpacer", spacerId));
+    bindCellDrag(group, { kind: "spacer", spacerId }, source);
+  }
   return group;
 }
 
@@ -388,18 +403,21 @@ function positionFromClient(clientX: number, clientY: number): GridPosition | un
 }
 
 function handleExternalDragOver(event: DragEvent) {
+  if (!props.editable) return;
   if (!event.dataTransfer?.types.includes("application/x-pdf2plt-spacer")) return;
   event.dataTransfer.dropEffect = "copy";
   showDropTarget(positionFromClient(event.clientX, event.clientY));
 }
 
 function handleExternalDragLeave(event: DragEvent) {
+  if (!props.editable) return;
   const related = event.relatedTarget;
   if (related instanceof Node && host.value?.contains(related)) return;
   showDropTarget();
 }
 
 function handleExternalDrop(event: DragEvent) {
+  if (!props.editable) return;
   if (!event.dataTransfer?.types.includes("application/x-pdf2plt-spacer")) return;
   const target = positionFromClient(event.clientX, event.clientY);
   showDropTarget();
@@ -425,6 +443,7 @@ function renderScene() {
     host.value.dataset.layoutRows = String(props.layout.rows);
     host.value.dataset.layoutColumns = String(props.layout.columns);
     host.value.dataset.previewMode = props.guides ? "cropped" : "full";
+    host.value.dataset.editable = String(props.editable);
     host.value.dataset.contentWidth = String(geometry.value.width);
     host.value.dataset.contentHeight = String(geometry.value.height);
   }
@@ -516,13 +535,13 @@ function handleKeyDown(event: KeyboardEvent) {
 function handleKeyUp(event: KeyboardEvent) {
   if (event.code !== "Space") return;
   spacePressed = false;
-  contentLayer?.find(".layout-item").forEach((node) => node.draggable(true));
+  contentLayer?.find(".layout-item").forEach((node) => node.draggable(props.editable));
   stopPan();
 }
 
 function handleBlur() {
   spacePressed = false;
-  contentLayer?.find(".layout-item").forEach((node) => node.draggable(true));
+  contentLayer?.find(".layout-item").forEach((node) => node.draggable(props.editable));
   stopPan();
 }
 
@@ -603,7 +622,7 @@ onBeforeUnmount(() => {
   imageCache.clear();
 });
 
-defineExpose({ fitContent });
+defineExpose({ fitContent, setZoom });
 </script>
 
 <template>
@@ -611,7 +630,7 @@ defineExpose({ fitContent });
     ref="host"
     class="layout-canvas"
     tabindex="0"
-    aria-label="PDF 自动排版画板"
+    :aria-label="props.editable ? 'PDF 自动排版画板' : 'PDF 全屏只读预览画板'"
     @blur="handleBlur"
     @dragover.prevent="handleExternalDragOver"
     @dragleave="handleExternalDragLeave"

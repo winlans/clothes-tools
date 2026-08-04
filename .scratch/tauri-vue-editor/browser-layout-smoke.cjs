@@ -5,6 +5,7 @@ const { chromium } = require("playwright");
 const appUrl = process.env.APP_URL ?? "http://127.0.0.1:1420";
 const pdfFixture = process.env.PDF_FIXTURE ?? "/fixtures/input.pdf";
 const screenshotPath = process.env.SCREENSHOT_PATH;
+const fullscreenScreenshotPath = process.env.FULLSCREEN_SCREENSHOT_PATH;
 
 (async () => {
   const browser = await chromium.launch({ headless: true });
@@ -115,6 +116,48 @@ const screenshotPath = process.env.SCREENSHOT_PATH;
   const previewRssMb = await rendererRssMb();
   assert(previewHeapMb < 500, `renderer heap after preview was ${previewHeapMb}MB`);
   assert(previewRssMb < 500, `renderer RSS after preview was ${previewRssMb}MB`);
+
+  const preciseZoomInput = page.locator(
+    '.canvas-preview-actions input[aria-label="缩放百分比"]',
+  );
+  await preciseZoomInput.fill("37.125");
+  await preciseZoomInput.press("Enter");
+  await page.waitForFunction(
+    () => document.querySelector(".layout-canvas")?.getAttribute("data-camera-scale") === "0.37125",
+  );
+
+  await page.getByRole("button", { name: "全屏预览" }).click();
+  const fullscreenPreview = page.getByRole("dialog", { name: "全屏版图预览" });
+  await fullscreenPreview.waitFor();
+  const fullscreenCanvas = fullscreenPreview.locator(".layout-canvas");
+  await fullscreenCanvas.locator("canvas").first().waitFor();
+  assert.equal(await fullscreenCanvas.getAttribute("data-editable"), "false");
+  const nativeFullscreen = await page.evaluate(() => Boolean(document.fullscreenElement));
+
+  const fullscreenZoomInput = fullscreenPreview.locator(
+    'input[aria-label="缩放百分比"]',
+  );
+  await fullscreenZoomInput.fill("62.375");
+  await fullscreenZoomInput.press("Enter");
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector(".fullscreen-preview .layout-canvas")
+        ?.getAttribute("data-camera-scale") === "0.62375",
+  );
+  await fullscreenPreview.getByRole("button", { name: "放大 0.1%" }).click();
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector(".fullscreen-preview .layout-canvas")
+        ?.getAttribute("data-camera-scale") === "0.62475",
+  );
+  if (fullscreenScreenshotPath) {
+    await page.screenshot({ path: fullscreenScreenshotPath });
+  }
+  await page.keyboard.press("Escape");
+  await fullscreenPreview.waitFor({ state: "hidden" });
+  assert.equal(await canvas.getAttribute("data-camera-scale"), "0.37125");
 
   await page.getByText("四条拼接线已检测，可直接微调。").waitFor();
   await page.getByText("红线识别：每列 3 页").waitFor();
@@ -420,6 +463,12 @@ const screenshotPath = process.env.SCREENSHOT_PATH;
       exportCancellationWithoutDownload: true,
       previewCancellationStoppedAt: previewsAtCancellation,
       previewInteractionResponsive: true,
+      fullscreenPreciseZoom: {
+        regularScale: 0.37125,
+        fullscreenScaleAfterMicroAdjustment: 0.62475,
+        nativeFullscreen,
+        readOnly: true,
+      },
       performance: {
         firstPreviewMs,
         fullPreviewMs,

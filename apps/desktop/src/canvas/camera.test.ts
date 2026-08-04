@@ -5,6 +5,7 @@ import {
   MAX_CANVAS_ZOOM,
   MIN_CANVAS_ZOOM,
   panCameraBy,
+  setCameraZoomAtPoint,
   zoomCameraAtPoint,
 } from "./camera";
 
@@ -39,6 +40,20 @@ describe("canvas camera", () => {
       .toBe(MIN_CANVAS_ZOOM);
     expect(zoomCameraAtPoint({ x: 0, y: 0, scale: 1 }, { x: 0, y: 0 }, 100).scale)
       .toBe(MAX_CANVAS_ZOOM);
+  });
+
+  it("sets an exact decimal zoom while keeping the viewport anchor fixed", () => {
+    const pointer = { x: 500, y: 350 };
+    const before = { x: 80, y: 20, scale: 0.25 };
+    const after = setCameraZoomAtPoint(before, pointer, 0.37125);
+
+    expect(after.scale).toBe(0.37125);
+    expect((pointer.x - after.x) / after.scale).toBeCloseTo(
+      (pointer.x - before.x) / before.scale,
+    );
+    expect((pointer.y - after.y) / after.scale).toBeCloseTo(
+      (pointer.y - before.y) / before.scale,
+    );
   });
 
   it("pans the view without changing its zoom", () => {

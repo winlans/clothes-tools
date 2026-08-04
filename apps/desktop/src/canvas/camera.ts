@@ -26,7 +26,15 @@ export function zoomCameraAtPoint(
   pointer: Point,
   factor: number,
 ): Camera {
-  const scale = clampZoom(camera.scale * factor);
+  return setCameraZoomAtPoint(camera, pointer, camera.scale * factor);
+}
+
+export function setCameraZoomAtPoint(
+  camera: Camera,
+  pointer: Point,
+  requestedScale: number,
+): Camera {
+  const scale = clampZoom(requestedScale);
   const worldX = (pointer.x - camera.x) / camera.scale;
   const worldY = (pointer.y - camera.y) / camera.scale;
 
