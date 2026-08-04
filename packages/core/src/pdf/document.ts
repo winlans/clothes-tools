@@ -35,6 +35,7 @@ export interface PreviewImage {
 export interface OpenDocumentResult {
   info: PdfDocumentInfo;
   renderPreview(pageNumber: number, options: PreviewOptions): PreviewImage;
+  renderSvgPage(pageNumber: number): string;
   detectGuides(options?: Partial<GuideDetectionOptions>): GuideDetectionResult;
   close(): void;
 }

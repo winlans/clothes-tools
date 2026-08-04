@@ -1,6 +1,12 @@
 /// <reference lib="webworker" />
 
-import { openMuPdfDocument, Pdf2PltError, type OpenDocumentResult } from "@pdf2plt/core";
+import {
+  buildCombinedSvg,
+  flattenLayout,
+  openMuPdfDocument,
+  Pdf2PltError,
+  type OpenDocumentResult,
+} from "@pdf2plt/core";
 import mupdfWasmUrl from "@mupdf-wasm?url";
 
 import type { PdfWorkerRequest, PdfWorkerResponse } from "./protocol";
@@ -42,6 +48,58 @@ worker.onmessage = async (event: MessageEvent<PdfWorkerRequest>) => {
     currentDocument?.close();
     currentDocument = undefined;
     respond({ type: "complete", requestId: request.requestId });
+    return;
+  }
+
+  if (request.type === "export-svg") {
+    try {
+      if (!currentDocument) {
+        throw new Pdf2PltError("document-not-open", "请先打开 PDF 再导出 SVG。");
+      }
+      const pageNumbers = [
+        ...new Set(
+          flattenLayout(request.layout)
+            .filter((cell) => cell?.kind === "page")
+            .map((cell) => cell?.kind === "page" ? cell.pageNumber : 0),
+        ),
+      ];
+      const pages = [];
+      for (let index = 0; index < pageNumbers.length; index += 1) {
+        const pageNumber = pageNumbers[index];
+        if (!pageNumber) continue;
+        pages.push({ pageNumber, svg: currentDocument.renderSvgPage(pageNumber) });
+        respond({
+          type: "export-progress",
+          requestId: request.requestId,
+          completed: index + 1,
+          total: pageNumbers.length,
+        });
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      }
+      const result = buildCombinedSvg(
+        pages,
+        request.layout,
+        currentDocument.info.pageSizePt,
+        request.guides,
+        request.options,
+      );
+      const bytes = new TextEncoder().encode(result.svg);
+      respond(
+        {
+          type: "svg-export",
+          requestId: request.requestId,
+          bytes,
+          widthPt: result.widthPt,
+          heightPt: result.heightPt,
+          pageInstances: result.pageInstances,
+          visibleObjects: result.visibleObjects,
+        },
+        [bytes.buffer],
+      );
+    } catch (error) {
+      const serialized = serializeError(error);
+      respond({ type: "export-error", requestId: request.requestId, ...serialized });
+    }
     return;
   }
 

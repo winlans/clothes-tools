@@ -1,4 +1,11 @@
-import type { GuideDetectionResult, PdfDocumentInfo } from "@pdf2plt/core";
+import {
+  DEFAULT_SVG_EXPORT_OPTIONS,
+  type GuideCoordinates,
+  type GuideDetectionResult,
+  type LayoutGrid,
+  type PdfDocumentInfo,
+  type SvgExportOptions,
+} from "@pdf2plt/core";
 import { defineStore } from "pinia";
 import { markRaw } from "vue";
 
@@ -12,6 +19,19 @@ export interface PreviewState {
 }
 
 type DocumentStatus = "idle" | "loading" | "ready" | "error";
+type ExportStatus = "idle" | "running" | "complete" | "error";
+
+export interface DesktopSvgExport {
+  bytes: Uint8Array<ArrayBuffer>;
+  widthPt: number;
+  heightPt: number;
+  pageInstances: number;
+  visibleObjects: number;
+}
+
+let pendingExport:
+  | { resolve(value: DesktopSvgExport): void; reject(reason: Error): void }
+  | undefined;
 
 export const usePdfDocumentStore = defineStore("pdf-document", {
   state: () => ({
@@ -23,6 +43,10 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
     previews: {} as Record<number, PreviewState>,
     progress: { completed: 0, total: 0 },
     errorMessage: "",
+    exportStatus: "idle" as ExportStatus,
+    exportProgress: { completed: 0, total: 0 },
+    exportSummary: undefined as Omit<DesktopSvgExport, "bytes"> | undefined,
+    exportErrorMessage: "",
     worker: undefined as Worker | undefined,
     requestId: 0,
   }),
@@ -43,6 +67,13 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
         this.handleWorkerMessage(event.data);
       };
       this.worker.onerror = (event) => {
+        if (this.exportStatus === "running") {
+          this.exportStatus = "error";
+          this.exportErrorMessage = event.message || "SVG 导出 Worker 发生错误。";
+          pendingExport?.reject(new Error(this.exportErrorMessage));
+          pendingExport = undefined;
+          return;
+        }
         this.status = "error";
         this.errorMessage = event.message || "PDF Worker 启动失败。";
       };
@@ -58,6 +89,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       this.guideDetection = undefined;
       this.errorMessage = "";
       this.progress = { completed: 0, total: 0 };
+      this.resetExport();
       const request: PdfWorkerRequest = {
         type: "open",
         requestId: this.requestId,
@@ -91,6 +123,36 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
         this.progress = { completed: message.completed, total: message.total };
         return;
       }
+      if (message.type === "export-progress") {
+        this.exportProgress = { completed: message.completed, total: message.total };
+        return;
+      }
+      if (message.type === "svg-export") {
+        const result: DesktopSvgExport = {
+          bytes: message.bytes,
+          widthPt: message.widthPt,
+          heightPt: message.heightPt,
+          pageInstances: message.pageInstances,
+          visibleObjects: message.visibleObjects,
+        };
+        this.exportStatus = "complete";
+        this.exportSummary = {
+          widthPt: result.widthPt,
+          heightPt: result.heightPt,
+          pageInstances: result.pageInstances,
+          visibleObjects: result.visibleObjects,
+        };
+        pendingExport?.resolve(result);
+        pendingExport = undefined;
+        return;
+      }
+      if (message.type === "export-error") {
+        this.exportStatus = "error";
+        this.exportErrorMessage = message.message;
+        pendingExport?.reject(new Error(message.message));
+        pendingExport = undefined;
+        return;
+      }
       if (message.type === "complete") {
         if (this.info) this.status = "ready";
         return;
@@ -110,12 +172,44 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       this.guideDetection = undefined;
       this.errorMessage = "";
       this.progress = { completed: 0, total: 0 };
+      this.resetExport();
     },
     disposePreviews() {
       for (const preview of Object.values(this.previews)) {
         URL.revokeObjectURL(preview.url);
       }
       this.previews = {};
+    },
+    exportSvg(
+      layout: LayoutGrid,
+      guides: GuideCoordinates | undefined,
+      overrides: Partial<SvgExportOptions> = {},
+    ): Promise<DesktopSvgExport> {
+      if (!this.worker || !this.info) return Promise.reject(new Error("请先打开 PDF。"));
+      if (pendingExport) return Promise.reject(new Error("已有 SVG 导出任务正在进行。"));
+      this.exportStatus = "running";
+      this.exportProgress = { completed: 0, total: this.info.pageCount };
+      this.exportSummary = undefined;
+      this.exportErrorMessage = "";
+      const request: PdfWorkerRequest = {
+        type: "export-svg",
+        requestId: this.requestId,
+        layout: JSON.parse(JSON.stringify(layout)) as LayoutGrid,
+        guides: guides ? { ...guides } : undefined,
+        options: { ...DEFAULT_SVG_EXPORT_OPTIONS, ...overrides },
+      };
+      return new Promise<DesktopSvgExport>((resolve, reject) => {
+        pendingExport = { resolve, reject };
+        this.worker?.postMessage(request);
+      });
+    },
+    resetExport() {
+      pendingExport?.reject(new Error("SVG 导出已取消。"));
+      pendingExport = undefined;
+      this.exportStatus = "idle";
+      this.exportProgress = { completed: 0, total: 0 };
+      this.exportSummary = undefined;
+      this.exportErrorMessage = "";
     },
     dispose() {
       this.close();

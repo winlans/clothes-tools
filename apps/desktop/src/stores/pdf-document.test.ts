@@ -105,4 +105,47 @@ describe("pdf document store", () => {
     expect(store.errorMessage).toBe("");
     expect(store.previewList).toEqual([]);
   });
+
+  it("requests a vector export and resolves its summary", async () => {
+    const store = usePdfDocumentStore();
+    store.requestId = 3;
+    store.info = {
+      documentId: "pdf-1",
+      pageCount: 1,
+      pageSizePt: { width: 200, height: 300 },
+      pages: [{ pageNumber: 1, width: 200, height: 300 }],
+    };
+    const postMessage = vi.fn();
+    store.worker = { postMessage } as unknown as Worker;
+    const exported = store.exportSvg(
+      {
+        rows: 1,
+        columns: 1,
+        traversal: "column-major",
+        cells: [[{ kind: "page", pageNumber: 1 }]],
+      },
+      { left: 20, right: 180, top: 30, bottom: 270 },
+    );
+
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "export-svg",
+        requestId: 3,
+        options: { removeGuides: true, removeBackground: true },
+      }),
+    );
+    store.handleWorkerMessage({
+      type: "svg-export",
+      requestId: 3,
+      bytes: new TextEncoder().encode("<svg/>") as Uint8Array<ArrayBuffer>,
+      widthPt: 200,
+      heightPt: 300,
+      pageInstances: 1,
+      visibleObjects: 4,
+    });
+
+    await expect(exported).resolves.toMatchObject({ widthPt: 200, pageInstances: 1 });
+    expect(store.exportStatus).toBe("complete");
+    expect(store.exportSummary?.visibleObjects).toBe(4);
+  });
 });

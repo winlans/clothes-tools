@@ -119,6 +119,38 @@ export async function openMuPdfDocument(
   const documentId = `pdf-${nextDocumentId}`;
   nextDocumentId += 1;
 
+  const renderSvgPage = (pageNumber: number): string => {
+    ensureOpen();
+    if (!Number.isInteger(pageNumber) || pageNumber < 1 || pageNumber > pageCount) {
+      throw new Pdf2PltError("invalid-page", `页码 ${pageNumber} 超出范围 1..${pageCount}。`);
+    }
+    const page = document.loadPage(pageNumber - 1);
+    const buffer = new mupdf.Buffer();
+    const writer = new mupdf.DocumentWriter(buffer, "svg", "");
+    let device: InstanceType<MuPdfModule["Device"]> | undefined;
+    let closed = false;
+    try {
+      device = writer.beginPage(page.getBounds());
+      page.run(device, mupdf.Matrix.identity);
+      writer.endPage();
+      writer.close();
+      closed = true;
+      return new TextDecoder().decode(buffer.asUint8Array());
+    } finally {
+      if (!closed) {
+        try {
+          writer.close();
+        } catch {
+          // Preserve the original MuPDF error.
+        }
+      }
+      device?.destroy();
+      writer.destroy();
+      buffer.destroy();
+      page.destroy();
+    }
+  };
+
   const detectGuides = (
     overrides: Partial<GuideDetectionOptions> = {},
   ) => {
@@ -168,6 +200,7 @@ export async function openMuPdfDocument(
       pages,
     },
     renderPreview,
+    renderSvgPage,
     detectGuides,
     close() {
       if (!closed) {

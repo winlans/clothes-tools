@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from "vue";
 
 import LayoutEditor from "./components/LayoutEditor.vue";
 import { usePdfImport } from "./composables/use-pdf-import";
+import { useSvgExport } from "./composables/use-svg-export";
 import { usePdfDocumentStore } from "./stores/pdf-document";
 import { useLayoutStore } from "./stores/layout";
 import { useGuideStore } from "./stores/guides";
@@ -12,6 +13,7 @@ const documentStore = usePdfDocumentStore();
 const layoutStore = useLayoutStore();
 const guideStore = useGuideStore();
 const pdfImport = usePdfImport();
+const svgExport = useSvgExport();
 
 const progressPercent = computed(() => {
   if (documentStore.progress.total === 0) return 0;
@@ -79,6 +81,17 @@ onBeforeUnmount(() => {
         <button
           v-if="documentStore.info"
           type="button"
+          class="primary-button"
+          :disabled="
+            documentStore.exportStatus === 'running' || !guideStore.canPreviewCropped
+          "
+          @click="svgExport.exportCurrentSvg()"
+        >
+          {{ documentStore.exportStatus === 'running' ? '正在导出…' : '导出 SVG' }}
+        </button>
+        <button
+          v-if="documentStore.info"
+          type="button"
           class="ghost-button"
           @click="documentStore.close()"
         >
@@ -138,6 +151,38 @@ onBeforeUnmount(() => {
           正在生成预览 {{ documentStore.progress.completed }}/{{ documentStore.progress.total || '…' }}
         </span>
       </div>
+
+      <div v-if="documentStore.exportStatus === 'running'" class="progress-row export-progress">
+        <div class="progress-track">
+          <span
+            :style="{
+              width: `${Math.round(
+                (documentStore.exportProgress.completed /
+                  Math.max(1, documentStore.exportProgress.total)) *
+                  100,
+              )}%`,
+            }"
+          />
+        </div>
+        <span>
+          正在导出矢量页面 {{ documentStore.exportProgress.completed }}/{{
+            documentStore.exportProgress.total
+          }}
+        </span>
+      </div>
+      <p v-if="documentStore.exportErrorMessage" class="inline-error" role="alert">
+        {{ documentStore.exportErrorMessage }}
+      </p>
+      <p
+        v-if="documentStore.exportStatus === 'complete' && documentStore.exportSummary"
+        class="export-summary"
+        role="status"
+      >
+        SVG 已生成：{{ documentStore.exportSummary.pageInstances }} 个页面实例，
+        {{ ((documentStore.exportSummary.widthPt * 25.4) / 72).toFixed(2) }} ×
+        {{ ((documentStore.exportSummary.heightPt * 25.4) / 72).toFixed(2) }} mm，
+        {{ documentStore.exportSummary.visibleObjects }} 个矢量/图像对象。
+      </p>
 
       <div v-if="documentStore.info" class="editor-workspace">
         <aside class="page-sidebar" aria-label="PDF 页码列表">

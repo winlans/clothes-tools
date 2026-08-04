@@ -1,4 +1,10 @@
-import type { GuideDetectionResult, PdfDocumentInfo } from "@pdf2plt/core";
+import type {
+  GuideCoordinates,
+  GuideDetectionResult,
+  LayoutGrid,
+  PdfDocumentInfo,
+  SvgExportOptions,
+} from "@pdf2plt/core";
 
 export type PdfWorkerRequest =
   | {
@@ -6,6 +12,13 @@ export type PdfWorkerRequest =
       requestId: number;
       bytes: Uint8Array<ArrayBuffer>;
       previewLongEdge: number;
+    }
+  | {
+      type: "export-svg";
+      requestId: number;
+      layout: LayoutGrid;
+      guides: GuideCoordinates | undefined;
+      options: SvgExportOptions;
     }
   | { type: "close"; requestId: number };
 
@@ -37,6 +50,27 @@ export type PdfWorkerResponse =
   | {
       type: "complete";
       requestId: number;
+    }
+  | {
+      type: "export-progress";
+      requestId: number;
+      completed: number;
+      total: number;
+    }
+  | {
+      type: "svg-export";
+      requestId: number;
+      bytes: Uint8Array<ArrayBuffer>;
+      widthPt: number;
+      heightPt: number;
+      pageInstances: number;
+      visibleObjects: number;
+    }
+  | {
+      type: "export-error";
+      requestId: number;
+      code: string;
+      message: string;
     }
   | {
       type: "error";

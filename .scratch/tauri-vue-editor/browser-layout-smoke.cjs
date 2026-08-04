@@ -1,4 +1,5 @@
 const assert = require("node:assert/strict");
+const { readFile } = require("node:fs/promises");
 const { chromium } = require("playwright");
 
 const appUrl = process.env.APP_URL ?? "http://127.0.0.1:1420";
@@ -82,6 +83,32 @@ const screenshotPath = process.env.SCREENSHOT_PATH;
   await page.waitForFunction(
     () => document.querySelector(".layout-canvas")?.getAttribute("data-preview-mode") === "full",
   );
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "导出 SVG" }).click();
+  const download = await downloadPromise;
+  const exportedSvg = await readFile(await download.path(), "utf8");
+  const ids = [...exportedSvg.matchAll(/\bid="([^"]+)"/g)].map((match) => match[1]);
+  const references = [
+    ...exportedSvg.matchAll(/url\(#([^\)]+)\)/g),
+    ...exportedSvg.matchAll(/(?:xlink:)?href="#([^"]+)"/g),
+  ].map((match) => match[1]);
+  assert.equal((exportedSvg.match(/<svg\b/g) ?? []).length, 1);
+  assert.equal((exportedSvg.match(/data-page=/g) ?? []).length, 15);
+  assert.equal((exportedSvg.match(/<image\b/g) ?? []).length, 0);
+  assert.equal(new Set(ids).size, ids.length, "exported SVG IDs must be unique");
+  assert(references.every((reference) => new Set(ids).has(reference)));
+  assert(!exportedSvg.includes('stroke="#ff0000"'));
+  assert(!exportedSvg.includes('fill="#ffffff"'));
+  assert(exportedSvg.includes('viewBox="0 0 4029.473586 3479.687758"'));
+  await page.getByText(/SVG 已生成：15 个页面实例/).waitFor();
+  const svgExport = {
+    bytes: Buffer.byteLength(exportedSvg),
+    rootCount: 1,
+    pageInstances: 15,
+    uniqueIds: ids.length,
+    references: references.length,
+  };
 
   const beforeZoom = await canvas.getAttribute("data-camera-scale");
   const box = await canvas.boundingBox();
@@ -242,6 +269,7 @@ const screenshotPath = process.env.SCREENSHOT_PATH;
       cropTogglePreservedLayout: true,
       detectedGuides,
       croppedContent,
+      svgExport,
       pageDimensions: pageDimensionsBefore,
       pageErrors,
     }),

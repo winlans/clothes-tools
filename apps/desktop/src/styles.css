@@ -343,6 +343,19 @@ h1 {
   font-size: 13px;
 }
 
+.export-progress {
+  border-color: #315365;
+}
+
+.export-summary {
+  margin: 0;
+  border-left: 3px solid #5b9d7f;
+  padding: 8px 11px;
+  color: #8bc7aa;
+  background: #142019;
+  font-size: 13px;
+}
+
 .guide-panel {
   display: grid;
   gap: 10px;
