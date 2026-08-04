@@ -47,3 +47,15 @@ docker build --progress=plain \
   -f .scratch/tauri-vue-editor/verify-tauri.Dockerfile \
   -t pdf2plt-tauri-verify .
 ```
+
+任务 002 的真实 PDF 浏览器回归使用独立 Playwright 镜像，运行前先启动
+`pnpm dev`，并把 15 页测试 PDF 挂载为 `/fixtures/input.pdf`：
+
+```bash
+docker build -f .scratch/tauri-vue-editor/browser-smoke.Dockerfile \
+  -t pdf2plt-browser-smoke .
+docker run --rm --network host \
+  -v "$PWD/.scratch/tauri-vue-editor/browser-layout-smoke.cjs:/test.cjs:ro" \
+  -v "/path/to/15-page.pdf:/fixtures/input.pdf:ro" \
+  pdf2plt-browser-smoke node /test.cjs
+```

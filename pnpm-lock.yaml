@@ -29,6 +29,9 @@ importers:
       '@tauri-apps/plugin-fs':
         specifier: ^2.4.0
         version: 2.5.1
+      konva:
+        specifier: ^10.0.0
+        version: 10.3.0
       mupdf:
         specifier: ^1.28.0
         version: 1.28.0
@@ -874,6 +877,9 @@ packages:
     peerDependenciesMeta:
       canvas:
         optional: true
+
+  konva@10.3.0:
+    resolution: {integrity: sha512-gt19K2gzY4lHbnkvsku7eSmB+A9PTS2jG4F9coBMsdjM1UKfJNxJbDbXVpeCW1wjEGRwBD3nBamcHnqJhAeKlg==}
 
   loupe@3.2.1:
     resolution: {integrity: sha512-CdzqowRJCeLU72bHvWqwRBBlLcMEtIvGrlvef74kMnV2AolS9Y8xUv1I0U/MNAWMhBlKIoyuEgoJ0t/bbwHbLQ==}
@@ -1919,6 +1925,8 @@ snapshots:
       - bufferutil
       - supports-color
       - utf-8-validate
+
+  konva@10.3.0: {}
 
   loupe@3.2.1: {}
 

@@ -10,6 +10,17 @@ export default defineConfig({
     strictPort: true,
   },
   envPrefix: ["VITE_", "TAURI_"],
+  resolve: {
+    alias: {
+      "@mupdf-wasm?url": `${new URL(
+        "./node_modules/mupdf/dist/mupdf-wasm.wasm",
+        import.meta.url,
+      ).pathname}?url`,
+    },
+  },
+  optimizeDeps: {
+    include: ["mupdf"],
+  },
   worker: {
     format: "es",
   },

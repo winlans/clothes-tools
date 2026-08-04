@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 
+import LayoutEditor from "./components/LayoutEditor.vue";
 import { usePdfImport } from "./composables/use-pdf-import";
 import { usePdfDocumentStore } from "./stores/pdf-document";
+import { useLayoutStore } from "./stores/layout";
 
 const fileInput = ref<HTMLInputElement>();
 const documentStore = usePdfDocumentStore();
+const layoutStore = useLayoutStore();
 const pdfImport = usePdfImport();
 
 const progressPercent = computed(() => {
@@ -30,7 +33,22 @@ async function handleBrowserFile(event: Event) {
   target.value = "";
 }
 
-onBeforeUnmount(() => documentStore.dispose());
+watch(
+  () => documentStore.info,
+  (info) => {
+    if (info) {
+      layoutStore.initialize(info.documentId, info.pageCount);
+    } else {
+      layoutStore.clear();
+    }
+  },
+  { immediate: true },
+);
+
+onBeforeUnmount(() => {
+  documentStore.dispose();
+  layoutStore.clear();
+});
 </script>
 
 <template>
@@ -104,31 +122,30 @@ onBeforeUnmount(() => documentStore.dispose());
         </span>
       </div>
 
-      <div class="preview-workspace">
-        <aside class="page-index" aria-label="PDF 页码列表">
+      <div v-if="documentStore.info" class="editor-workspace">
+        <aside class="page-sidebar" aria-label="PDF 页码列表">
           <span class="eyebrow">页面</span>
-          <a
-            v-for="preview in documentStore.previewList"
-            :key="preview.pageNumber"
-            :href="`#page-${preview.pageNumber}`"
+          <article
+            v-for="page in documentStore.info.pages"
+            :key="page.pageNumber"
+            class="page-thumbnail"
           >
-            {{ preview.pageNumber }}
-          </a>
+            <div class="page-thumbnail__image">
+              <img
+                v-if="documentStore.previews[page.pageNumber]"
+                :src="documentStore.previews[page.pageNumber]?.url"
+                :alt="`第 ${page.pageNumber} 页缩略图`"
+              />
+              <span v-else>…</span>
+            </div>
+            <span>第 {{ page.pageNumber }} 页</span>
+          </article>
         </aside>
 
-        <div class="preview-grid" aria-label="PDF 页面预览">
-          <article
-            v-for="preview in documentStore.previewList"
-            :id="`page-${preview.pageNumber}`"
-            :key="preview.pageNumber"
-            class="preview-card"
-          >
-            <div class="preview-card__image">
-              <img :src="preview.url" :alt="`第 ${preview.pageNumber} 页`" />
-            </div>
-            <span>第 {{ preview.pageNumber }} 页</span>
-          </article>
-        </div>
+        <LayoutEditor
+          :page-size="documentStore.info.pageSizePt"
+          :previews="documentStore.previewList"
+        />
       </div>
     </section>
   </main>

@@ -192,21 +192,20 @@ h1 {
   transition: width 160ms ease;
 }
 
-.preview-workspace {
+.editor-workspace {
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
+  grid-template-columns: 136px minmax(0, 1fr);
   gap: 20px;
   margin-top: 24px;
 }
 
-.page-index {
+.page-sidebar {
   position: sticky;
   top: 20px;
-  display: flex;
+  display: grid;
   max-height: calc(100vh - 40px);
-  flex-direction: column;
   align-self: start;
-  gap: 5px;
+  gap: 12px;
   overflow-y: auto;
   border: 1px solid #28333b;
   border-radius: 9px;
@@ -214,66 +213,111 @@ h1 {
   background: #14191d;
 }
 
-.page-index .eyebrow {
-  margin: 2px 4px 7px;
+.page-sidebar .eyebrow {
+  margin: 2px 4px 0;
 }
 
-.page-index a {
+.page-thumbnail {
   display: grid;
-  min-height: 34px;
-  place-items: center;
-  border-radius: 6px;
+  gap: 6px;
   color: #b9c8d1;
-  text-decoration: none;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.page-thumbnail__image {
+  display: grid;
+  min-height: 138px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid #33424b;
+  border-radius: 5px;
+  color: #708591;
+  background: #20282e;
+}
+
+.page-thumbnail img {
+  display: block;
+  width: 100%;
+  height: 138px;
+  object-fit: contain;
+  background: white;
+}
+
+.layout-editor {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+}
+
+.layout-toolbar {
+  display: flex;
+  min-height: 46px;
+  align-items: end;
+  gap: 10px;
+}
+
+.layout-toolbar label {
+  display: grid;
+  gap: 5px;
+  color: #8fa1ac;
+  font-size: 12px;
+}
+
+.layout-toolbar input {
+  width: 88px;
+  border: 1px solid #2d3840;
+  border-radius: 7px;
+  padding: 8px 10px;
+  color: #edf3f6;
+  background: #161c20;
+  font: inherit;
+  font-size: 14px;
+}
+
+.layout-toolbar__summary {
+  margin: 0 auto 10px 2px;
+  color: #91a5b1;
   font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
 
-.page-index a:hover,
-.page-index a:focus-visible {
-  color: #081116;
-  background: #a9d3e8;
+.inline-error {
+  border-left: 3px solid #b85a63;
+  padding: 7px 10px;
+  color: #df9ba2;
+  background: #22191b;
+  font-size: 13px;
+}
+
+.layout-canvas {
+  width: 100%;
+  height: max(520px, calc(100vh - 310px));
+  overflow: hidden;
+  border: 1px solid #2b3841;
+  border-radius: 10px;
+  background:
+    linear-gradient(45deg, rgb(255 255 255 / 2%) 25%, transparent 25%),
+    linear-gradient(-45deg, rgb(255 255 255 / 2%) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgb(255 255 255 / 2%) 75%),
+    linear-gradient(-45deg, transparent 75%, rgb(255 255 255 / 2%) 75%),
+    #11171b;
+  background-position: 0 0, 0 12px, 12px -12px, -12px 0;
+  background-size: 24px 24px;
   outline: none;
 }
 
-.preview-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 18px;
+.layout-canvas:focus-visible {
+  border-color: #80acc3;
+  box-shadow: 0 0 0 2px rgb(128 172 195 / 18%);
 }
 
-.preview-card {
-  display: grid;
-  gap: 9px;
-  color: #9cadb7;
-  font-size: 13px;
-  scroll-margin-top: 20px;
-}
-
-.preview-card__image {
-  display: grid;
-  min-height: 220px;
-  place-items: center;
-  overflow: hidden;
-  border: 1px solid #2d3840;
-  border-radius: 8px;
-  padding: 8px;
-  background:
-    linear-gradient(45deg, #1a2025 25%, transparent 25%),
-    linear-gradient(-45deg, #1a2025 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, #1a2025 75%),
-    linear-gradient(-45deg, transparent 75%, #1a2025 75%),
-    #171c20;
-  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
-  background-size: 16px 16px;
-}
-
-.preview-card img {
-  display: block;
-  width: 100%;
-  max-height: 360px;
-  object-fit: contain;
-  background: white;
+.canvas-status {
+  display: flex;
+  justify-content: space-between;
+  color: #718792;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 @media (max-width: 900px) {
@@ -282,7 +326,13 @@ h1 {
     flex-direction: column;
   }
 
-  .preview-grid {
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  .editor-workspace {
+    grid-template-columns: 108px minmax(0, 1fr);
+  }
+
+  .page-thumbnail img,
+  .page-thumbnail__image {
+    height: 102px;
+    min-height: 102px;
   }
 }

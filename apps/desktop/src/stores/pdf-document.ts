@@ -4,7 +4,7 @@ import { markRaw } from "vue";
 
 import type { PdfWorkerRequest, PdfWorkerResponse } from "../workers/protocol";
 
-interface PreviewState {
+export interface PreviewState {
   pageNumber: number;
   width: number;
   height: number;

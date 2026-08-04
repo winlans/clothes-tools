@@ -1,12 +1,24 @@
 /// <reference lib="webworker" />
 
 import { openMuPdfDocument, Pdf2PltError, type OpenDocumentResult } from "@pdf2plt/core";
+import mupdfWasmUrl from "@mupdf-wasm?url";
 
 import type { PdfWorkerRequest, PdfWorkerResponse } from "./protocol";
 
 const worker = self as unknown as DedicatedWorkerGlobalScope;
+const mupdfGlobal = globalThis as typeof globalThis & {
+  $libmupdf_wasm_Module?: {
+    locateFile(path: string): string;
+  };
+};
 let currentDocument: OpenDocumentResult | undefined;
 let activeRequestId = 0;
+
+mupdfGlobal.$libmupdf_wasm_Module = {
+  locateFile(path: string) {
+    return path.endsWith("mupdf-wasm.wasm") ? mupdfWasmUrl : path;
+  },
+};
 
 function respond(message: PdfWorkerResponse, transfer: Transferable[] = []) {
   worker.postMessage(message, transfer);
