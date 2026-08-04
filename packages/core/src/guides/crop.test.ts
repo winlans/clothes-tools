@@ -32,4 +32,31 @@ describe("layout crop geometry", () => {
       { outputStart: 270, sourceStart: 30, sourceEnd: 300, size: 270 },
     ]);
   });
+
+  it("applies explicit outer boundaries to the first and last tiles", () => {
+    const geometry = createLayoutCropGeometry(
+      createAutomaticLayout(4, 2),
+      { width: 200, height: 300 },
+      {
+        left: 20,
+        right: 180,
+        top: 30,
+        bottom: 270,
+        outerLeft: 5,
+        outerRight: 195,
+        outerTop: 10,
+        outerBottom: 290,
+      },
+    );
+
+    expect(geometry).toMatchObject({ width: 350, height: 520 });
+    expect(geometry.columns.map(({ sourceStart, sourceEnd }) => [sourceStart, sourceEnd])).toEqual([
+      [5, 180],
+      [20, 195],
+    ]);
+    expect(geometry.rows.map(({ sourceStart, sourceEnd }) => [sourceStart, sourceEnd])).toEqual([
+      [10, 270],
+      [30, 290],
+    ]);
+  });
 });

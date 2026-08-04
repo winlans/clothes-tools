@@ -3,13 +3,18 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "bin": {
+    "pdf-pattern-svg": "./src/index.ts"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --passWithNoTests",
+    "cli": "bun src/index.ts",
+    "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@pdf2plt/core": "workspace:*"
+    "@pdf2plt/core": "workspace:*",
+    "mupdf": "^1.28.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

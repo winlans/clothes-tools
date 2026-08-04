@@ -34,6 +34,25 @@ pnpm build
 pnpm smoke:pdf /path/to/input.pdf
 ```
 
+## 命令行转换
+
+CLI 与桌面应用复用相同的 MuPDF、红线检测和单根 SVG 导出核心：
+
+```bash
+# 自动按每列 3 页排列，默认输出 input.svg
+pnpm cli -- -i /path/to/input.pdf -c 3
+
+# 手动分列，支持正序/倒序范围和空白占位
+pnpm cli -- -i /path/to/input.pdf -p '1-3|6-4|-,7-9'
+
+# 从桌面工程直接导出
+pnpm cli -- --project layout.pattern-layout.json -o output.svg
+```
+
+默认拒绝覆盖已有文件；确认覆盖时添加 `--overwrite`。完整参数可通过
+`pnpm cli -- --help` 查看。旧版 `--rsvg-convert` 与 `--no-flatten` 仍可解析，
+但只会显示弃用提示，因为新版始终直接生成单根 SVG。
+
 构建不打包安装器的 Tauri 调试程序：
 
 ```bash

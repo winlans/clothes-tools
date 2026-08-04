@@ -72,6 +72,9 @@ importers:
       '@pdf2plt/core':
         specifier: workspace:*
         version: link:../core
+      mupdf:
+        specifier: ^1.28.0
+        version: 1.28.0
     devDependencies:
       '@types/node':
         specifier: ^22.0.0

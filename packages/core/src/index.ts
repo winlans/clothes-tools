@@ -1,6 +1,7 @@
 export * from "./guides/crop";
 export * from "./guides/detection";
 export * from "./layout/automatic-layout";
+export * from "./layout/manual-layout";
 export * from "./layout/reorder";
 export * from "./pdf/document";
 export * from "./pdf/errors";

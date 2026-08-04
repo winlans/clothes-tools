@@ -5,6 +5,7 @@
   "type": "module",
   "packageManager": "pnpm@11.17.0",
   "scripts": {
+    "cli": "pnpm --filter @pdf2plt/cli cli",
     "dev": "pnpm --filter @pdf2plt/desktop dev",
     "build": "pnpm -r build",
     "smoke:pdf": "pnpm --filter @pdf2plt/core smoke:pdf",
