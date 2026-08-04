@@ -17,6 +17,19 @@ pnpm release:cli:windows
 pnpm release:desktop:windows
 ```
 
+没有 Windows 构建机时，可在 Linux x64 主机上使用 Docker、`cargo-xwin` 和
+NSIS 交叉生成可视化安装包：
+
+```bash
+pnpm release:desktop:windows:cross
+```
+
+该命令会缓存 Windows SDK 与 Rust 构建结果，并把安装包复制到
+`dist/release/pdf2plt_0.1.0_x64-setup.exe`。缓存默认位于
+`/tmp/pdf2plt-xwin-cache` 和 `/tmp/pdf2plt-windows-target`；可分别通过
+`PDF2PLT_XWIN_CACHE_DIR` 与 `PDF2PLT_WINDOWS_TARGET_DIR` 修改。交叉构建只生成
+NSIS `.exe`，不生成 WiX `.msi`，也不替代 Windows 10/11 实机验收。
+
 桌面端使用平台配置
 `apps/desktop/src-tauri/tauri.windows.conf.json`，同时生成 NSIS `.exe` 和
 WiX `.msi`。Tauri 官方要求 MSI 在 Windows 上原生构建，因此正式产物不在
@@ -26,6 +39,7 @@ Linux 上交叉编译。
 
 ```text
 dist/release/
+  pdf2plt_0.1.0_x64-setup.exe
   pdf2plt-cli-windows-x64.zip
   pdf2plt-cli-windows-x64/
     pdf-pattern-svg.exe

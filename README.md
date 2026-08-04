@@ -94,6 +94,12 @@ ZIP 中的 `pdf-pattern-svg.exe` 是单文件命令行转换器；图形桌面�
 pnpm release:desktop:windows
 ```
 
+在 Linux x64 上使用 Docker 交叉生成 Windows NSIS 可视化安装包：
+
+```bash
+pnpm release:desktop:windows:cross
+```
+
 正式 Windows 构建由
 `.github/workflows/windows-release.yml` 在 Windows Server 2022 原生完成。
 构建要求与签名、WebView2 和实机验收说明见

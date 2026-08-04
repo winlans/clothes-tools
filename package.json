@@ -15,6 +15,7 @@
     "release:desktop": "pnpm release:desktop:linux",
     "release:desktop:linux": "pnpm tauri build && scripts/postprocess-appimage.sh apps/desktop/src-tauri/target/release/bundle/appimage/pdf2plt_0.1.0_amd64.AppImage",
     "release:desktop:windows": "pnpm tauri build --bundles nsis,msi --ci",
+    "release:desktop:windows:cross": "scripts/build-windows-nsis.sh",
     "smoke:pdf": "pnpm --filter @pdf2plt/core smoke:pdf",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
