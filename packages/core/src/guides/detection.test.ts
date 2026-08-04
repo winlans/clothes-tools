@@ -5,6 +5,7 @@ import {
   buildGuideDetectionResult,
   clusterGuideSamples,
   detectRedGuides,
+  inferColumnLayoutFromGuideSamples,
   inferPagesPerColumnFromGuideSamples,
   type GuidePixelPage,
   type GuideSample,
@@ -121,6 +122,35 @@ describe("red guide detection", () => {
       pageSamples(3, ["right", "top", "bottom"]),
       pageSamples(4, ["left", "bottom"]),
     ])).toBeUndefined();
+  });
+
+  it("infers a bottom-aligned short column from the 530 guide pattern", () => {
+    const samples = [
+      pageSamples(1, ["right", "bottom"]),
+      pageSamples(2, ["right", "top", "bottom"]),
+      pageSamples(3, ["right", "top", "bottom"]),
+      pageSamples(4, ["right", "top", "bottom"]),
+      pageSamples(5, ["right", "top"]),
+      pageSamples(6, ["left", "right", "top", "bottom"]),
+      pageSamples(7, ["left", "right", "top", "bottom"]),
+      pageSamples(8, ["left", "right", "top", "bottom"]),
+      pageSamples(9, ["left", "right", "top"]),
+      pageSamples(10, ["left", "bottom"]),
+      pageSamples(11, ["left", "top", "bottom"]),
+      pageSamples(12, ["left", "top", "bottom"]),
+      pageSamples(13, ["left", "top", "bottom"]),
+      pageSamples(14, ["left", "top"]),
+    ];
+
+    expect(inferColumnLayoutFromGuideSamples(samples)).toEqual({
+      pagesPerColumn: 5,
+      columns: [
+        [1, 2, 3, 4, 5],
+        [null, 6, 7, 8, 9],
+        [10, 11, 12, 13, 14],
+      ],
+    });
+    expect(inferPagesPerColumnFromGuideSamples(samples)).toBe(5);
   });
 });
 

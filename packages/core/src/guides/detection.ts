@@ -49,9 +49,15 @@ export interface GuideDetectionResult {
   missing: GuideDirection[];
   options: GuideDetectionOptions;
   inferredPagesPerColumn?: number;
+  inferredLayout?: InferredColumnLayout;
 }
 
 export type PageGuideSamples = Partial<Record<GuideDirection, GuideSample>>;
+
+export interface InferredColumnLayout {
+  pagesPerColumn: number;
+  columns: Array<Array<number | null>>;
+}
 
 export function resolveGuideDetectionOptions(
   overrides: Partial<GuideDetectionOptions> = {},
@@ -224,6 +230,12 @@ export function detectRedGuides(
 export function inferPagesPerColumnFromGuideSamples(
   pageSamples: readonly PageGuideSamples[],
 ): number | undefined {
+  return inferColumnLayoutFromGuideSamples(pageSamples)?.pagesPerColumn;
+}
+
+export function inferColumnLayoutFromGuideSamples(
+  pageSamples: readonly PageGuideSamples[],
+): InferredColumnLayout | undefined {
   const firstLeftIndex = pageSamples.findIndex(
     (samples, index) => index > 0 && Boolean(samples.left),
   );
@@ -231,26 +243,58 @@ export function inferPagesPerColumnFromGuideSamples(
 
   const pagesPerColumn = firstLeftIndex;
   const firstColumn = pageSamples.slice(0, pagesPerColumn);
-  const laterColumns = pageSamples.slice(pagesPerColumn);
+  const laterPages = pageSamples.slice(pagesPerColumn);
   if (
     firstColumn.some((samples) => samples.left || !samples.right) ||
-    laterColumns.length === 0 ||
-    laterColumns.some((samples) => !samples.left)
+    laterPages.length === 0 ||
+    laterPages.some((samples) => !samples.left)
   ) {
     return undefined;
   }
 
-  for (let index = 0; index < pageSamples.length; index += 1) {
-    const samples = pageSamples[index];
-    if (!samples) return undefined;
-    const row = index % pagesPerColumn;
-    if (row === pagesPerColumn - 1) {
-      if (!samples.top || samples.bottom) return undefined;
-    } else if (!samples.bottom) {
-      return undefined;
+  const isColumnEnd = (samples: PageGuideSamples) => Boolean(samples.top) && !samples.bottom;
+  if (!isColumnEnd(firstColumn.at(-1) ?? {})) return undefined;
+  if (firstColumn.slice(0, -1).some((samples) => !samples.bottom)) return undefined;
+
+  const columnLengths = [pagesPerColumn];
+  let currentLength = 0;
+  for (const samples of laterPages) {
+    currentLength += 1;
+    if (isColumnEnd(samples)) {
+      columnLengths.push(currentLength);
+      currentLength = 0;
     }
   }
-  return pagesPerColumn;
+  if (currentLength !== 0) return undefined;
+
+  const firstColumnStartsWithTop = Boolean(firstColumn[0]?.top);
+  const columns: Array<Array<number | null>> = [];
+  let pageNumber = 1;
+  let pageOffset = 0;
+  for (const length of columnLengths) {
+    if (length <= 0 || length > pagesPerColumn) return undefined;
+    const samples = pageSamples.slice(pageOffset, pageOffset + length);
+    if (
+      samples.slice(0, -1).some((page) => !page.bottom) ||
+      !isColumnEnd(samples.at(-1) ?? {})
+    ) {
+      return undefined;
+    }
+
+    let topPadding = 0;
+    if (length < pagesPerColumn) {
+      if (Boolean(samples[0]?.top) === firstColumnStartsWithTop) return undefined;
+      topPadding = pagesPerColumn - length;
+    }
+    const column: Array<number | null> = Array.from({ length: topPadding }, () => null);
+    for (let index = 0; index < length; index += 1) {
+      column.push(pageNumber);
+      pageNumber += 1;
+    }
+    columns.push(column);
+    pageOffset += length;
+  }
+  return { pagesPerColumn, columns };
 }
 
 export function buildGuideDetectionResult(
@@ -282,11 +326,13 @@ export function buildGuideDetectionResult(
     const line = clusterGuideSamples(samples[direction], tolerance[direction]);
     if (line) lines[direction] = line;
   }
-  const inferredPagesPerColumn = inferPagesPerColumnFromGuideSamples(pageSamples);
+  const inferredLayout = inferColumnLayoutFromGuideSamples(pageSamples);
+  const inferredPagesPerColumn = inferredLayout?.pagesPerColumn;
   return {
     lines,
     missing: GUIDE_DIRECTIONS.filter((direction) => !lines[direction]),
     options,
     ...(inferredPagesPerColumn !== undefined ? { inferredPagesPerColumn } : {}),
+    ...(inferredLayout ? { inferredLayout } : {}),
   };
 }

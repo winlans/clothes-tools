@@ -9,6 +9,7 @@ import {
   removeLastLayoutColumn,
   removeLastLayoutRow,
   removeLayoutSpacer,
+  type InferredColumnLayout,
   type GridPosition,
   type LayoutGrid,
 } from "@pdf2plt/core";
@@ -103,6 +104,54 @@ export const useLayoutStore = defineStore("layout", {
         this.detectedPagesPerColumn = undefined;
         return false;
       }
+    },
+    applyDetectedColumnLayout(value: InferredColumnLayout): boolean {
+      const rows = value.pagesPerColumn;
+      if (
+        !Number.isInteger(rows) ||
+        rows <= 0 ||
+        value.columns.length === 0 ||
+        value.columns.some((column) => column.length !== rows)
+      ) {
+        return false;
+      }
+      const pageNumbers = value.columns
+        .flat()
+        .filter((pageNumber): pageNumber is number => pageNumber !== null)
+        .sort((a, b) => a - b);
+      if (
+        pageNumbers.length !== this.pageCount ||
+        pageNumbers.some((pageNumber, index) => pageNumber !== index + 1)
+      ) {
+        return false;
+      }
+      this.detectedPagesPerColumn = rows;
+      if (this.hasUserLayoutChanges) return false;
+
+      let spacerNumber = 1;
+      const cells = Array.from({ length: rows }, (_, row) =>
+        value.columns.map((column) => {
+          const pageNumber = column[row];
+          if (pageNumber !== null && pageNumber !== undefined) {
+            return { kind: "page" as const, pageNumber };
+          }
+          const spacerId = `${this.documentId}-auto-spacer-${spacerNumber}`;
+          spacerNumber += 1;
+          return { kind: "spacer" as const, spacerId };
+        }),
+      );
+      this.layout = {
+        rows,
+        columns: value.columns.length,
+        traversal: "column-major",
+        cells,
+      };
+      this.pagesPerColumn = rows;
+      this.nextSpacerId = spacerNumber;
+      this.past = [];
+      this.future = [];
+      this.errorMessage = "";
+      return true;
     },
     movePageTo(pageNumber: number, target: GridPosition): boolean {
       return this.applyLayoutChange(

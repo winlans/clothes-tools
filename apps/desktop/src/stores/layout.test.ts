@@ -45,6 +45,25 @@ describe("layout store", () => {
     expect(store.layout).toMatchObject({ rows: 2, columns: 4 });
   });
 
+  it("applies a detected short column with a top spacer", () => {
+    const store = useLayoutStore();
+    store.initialize("pdf-530", 14);
+
+    expect(store.applyDetectedColumnLayout({
+      pagesPerColumn: 5,
+      columns: [
+        [1, 2, 3, 4, 5],
+        [null, 6, 7, 8, 9],
+        [10, 11, 12, 13, 14],
+      ],
+    })).toBe(true);
+    expect(store.layout).toMatchObject({ rows: 5, columns: 3 });
+    expect(store.layout?.cells[0]?.[1]).toMatchObject({ kind: "spacer" });
+    expect(store.layout?.cells[1]?.[1]).toEqual({ kind: "page", pageNumber: 6 });
+    expect(store.layout?.cells[0]?.[2]).toEqual({ kind: "page", pageNumber: 10 });
+    expect(store.canUndo).toBe(false);
+  });
+
   it("commits stable page moves without duplicates", () => {
     const store = useLayoutStore();
     store.initialize("pdf-1", 6);

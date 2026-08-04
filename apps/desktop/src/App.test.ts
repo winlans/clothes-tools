@@ -47,6 +47,13 @@ describe("App", () => {
       missing: ["left", "right", "top", "bottom"],
       options: { dpi: 72, redMin: 200, otherMax: 120, redDelta: 80, minimumFraction: 0.03 },
       inferredPagesPerColumn: 4,
+      inferredLayout: {
+        pagesPerColumn: 4,
+        columns: [
+          [1, 2, 3, 4],
+          [5, 6, 7, 8],
+        ],
+      },
     };
     await nextTick();
 

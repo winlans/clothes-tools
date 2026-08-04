@@ -109,7 +109,9 @@ watch(
       !projectStore.activeProject
     ) {
       guideStore.applyDetection(documentId, detection);
-      if (detection.inferredPagesPerColumn !== undefined) {
+      if (detection.inferredLayout) {
+        layoutStore.applyDetectedColumnLayout(detection.inferredLayout);
+      } else if (detection.inferredPagesPerColumn !== undefined) {
         layoutStore.applyDetectedPagesPerColumn(detection.inferredPagesPerColumn);
       }
     }
