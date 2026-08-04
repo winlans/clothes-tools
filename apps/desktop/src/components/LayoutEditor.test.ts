@@ -5,6 +5,7 @@ import { defineComponent, h } from "vue";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useLayoutStore } from "../stores/layout";
+import { useGuideStore } from "../stores/guides";
 import LayoutEditor from "./LayoutEditor.vue";
 
 const fitContent = vi.fn();
@@ -68,5 +69,31 @@ describe("LayoutEditor", () => {
 
     await fitButton?.trigger("click");
     expect(fitContent).toHaveBeenCalledOnce();
+  });
+
+  it("lets users repair missing guides with point coordinates", async () => {
+    const { wrapper } = mountEditor();
+    const guideStore = useGuideStore();
+    const values = [
+      ["左拼接线 point 坐标", "22"],
+      ["右拼接线 point 坐标", "820"],
+      ["上拼接线 point 坐标", "22"],
+      ["下拼接线 point 坐标", "1167"],
+    ] as const;
+
+    expect(wrapper.text()).toContain("未检测到左、右、上、下方向红线");
+    for (const [name, value] of values) {
+      const input = wrapper.get(`[aria-label="${name}"]`);
+      await input.setValue(value);
+      await input.trigger("change");
+    }
+
+    expect(guideStore.canPreviewCropped).toBe(true);
+    expect(guideStore.lines.left?.source).toBe("manual");
+    const cropButton = wrapper.findAll("button").find((button) =>
+      button.text().includes("裁切拼接"),
+    );
+    expect(cropButton?.attributes("disabled")).toBeUndefined();
+    expect(wrapper.text()).toContain("四条红线已检测");
   });
 });

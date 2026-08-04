@@ -1,4 +1,4 @@
-import type { PdfDocumentInfo } from "@pdf2plt/core";
+import type { GuideDetectionResult, PdfDocumentInfo } from "@pdf2plt/core";
 
 export type PdfWorkerRequest =
   | {
@@ -22,6 +22,11 @@ export type PdfWorkerResponse =
       width: number;
       height: number;
       bytes: Uint8Array<ArrayBuffer>;
+    }
+  | {
+      type: "guides";
+      requestId: number;
+      result: GuideDetectionResult;
     }
   | {
       type: "progress";

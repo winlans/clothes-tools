@@ -1,4 +1,8 @@
 import { Pdf2PltError } from "./errors";
+import type {
+  GuideDetectionOptions,
+  GuideDetectionResult,
+} from "../guides/detection";
 
 export interface PageSizePt {
   width: number;
@@ -31,6 +35,7 @@ export interface PreviewImage {
 export interface OpenDocumentResult {
   info: PdfDocumentInfo;
   renderPreview(pageNumber: number, options: PreviewOptions): PreviewImage;
+  detectGuides(options?: Partial<GuideDetectionOptions>): GuideDetectionResult;
   close(): void;
 }
 

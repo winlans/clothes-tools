@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json --noEmit",
+    "smoke:guides": "bun scripts/smoke-guide-detection.ts",
     "smoke:pdf": "bun scripts/smoke-pdf-import.ts",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"

@@ -52,6 +52,37 @@ const screenshotPath = process.env.SCREENSHOT_PATH;
 
   const canvas = page.locator(".layout-canvas");
   await canvas.locator("canvas").first().waitFor();
+  await page.getByText("四条红线已检测，可切换裁切拼接预览。").waitFor();
+  const detectedGuides = {};
+  for (const [direction, name] of [
+    ["left", "左拼接线 point 坐标"],
+    ["right", "右拼接线 point 坐标"],
+    ["top", "上拼接线 point 坐标"],
+    ["bottom", "下拼接线 point 坐标"],
+  ]) {
+    detectedGuides[direction] = Number(await page.getByRole("spinbutton", { name }).inputValue());
+  }
+  assert(Math.abs(detectedGuides.left - 21.997) < 1);
+  assert(Math.abs(detectedGuides.right - 818.893) < 1);
+  assert(Math.abs(detectedGuides.top - 21.992) < 1);
+  assert(Math.abs(detectedGuides.bottom - 1166.56) < 1);
+  const layoutBeforeCropToggle = await canvas.getAttribute("data-layout-cells");
+  await page.getByRole("button", { name: "裁切拼接" }).click();
+  await page.waitForFunction(
+    () => document.querySelector(".layout-canvas")?.getAttribute("data-preview-mode") === "cropped",
+  );
+  const croppedContent = {
+    width: Number(await canvas.getAttribute("data-content-width")),
+    height: Number(await canvas.getAttribute("data-content-height")),
+  };
+  assert(croppedContent.width < 841.89 * 5);
+  assert(croppedContent.height < 1190.551 * 3);
+  assert.equal(await canvas.getAttribute("data-layout-cells"), layoutBeforeCropToggle);
+  await page.getByRole("button", { name: "完整页面" }).click();
+  await page.waitForFunction(
+    () => document.querySelector(".layout-canvas")?.getAttribute("data-preview-mode") === "full",
+  );
+
   const beforeZoom = await canvas.getAttribute("data-camera-scale");
   const box = await canvas.boundingBox();
   assert(box, "layout canvas must have a visible bounding box");
@@ -207,6 +238,10 @@ const screenshotPath = process.env.SCREENSHOT_PATH;
       spacerUndoRedo: true,
       spacerMovedAndDeleted: true,
       unsafeColumnDeleteBlocked: true,
+      guideDetectionMatchesLegacy: true,
+      cropTogglePreservedLayout: true,
+      detectedGuides,
+      croppedContent,
       pageDimensions: pageDimensionsBefore,
       pageErrors,
     }),

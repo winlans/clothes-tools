@@ -5,10 +5,12 @@ import LayoutEditor from "./components/LayoutEditor.vue";
 import { usePdfImport } from "./composables/use-pdf-import";
 import { usePdfDocumentStore } from "./stores/pdf-document";
 import { useLayoutStore } from "./stores/layout";
+import { useGuideStore } from "./stores/guides";
 
 const fileInput = ref<HTMLInputElement>();
 const documentStore = usePdfDocumentStore();
 const layoutStore = useLayoutStore();
+const guideStore = useGuideStore();
 const pdfImport = usePdfImport();
 
 const progressPercent = computed(() => {
@@ -43,16 +45,26 @@ watch(
   (info) => {
     if (info) {
       layoutStore.initialize(info.documentId, info.pageCount);
+      guideStore.initialize(info.documentId);
     } else {
       layoutStore.clear();
+      guideStore.clear();
     }
   },
   { immediate: true },
 );
 
+watch(
+  () => [documentStore.info?.documentId, documentStore.guideDetection] as const,
+  ([documentId, detection]) => {
+    if (documentId && detection) guideStore.applyDetection(documentId, detection);
+  },
+);
+
 onBeforeUnmount(() => {
   documentStore.dispose();
   layoutStore.clear();
+  guideStore.clear();
 });
 </script>
 

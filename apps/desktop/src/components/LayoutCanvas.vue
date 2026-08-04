@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import {
+  createLayoutCropGeometry,
   flattenLayout,
+  type GuideCoordinates,
   type GridPosition,
   type LayoutGrid,
   type PageSizePt,
 } from "@pdf2plt/core";
 import Konva from "konva";
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import type { PreviewState } from "../stores/pdf-document";
 import {
@@ -21,6 +23,7 @@ const props = defineProps<{
   layout: LayoutGrid;
   pageSize: PageSizePt;
   previews: PreviewState[];
+  guides: GuideCoordinates | undefined;
 }>();
 
 const emit = defineEmits<{
@@ -54,6 +57,9 @@ let lastPointer: Point | undefined;
 let activeDrag: ActiveDrag | undefined;
 let dropHighlight: Konva.Rect | undefined;
 const imageCache = new Map<string, HTMLImageElement>();
+const geometry = computed(() =>
+  createLayoutCropGeometry(props.layout, props.pageSize, props.guides),
+);
 
 function applyCamera(nextCamera: Camera) {
   camera = nextCamera;
@@ -70,8 +76,8 @@ function applyCamera(nextCamera: Camera) {
 
 function getContentSize() {
   return {
-    width: props.layout.columns * props.pageSize.width,
-    height: props.layout.rows * props.pageSize.height,
+    width: geometry.value.width,
+    height: geometry.value.height,
   };
 }
 
@@ -105,20 +111,46 @@ function loadPreview(url: string, node: Konva.Image) {
   image.src = url;
 }
 
-function positionForCell(position: GridPosition): Point {
+interface CellFrame extends Point {
+  width: number;
+  height: number;
+  sourceX: number;
+  sourceY: number;
+}
+
+function frameForCell(position: GridPosition): CellFrame {
+  const column = geometry.value.columns[position.column];
+  const row = geometry.value.rows[position.row];
+  if (!column || !row) {
+    return { x: 0, y: 0, width: 0, height: 0, sourceX: 0, sourceY: 0 };
+  }
   return {
-    x: position.column * props.pageSize.width,
-    y: position.row * props.pageSize.height,
+    x: column.outputStart,
+    y: row.outputStart,
+    width: column.size,
+    height: row.size,
+    sourceX: column.sourceStart,
+    sourceY: row.sourceStart,
   };
 }
 
+function positionForCell(position: GridPosition): Point {
+  const frame = frameForCell(position);
+  return { x: frame.x, y: frame.y };
+}
+
+function axisIndex(
+  segments: readonly { outputStart: number; size: number }[],
+  coordinate: number,
+): number {
+  return segments.findIndex(
+    (segment) => coordinate >= segment.outputStart && coordinate < segment.outputStart + segment.size,
+  );
+}
+
 function getDragTarget(group: Konva.Group): GridPosition | undefined {
-  const column = Math.floor(
-    (group.x() + props.pageSize.width / 2) / props.pageSize.width,
-  );
-  const row = Math.floor(
-    (group.y() + props.pageSize.height / 2) / props.pageSize.height,
-  );
+  const column = axisIndex(geometry.value.columns, group.x() + group.width() / 2);
+  const row = axisIndex(geometry.value.rows, group.y() + group.height() / 2);
   if (
     row < 0 ||
     row >= props.layout.rows ||
@@ -145,6 +177,8 @@ function showDropTarget(target?: GridPosition) {
     host.value.dataset.dropColumn = String(target.column);
   }
   dropHighlight.position(positionForCell(target));
+  const frame = frameForCell(target);
+  dropHighlight.size({ width: frame.width, height: frame.height });
   dropHighlight.show();
   dropHighlight.moveToTop();
   contentLayer?.batchDraw();
@@ -224,19 +258,24 @@ function createPageGroup(
   source: GridPosition,
   preview?: PreviewState,
 ): Konva.Group {
-  const origin = positionForCell(source);
+  const frame = frameForCell(source);
   const group = new Konva.Group({
-    ...origin,
-    width: props.pageSize.width,
-    height: props.pageSize.height,
+    x: frame.x,
+    y: frame.y,
+    width: frame.width,
+    height: frame.height,
+    clipX: 0,
+    clipY: 0,
+    clipWidth: frame.width,
+    clipHeight: frame.height,
     draggable: true,
     name: "layout-item layout-page",
   });
   group.setAttr("pageNumber", pageNumber);
   group.add(
     new Konva.Rect({
-      width: props.pageSize.width,
-      height: props.pageSize.height,
+      width: frame.width,
+      height: frame.height,
       fill: "#ffffff",
     }),
   );
@@ -244,6 +283,8 @@ function createPageGroup(
   if (preview) {
     const previewNode = new Konva.Image({
       image: imageCache.get(preview.url) ?? new window.Image(),
+      x: -frame.sourceX,
+      y: -frame.sourceY,
       width: props.pageSize.width,
       height: props.pageSize.height,
       listening: false,
@@ -254,8 +295,8 @@ function createPageGroup(
 
   group.add(
     new Konva.Rect({
-      width: props.pageSize.width,
-      height: props.pageSize.height,
+      width: frame.width,
+      height: frame.height,
       stroke: "#314a59",
       strokeWidth: 1.5,
       strokeScaleEnabled: false,
@@ -288,17 +329,19 @@ function createPageGroup(
 }
 
 function createSpacerGroup(spacerId: string, source: GridPosition): Konva.Group {
+  const frame = frameForCell(source);
   const group = new Konva.Group({
-    ...positionForCell(source),
-    width: props.pageSize.width,
-    height: props.pageSize.height,
+    x: frame.x,
+    y: frame.y,
+    width: frame.width,
+    height: frame.height,
     draggable: true,
     name: "layout-item layout-spacer",
   });
   group.add(
     new Konva.Rect({
-      width: props.pageSize.width,
-      height: props.pageSize.height,
+      width: frame.width,
+      height: frame.height,
       fill: "#26333b",
       stroke: "#7aa6ba",
       strokeWidth: 2,
@@ -308,8 +351,8 @@ function createSpacerGroup(spacerId: string, source: GridPosition): Konva.Group 
   );
   group.add(
     new Konva.Text({
-      width: props.pageSize.width,
-      height: props.pageSize.height,
+      width: frame.width,
+      height: frame.height,
       text: "空白占位",
       align: "center",
       verticalAlign: "middle",
@@ -328,8 +371,8 @@ function positionFromClient(clientX: number, clientY: number): GridPosition | un
   const bounds = host.value.getBoundingClientRect();
   const worldX = (clientX - bounds.left - camera.x) / camera.scale;
   const worldY = (clientY - bounds.top - camera.y) / camera.scale;
-  const column = Math.floor(worldX / props.pageSize.width);
-  const row = Math.floor(worldY / props.pageSize.height);
+  const column = axisIndex(geometry.value.columns, worldX);
+  const row = axisIndex(geometry.value.rows, worldY);
   if (
     row < 0 ||
     row >= props.layout.rows ||
@@ -378,20 +421,22 @@ function renderScene() {
     host.value.dataset.pageHeight = String(props.pageSize.height);
     host.value.dataset.layoutRows = String(props.layout.rows);
     host.value.dataset.layoutColumns = String(props.layout.columns);
+    host.value.dataset.previewMode = props.guides ? "cropped" : "full";
+    host.value.dataset.contentWidth = String(geometry.value.width);
+    host.value.dataset.contentHeight = String(geometry.value.height);
   }
 
   for (let row = 0; row < props.layout.rows; row += 1) {
     for (let column = 0; column < props.layout.columns; column += 1) {
       const cell = props.layout.cells[row]?.[column];
-      const x = column * props.pageSize.width;
-      const y = row * props.pageSize.height;
+      const frame = frameForCell({ row, column });
 
       contentLayer.add(
         new Konva.Rect({
-          x,
-          y,
-          width: props.pageSize.width,
-          height: props.pageSize.height,
+          x: frame.x,
+          y: frame.y,
+          width: frame.width,
+          height: frame.height,
           fill: cell ? "#ffffff" : "#182026",
           stroke: cell ? "#557080" : "#35434c",
           strokeWidth: 1,
@@ -415,8 +460,8 @@ function renderScene() {
   }
 
   dropHighlight = new Konva.Rect({
-    width: props.pageSize.width,
-    height: props.pageSize.height,
+    width: geometry.value.columns[0]?.size ?? props.pageSize.width,
+    height: geometry.value.rows[0]?.size ?? props.pageSize.height,
     fill: "#63b9df",
     opacity: 0.22,
     stroke: "#8fdcff",
@@ -530,12 +575,13 @@ onMounted(() => {
 });
 
 watch(
-  () => [props.layout, props.pageSize, props.previews] as const,
-  async ([layout], [previousLayout]) => {
+  () => [props.layout, props.pageSize, props.previews, props.guides] as const,
+  async ([layout, , , guides], [previousLayout, , , previousGuides]) => {
     renderScene();
     if (
       layout.rows !== previousLayout.rows ||
-      layout.columns !== previousLayout.columns
+      layout.columns !== previousLayout.columns ||
+      guides !== previousGuides
     ) {
       await nextTick();
       fitContent();

@@ -59,6 +59,13 @@ worker.onmessage = async (event: MessageEvent<PdfWorkerRequest>) => {
       info: currentDocument.info,
     });
 
+    const guideDetection = currentDocument.detectGuides();
+    respond({
+      type: "guides",
+      requestId: request.requestId,
+      result: guideDetection,
+    });
+
     for (let pageNumber = 1; pageNumber <= currentDocument.info.pageCount; pageNumber += 1) {
       if (activeRequestId !== request.requestId || !currentDocument) return;
       const preview = currentDocument.renderPreview(pageNumber, {

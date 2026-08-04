@@ -6,6 +6,12 @@ import {
   type PreviewOptions,
 } from "./document";
 import { Pdf2PltError } from "./errors";
+import {
+  buildGuideDetectionResult,
+  detectPageGuideSamples,
+  resolveGuideDetectionOptions,
+  type GuideDetectionOptions,
+} from "../guides/detection";
 
 export type MuPdfModule = (typeof import("mupdf"))["default"];
 
@@ -113,6 +119,47 @@ export async function openMuPdfDocument(
   const documentId = `pdf-${nextDocumentId}`;
   nextDocumentId += 1;
 
+  const detectGuides = (
+    overrides: Partial<GuideDetectionOptions> = {},
+  ) => {
+    ensureOpen();
+    const options = resolveGuideDetectionOptions(overrides);
+    const scale = options.dpi / 72;
+    const samples = [];
+    for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
+      const page = document.loadPage(pageIndex);
+      try {
+        const pixmap = page.toPixmap(
+          mupdf.Matrix.scale(scale, scale),
+          mupdf.ColorSpace.DeviceRGB,
+          false,
+          true,
+        );
+        try {
+          samples.push(
+            detectPageGuideSamples(
+              {
+                pageNumber: pageIndex + 1,
+                width: pixmap.getWidth(),
+                height: pixmap.getHeight(),
+                stride: pixmap.getStride(),
+                components: pixmap.getNumberOfComponents(),
+                pixels: pixmap.getPixels(),
+              },
+              pageSizePt,
+              options,
+            ),
+          );
+        } finally {
+          pixmap.destroy();
+        }
+      } finally {
+        page.destroy();
+      }
+    }
+    return buildGuideDetectionResult(samples, pageSizePt, options);
+  };
+
   return {
     info: {
       documentId,
@@ -121,6 +168,7 @@ export async function openMuPdfDocument(
       pages,
     },
     renderPreview,
+    detectGuides,
     close() {
       if (!closed) {
         closed = true;

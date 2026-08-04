@@ -1,9 +1,14 @@
 <script setup lang="ts">
-import type { PageSizePt } from "@pdf2plt/core";
-import { computed, ref, watch } from "vue";
+import {
+  GUIDE_DIRECTIONS,
+  type GuideDirection,
+  type PageSizePt,
+} from "@pdf2plt/core";
+import { computed, reactive, ref, watch } from "vue";
 
 import type { PreviewState } from "../stores/pdf-document";
 import { useLayoutStore } from "../stores/layout";
+import { useGuideStore } from "../stores/guides";
 import LayoutCanvas from "./LayoutCanvas.vue";
 
 const props = defineProps<{
@@ -12,14 +17,33 @@ const props = defineProps<{
 }>();
 
 const layoutStore = useLayoutStore();
+const guideStore = useGuideStore();
 const canvas = ref<InstanceType<typeof LayoutCanvas>>();
 const draftPagesPerColumn = ref(String(layoutStore.pagesPerColumn));
 const zoom = ref(1);
+const guideDrafts = reactive<Record<GuideDirection, string>>({
+  left: "",
+  right: "",
+  top: "",
+  bottom: "",
+});
+const guideLabels: Record<GuideDirection, string> = {
+  left: "左",
+  right: "右",
+  top: "上",
+  bottom: "下",
+};
 
 const layoutSummary = computed(() => {
   const layout = layoutStore.layout;
   return layout ? `${layout.columns} 列 × ${layout.rows} 行` : "尚未排版";
 });
+const activeGuides = computed(() =>
+  guideStore.previewMode === "cropped" ? guideStore.coordinates : undefined,
+);
+const missingGuideText = computed(() =>
+  guideStore.missing.map((direction) => guideLabels[direction]).join("、"),
+);
 
 function applyAutomaticLayout() {
   const value = Number(draftPagesPerColumn.value);
@@ -28,11 +52,29 @@ function applyAutomaticLayout() {
   }
 }
 
+function applyManualGuide(direction: GuideDirection) {
+  if (guideStore.setManual(direction, Number(guideDrafts[direction]), props.pageSize)) {
+    const line = guideStore.lines[direction];
+    if (line) guideDrafts[direction] = line.coordinatePt.toFixed(3);
+  }
+}
+
 watch(
   () => layoutStore.pagesPerColumn,
   (value) => {
     draftPagesPerColumn.value = String(value);
   },
+);
+
+watch(
+  () => guideStore.lines,
+  (lines) => {
+    for (const direction of GUIDE_DIRECTIONS) {
+      const line = lines[direction];
+      guideDrafts[direction] = line ? line.coordinatePt.toFixed(3) : "";
+    }
+  },
+  { deep: true, immediate: true },
 );
 </script>
 
@@ -113,6 +155,61 @@ watch(
       </button>
     </div>
 
+    <section class="guide-panel" aria-label="拼接线与裁切预览">
+      <div class="guide-panel__heading">
+        <div>
+          <span class="eyebrow">拼接线</span>
+          <strong>红线检测与裁切预览</strong>
+        </div>
+        <div class="mode-switch" role="group" aria-label="预览模式">
+          <button
+            type="button"
+            :class="{ active: guideStore.previewMode === 'full' }"
+            @click="guideStore.setPreviewMode('full')"
+          >
+            完整页面
+          </button>
+          <button
+            type="button"
+            :class="{ active: guideStore.previewMode === 'cropped' }"
+            :disabled="!guideStore.canPreviewCropped"
+            @click="guideStore.setPreviewMode('cropped')"
+          >
+            裁切拼接
+          </button>
+        </div>
+      </div>
+
+      <p v-if="guideStore.missing.length" class="guide-warning" role="status">
+        未检测到{{ missingGuideText }}方向红线；可在下方手动填写对应 point 坐标。
+      </p>
+      <div v-else class="guide-success" role="status">四条红线已检测，可切换裁切拼接预览。</div>
+
+      <div class="guide-fields">
+        <label v-for="direction in GUIDE_DIRECTIONS" :key="direction">
+          <span>{{ guideLabels[direction] }}线</span>
+          <input
+            v-model="guideDrafts[direction]"
+            type="number"
+            min="0"
+            step="0.001"
+            :aria-label="`${guideLabels[direction]}拼接线 point 坐标`"
+            @change="applyManualGuide(direction)"
+            @keydown.enter="applyManualGuide(direction)"
+          />
+          <small :class="`source-${guideStore.lines[direction]?.source ?? 'missing'}`">
+            {{
+              guideStore.lines[direction]?.source === 'auto'
+                ? `自动 · ${guideStore.lines[direction]?.supportPages} 页`
+                : guideStore.lines[direction]?.source === 'manual'
+                  ? '手动'
+                  : '缺失'
+            }}
+          </small>
+        </label>
+      </div>
+    </section>
+
     <p
       v-if="layoutStore.errorMessage"
       id="layout-input-error"
@@ -121,6 +218,9 @@ watch(
     >
       {{ layoutStore.errorMessage }}
     </p>
+    <p v-if="guideStore.errorMessage" class="inline-error" role="alert">
+      {{ guideStore.errorMessage }}
+    </p>
 
     <LayoutCanvas
       v-if="layoutStore.layout"
@@ -128,6 +228,7 @@ watch(
       :layout="layoutStore.layout"
       :page-size="props.pageSize"
       :previews="props.previews"
+      :guides="activeGuides"
       @zoom-change="zoom = $event"
       @move-page="layoutStore.movePageTo"
       @insert-spacer="layoutStore.insertSpacer"
@@ -137,7 +238,10 @@ watch(
 
     <footer class="canvas-status">
       <span>缩放 {{ Math.round(zoom * 100) }}%</span>
-      <span>拖动成员吸附重排 · 双击删除空白 · 滚轮缩放 · 空格键平移</span>
+      <span>
+        {{ guideStore.previewMode === 'cropped' ? '裁切拼接预览' : '完整页面预览' }} ·
+        拖动成员吸附重排 · 双击删除空白 · 滚轮缩放 · 空格键平移
+      </span>
     </footer>
   </section>
 </template>

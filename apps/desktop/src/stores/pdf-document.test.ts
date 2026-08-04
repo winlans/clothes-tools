@@ -37,6 +37,21 @@ describe("pdf document store", () => {
       },
     });
     store.handleWorkerMessage({
+      type: "guides",
+      requestId: 7,
+      result: {
+        lines: {},
+        missing: ["left", "right", "top", "bottom"],
+        options: {
+          dpi: 72,
+          redMin: 200,
+          otherMax: 120,
+          redDelta: 80,
+          minimumFraction: 0.03,
+        },
+      },
+    });
+    store.handleWorkerMessage({
       type: "preview",
       requestId: 7,
       pageNumber: 1,
@@ -62,6 +77,7 @@ describe("pdf document store", () => {
       },
     ]);
     expect(store.progress).toEqual({ completed: 1, total: 2 });
+    expect(store.guideDetection?.missing).toEqual(["left", "right", "top", "bottom"]);
     expect(store.status).toBe("ready");
     expect(createObjectURL).toHaveBeenCalledOnce();
   });

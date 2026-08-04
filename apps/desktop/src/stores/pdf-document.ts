@@ -1,4 +1,4 @@
-import type { PdfDocumentInfo } from "@pdf2plt/core";
+import type { GuideDetectionResult, PdfDocumentInfo } from "@pdf2plt/core";
 import { defineStore } from "pinia";
 import { markRaw } from "vue";
 
@@ -19,6 +19,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
     fileName: "",
     sourcePath: undefined as string | undefined,
     info: undefined as PdfDocumentInfo | undefined,
+    guideDetection: undefined as GuideDetectionResult | undefined,
     previews: {} as Record<number, PreviewState>,
     progress: { completed: 0, total: 0 },
     errorMessage: "",
@@ -54,6 +55,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       this.fileName = fileName;
       this.sourcePath = sourcePath;
       this.info = undefined;
+      this.guideDetection = undefined;
       this.errorMessage = "";
       this.progress = { completed: 0, total: 0 };
       const request: PdfWorkerRequest = {
@@ -81,6 +83,10 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
         };
         return;
       }
+      if (message.type === "guides") {
+        this.guideDetection = message.result;
+        return;
+      }
       if (message.type === "progress") {
         this.progress = { completed: message.completed, total: message.total };
         return;
@@ -101,6 +107,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       this.fileName = "";
       this.sourcePath = undefined;
       this.info = undefined;
+      this.guideDetection = undefined;
       this.errorMessage = "";
       this.progress = { completed: 0, total: 0 };
     },
