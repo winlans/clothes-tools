@@ -49,6 +49,15 @@ function applyAutomaticLayout() {
   }
 }
 
+function stepPagesPerColumn(delta: number) {
+  const draftValue = Number(draftPagesPerColumn.value);
+  const currentValue = Number.isInteger(draftValue)
+    ? draftValue
+    : layoutStore.pagesPerColumn;
+  draftPagesPerColumn.value = String(Math.max(1, currentValue + delta));
+  applyAutomaticLayout();
+}
+
 watch(
   () => layoutStore.pagesPerColumn,
   (value) => {
@@ -62,16 +71,34 @@ watch(
     <div class="layout-toolbar">
       <label>
         <span>每列页数</span>
-        <input
-          v-model="draftPagesPerColumn"
-          type="number"
-          min="1"
-          step="1"
-          inputmode="numeric"
-          aria-describedby="layout-input-error"
-          @change="applyAutomaticLayout"
-          @keydown.enter="applyAutomaticLayout"
-        />
+        <div class="pages-per-column-stepper">
+          <button
+            type="button"
+            aria-label="减少每列页数"
+            :disabled="Number(draftPagesPerColumn) <= 1"
+            @click="stepPagesPerColumn(-1)"
+          >
+            −
+          </button>
+          <input
+            v-model="draftPagesPerColumn"
+            type="number"
+            min="1"
+            step="1"
+            inputmode="numeric"
+            aria-label="每列页数"
+            aria-describedby="layout-input-error"
+            @change="applyAutomaticLayout"
+            @keydown.enter="applyAutomaticLayout"
+          />
+          <button
+            type="button"
+            aria-label="增加每列页数"
+            @click="stepPagesPerColumn(1)"
+          >
+            ＋
+          </button>
+        </div>
       </label>
       <button type="button" class="ghost-button" @click="applyAutomaticLayout">
         自动排列

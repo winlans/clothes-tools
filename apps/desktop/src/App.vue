@@ -5,22 +5,18 @@ import LayoutEditor from "./components/LayoutEditor.vue";
 import PageSidebar from "./components/PageSidebar.vue";
 import { usePdfImport } from "./composables/use-pdf-import";
 import { useSvgExport } from "./composables/use-svg-export";
-import { useProjectFile } from "./composables/use-project-file";
 import { useResolvedSettings } from "./composables/use-resolved-settings";
 import { usePdfDocumentStore } from "./stores/pdf-document";
 import { useLayoutStore } from "./stores/layout";
 import { useGuideStore } from "./stores/guides";
-import { useProjectStore } from "./stores/project";
 
 const fileInput = ref<HTMLInputElement>();
 const showLegalNotice = ref(false);
 const documentStore = usePdfDocumentStore();
 const layoutStore = useLayoutStore();
 const guideStore = useGuideStore();
-const projectStore = useProjectStore();
 const pdfImport = usePdfImport();
 const svgExport = useSvgExport();
-const projectFile = useProjectFile();
 const resolvedSettings = useResolvedSettings(() => documentStore.info?.pageSizePt);
 
 const progressPercent = computed(() => {
@@ -52,7 +48,6 @@ function startSpacerDrag(event: DragEvent) {
 
 function closeDocument() {
   documentStore.close();
-  projectStore.startNewDocument();
 }
 
 async function handleExportAction() {
@@ -67,28 +62,6 @@ watch(
   () => documentStore.info,
   (info) => {
     if (info) {
-      const pending = projectStore.pendingProject;
-      if (pending) {
-        const samePageCount = info.pageCount === pending.source.pageCount;
-        const samePageSize =
-          Math.abs(info.pageSizePt.width - pending.source.pageSizePt.width) <= 0.02 &&
-          Math.abs(info.pageSizePt.height - pending.source.pageSizePt.height) <= 0.02;
-        const sameSha = documentStore.sourceSha256 === pending.source.sha256;
-        if (!samePageCount || !samePageSize || !sameSha) {
-          const mismatch = !sameSha
-            ? "SHA-256"
-            : !samePageCount
-              ? "页数"
-              : "页面尺寸";
-          documentStore.close();
-          projectStore.fail(`所选 PDF 的${mismatch}与工程记录不一致，未恢复布局。`);
-          return;
-        }
-        layoutStore.restore(info.documentId, info.pageCount, pending.layout);
-        guideStore.restore(info.documentId, pending.guides);
-        projectStore.completeOpen(pending);
-        return;
-      }
       layoutStore.initialize(info.documentId, info.pageCount);
       guideStore.initialize(info.documentId);
     } else {
@@ -102,12 +75,7 @@ watch(
 watch(
   () => [documentStore.info?.documentId, documentStore.guideDetection] as const,
   ([documentId, detection]) => {
-    if (
-      documentId &&
-      detection &&
-      !projectStore.pendingProject &&
-      !projectStore.activeProject
-    ) {
+    if (documentId && detection) {
       guideStore.applyDetection(documentId, detection);
       if (detection.inferredLayout) {
         layoutStore.applyDetectedColumnLayout(detection.inferredLayout);
@@ -128,30 +96,21 @@ onBeforeUnmount(() => {
 <template>
   <main class="app-shell">
     <header class="topbar">
-      <div>
+      <div class="topbar__brand">
         <span class="eyebrow">服装版图工具</span>
         <h1>pdf2plt</h1>
+      </div>
+      <div v-if="documentStore.info" class="topbar__document">
+        <strong :title="documentStore.fileName">{{ documentStore.fileName }}</strong>
+        <span>
+          {{ documentStore.info.pageCount }} 页 ·
+          {{ documentStore.info.pageSizePt.width.toFixed(3) }} ×
+          {{ documentStore.info.pageSizePt.height.toFixed(3) }} pt
+        </span>
       </div>
       <div class="topbar__actions">
         <button type="button" class="ghost-button" @click="showLegalNotice = true">
           关于与许可证
-        </button>
-        <button
-          type="button"
-          class="ghost-button"
-          :disabled="projectStore.status === 'opening' || projectStore.status === 'saving'"
-          @click="projectFile.openProject()"
-        >
-          {{ projectStore.status === 'opening' ? '正在打开…' : '打开工程' }}
-        </button>
-        <button
-          v-if="documentStore.info"
-          type="button"
-          class="ghost-button"
-          :disabled="projectStore.status === 'saving'"
-          @click="projectFile.saveProject()"
-        >
-          {{ projectStore.status === 'saving' ? '正在保存…' : '保存工程' }}
         </button>
         <button
           v-if="documentStore.info"
@@ -218,13 +177,6 @@ onBeforeUnmount(() => {
       </section>
     </div>
 
-    <p v-if="projectStore.errorMessage" class="inline-error project-message" role="alert">
-      {{ projectStore.errorMessage }}
-    </p>
-    <p v-else-if="projectStore.successMessage" class="export-summary project-message" role="status">
-      {{ projectStore.successMessage }}
-    </p>
-
     <section v-if="documentStore.status === 'idle'" class="empty-state">
       <div class="empty-state__mark">PDF</div>
       <h2>导入分块版图</h2>
@@ -238,26 +190,6 @@ onBeforeUnmount(() => {
     </section>
 
     <section v-else class="document-view">
-      <div class="document-summary">
-        <div>
-          <span class="eyebrow">当前文档</span>
-          <h2>{{ documentStore.fileName }}</h2>
-        </div>
-        <dl v-if="documentStore.info">
-          <div>
-            <dt>页数</dt>
-            <dd>{{ documentStore.info.pageCount }}</dd>
-          </div>
-          <div>
-            <dt>单页尺寸</dt>
-            <dd>
-              {{ documentStore.info.pageSizePt.width.toFixed(3) }} ×
-              {{ documentStore.info.pageSizePt.height.toFixed(3) }} pt
-            </dd>
-          </div>
-        </dl>
-      </div>
-
       <div v-if="documentStore.status === 'loading'" class="progress-row">
         <div class="progress-track">
           <span :style="{ width: `${progressPercent}%` }" />

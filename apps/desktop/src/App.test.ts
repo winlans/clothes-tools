@@ -14,9 +14,10 @@ describe("App", () => {
     const wrapper = mount(App, { global: { plugins: [createPinia()] } });
     expect(wrapper.findAll("button").map((button) => button.text())).toEqual([
       "关于与许可证",
-      "打开工程",
       "打开 PDF",
     ]);
+    expect(wrapper.text()).not.toContain("打开工程");
+    expect(wrapper.text()).not.toContain("保存工程");
     expect(wrapper.text()).toContain("不会上传到网络");
     await wrapper.findAll("button")[0]?.trigger("click");
     expect(wrapper.get('[role="dialog"]').text()).toContain("AGPL-3.0-or-later");
@@ -41,6 +42,9 @@ describe("App", () => {
     };
     await nextTick();
     expect(layoutStore.pagesPerColumn).toBe(3);
+    expect(wrapper.find(".document-summary").exists()).toBe(false);
+    expect(wrapper.get(".topbar__document").text()).toContain("8 页");
+    expect(wrapper.get(".topbar__document").text()).toContain("1190.000 × 842.000 pt");
 
     documentStore.guideDetection = {
       lines: {},

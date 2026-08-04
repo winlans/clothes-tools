@@ -62,6 +62,20 @@ describe("LayoutEditor", () => {
     expect(store.layout).toMatchObject({ columns: 3, rows: 5 });
   });
 
+  it("uses custom decrement and increment controls for pages per column", async () => {
+    const { store, wrapper } = mountEditor();
+    const decrement = wrapper.get('[aria-label="减少每列页数"]');
+    const increment = wrapper.get('[aria-label="增加每列页数"]');
+
+    await increment.trigger("click");
+    expect(store.pagesPerColumn).toBe(4);
+    expect((wrapper.get('.pages-per-column-stepper input').element as HTMLInputElement).value)
+      .toBe("4");
+
+    await decrement.trigger("click");
+    expect(store.pagesPerColumn).toBe(3);
+  });
+
   it("delegates fit-content to the canvas", async () => {
     const { wrapper } = mountEditor();
     const fitButton = wrapper.findAll("button").find((button) =>
