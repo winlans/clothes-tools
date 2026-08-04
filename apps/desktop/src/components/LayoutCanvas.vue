@@ -26,11 +26,18 @@ const props = defineProps<{
 const emit = defineEmits<{
   zoomChange: [scale: number];
   movePage: [pageNumber: number, target: GridPosition];
+  insertSpacer: [target: GridPosition];
+  moveSpacer: [spacerId: string, target: GridPosition];
+  deleteSpacer: [spacerId: string];
 }>();
+
+type DragItem =
+  | { kind: "page"; pageNumber: number }
+  | { kind: "spacer"; spacerId: string };
 
 interface ActiveDrag {
   group: Konva.Group;
-  pageNumber: number;
+  item: DragItem;
   source: GridPosition;
   target: GridPosition | undefined;
 }
@@ -144,12 +151,64 @@ function showDropTarget(target?: GridPosition) {
 }
 
 function restoreDraggedGroup(drag: ActiveDrag) {
-  if (host.value) delete host.value.dataset.draggingPage;
+  if (host.value) {
+    delete host.value.dataset.draggingPage;
+    delete host.value.dataset.draggingSpacer;
+  }
   drag.group.position(positionForCell(drag.source));
   drag.group.opacity(1);
   showDropTarget();
   if (stage) stage.container().style.cursor = "grab";
   contentLayer?.batchDraw();
+}
+
+function bindCellDrag(group: Konva.Group, item: DragItem, source: GridPosition) {
+  group.on("mouseenter", () => {
+    if (stage && !spacePressed) stage.container().style.cursor = "grab";
+  });
+  group.on("mouseleave", () => {
+    if (stage && !panning && !activeDrag) stage.container().style.cursor = "default";
+  });
+  group.on("dragstart", () => {
+    activeDrag = { group, item, source, target: undefined };
+    if (host.value) {
+      if (item.kind === "page") {
+        host.value.dataset.draggingPage = String(item.pageNumber);
+      } else {
+        host.value.dataset.draggingSpacer = item.spacerId;
+      }
+    }
+    group.opacity(0.78);
+    group.moveToTop();
+    if (stage) stage.container().style.cursor = "grabbing";
+  });
+  group.on("dragmove", () => {
+    if (!activeDrag || activeDrag.group !== group) return;
+    activeDrag.target = getDragTarget(group);
+    showDropTarget(activeDrag.target);
+  });
+  group.on("dragend", () => {
+    const drag = activeDrag;
+    activeDrag = undefined;
+    if (!drag || drag.group !== group || !drag.target) {
+      restoreDraggedGroup({ group, item, source, target: undefined });
+      return;
+    }
+
+    group.position(positionForCell(drag.target));
+    group.opacity(1);
+    if (host.value) {
+      delete host.value.dataset.draggingPage;
+      delete host.value.dataset.draggingSpacer;
+    }
+    showDropTarget();
+    if (stage) stage.container().style.cursor = "grab";
+    if (item.kind === "page") {
+      emit("movePage", item.pageNumber, drag.target);
+    } else {
+      emit("moveSpacer", item.spacerId, drag.target);
+    }
+  });
 }
 
 function cancelActiveDrag() {
@@ -171,7 +230,7 @@ function createPageGroup(
     width: props.pageSize.width,
     height: props.pageSize.height,
     draggable: true,
-    name: "layout-page",
+    name: "layout-item layout-page",
   });
   group.setAttr("pageNumber", pageNumber);
   group.add(
@@ -223,41 +282,82 @@ function createPageGroup(
       ),
   );
 
-  group.on("mouseenter", () => {
-    if (stage && !spacePressed) stage.container().style.cursor = "grab";
-  });
-  group.on("mouseleave", () => {
-    if (stage && !panning && !activeDrag) stage.container().style.cursor = "default";
-  });
-  group.on("dragstart", () => {
-    activeDrag = { group, pageNumber, source, target: undefined };
-    if (host.value) host.value.dataset.draggingPage = String(pageNumber);
-    group.opacity(0.78);
-    group.moveToTop();
-    if (stage) stage.container().style.cursor = "grabbing";
-  });
-  group.on("dragmove", () => {
-    if (!activeDrag || activeDrag.group !== group) return;
-    activeDrag.target = getDragTarget(group);
-    showDropTarget(activeDrag.target);
-  });
-  group.on("dragend", () => {
-    const drag = activeDrag;
-    activeDrag = undefined;
-    if (!drag || drag.group !== group || !drag.target) {
-      restoreDraggedGroup({ group, pageNumber, source, target: undefined });
-      return;
-    }
-
-    group.position(positionForCell(drag.target));
-    group.opacity(1);
-    if (host.value) delete host.value.dataset.draggingPage;
-    showDropTarget();
-    if (stage) stage.container().style.cursor = "grab";
-    emit("movePage", pageNumber, drag.target);
-  });
+  bindCellDrag(group, { kind: "page", pageNumber }, source);
 
   return group;
+}
+
+function createSpacerGroup(spacerId: string, source: GridPosition): Konva.Group {
+  const group = new Konva.Group({
+    ...positionForCell(source),
+    width: props.pageSize.width,
+    height: props.pageSize.height,
+    draggable: true,
+    name: "layout-item layout-spacer",
+  });
+  group.add(
+    new Konva.Rect({
+      width: props.pageSize.width,
+      height: props.pageSize.height,
+      fill: "#26333b",
+      stroke: "#7aa6ba",
+      strokeWidth: 2,
+      strokeScaleEnabled: false,
+      dash: [18, 12],
+    }),
+  );
+  group.add(
+    new Konva.Text({
+      width: props.pageSize.width,
+      height: props.pageSize.height,
+      text: "空白占位",
+      align: "center",
+      verticalAlign: "middle",
+      fill: "#a9c8d7",
+      fontSize: 42,
+      listening: false,
+    }),
+  );
+  group.on("dblclick dbltap", () => emit("deleteSpacer", spacerId));
+  bindCellDrag(group, { kind: "spacer", spacerId }, source);
+  return group;
+}
+
+function positionFromClient(clientX: number, clientY: number): GridPosition | undefined {
+  if (!host.value) return undefined;
+  const bounds = host.value.getBoundingClientRect();
+  const worldX = (clientX - bounds.left - camera.x) / camera.scale;
+  const worldY = (clientY - bounds.top - camera.y) / camera.scale;
+  const column = Math.floor(worldX / props.pageSize.width);
+  const row = Math.floor(worldY / props.pageSize.height);
+  if (
+    row < 0 ||
+    row >= props.layout.rows ||
+    column < 0 ||
+    column >= props.layout.columns
+  ) {
+    return undefined;
+  }
+  return { row, column };
+}
+
+function handleExternalDragOver(event: DragEvent) {
+  if (!event.dataTransfer?.types.includes("application/x-pdf2plt-spacer")) return;
+  event.dataTransfer.dropEffect = "copy";
+  showDropTarget(positionFromClient(event.clientX, event.clientY));
+}
+
+function handleExternalDragLeave(event: DragEvent) {
+  const related = event.relatedTarget;
+  if (related instanceof Node && host.value?.contains(related)) return;
+  showDropTarget();
+}
+
+function handleExternalDrop(event: DragEvent) {
+  if (!event.dataTransfer?.types.includes("application/x-pdf2plt-spacer")) return;
+  const target = positionFromClient(event.clientX, event.clientY);
+  showDropTarget();
+  if (target) emit("insertSpacer", target);
 }
 
 function renderScene() {
@@ -270,7 +370,9 @@ function renderScene() {
   );
   if (host.value) {
     host.value.dataset.layoutCells = flattenLayout(props.layout)
-      .map((cell) => (cell?.kind === "page" ? cell.pageNumber : "-"))
+      .map((cell) =>
+        cell?.kind === "page" ? cell.pageNumber : cell?.kind === "spacer" ? "S" : "-",
+      )
       .join(",");
     host.value.dataset.pageWidth = String(props.pageSize.width);
     host.value.dataset.pageHeight = String(props.pageSize.height);
@@ -306,6 +408,8 @@ function renderScene() {
             previewByPage.get(cell.pageNumber),
           ),
         );
+      } else if (cell?.kind === "spacer") {
+        contentLayer.add(createSpacerGroup(cell.spacerId, { row, column }));
       }
     }
   }
@@ -357,20 +461,20 @@ function handleKeyDown(event: KeyboardEvent) {
   if (!pointerInside && document.activeElement !== host.value) return;
   event.preventDefault();
   spacePressed = true;
-  contentLayer?.find(".layout-page").forEach((node) => node.draggable(false));
+  contentLayer?.find(".layout-item").forEach((node) => node.draggable(false));
   if (stage && !panning) stage.container().style.cursor = "grab";
 }
 
 function handleKeyUp(event: KeyboardEvent) {
   if (event.code !== "Space") return;
   spacePressed = false;
-  contentLayer?.find(".layout-page").forEach((node) => node.draggable(true));
+  contentLayer?.find(".layout-item").forEach((node) => node.draggable(true));
   stopPan();
 }
 
 function handleBlur() {
   spacePressed = false;
-  contentLayer?.find(".layout-page").forEach((node) => node.draggable(true));
+  contentLayer?.find(".layout-item").forEach((node) => node.draggable(true));
   stopPan();
 }
 
@@ -459,5 +563,8 @@ defineExpose({ fitContent });
     tabindex="0"
     aria-label="PDF 自动排版画板"
     @blur="handleBlur"
+    @dragover.prevent="handleExternalDragOver"
+    @dragleave="handleExternalDragLeave"
+    @drop.prevent="handleExternalDrop"
   />
 </template>

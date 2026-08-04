@@ -5,7 +5,12 @@ export interface PageCell {
   pageNumber: number;
 }
 
-export type LayoutCell = PageCell | null;
+export interface SpacerCell {
+  kind: "spacer";
+  spacerId: string;
+}
+
+export type LayoutCell = PageCell | SpacerCell | null;
 
 export interface LayoutGrid {
   rows: number;

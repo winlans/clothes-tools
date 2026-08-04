@@ -120,6 +120,75 @@ const screenshotPath = process.env.SCREENSHOT_PATH;
     pageDimensionsBefore,
   );
 
+  const spacerTarget = await cellCenter(0, 0);
+  const spacerCanvasBox = await canvas.boundingBox();
+  assert(spacerCanvasBox, "layout canvas must remain visible for spacer drop");
+  await page.locator(".spacer-tool").dragTo(canvas, {
+    targetPosition: {
+      x: spacerTarget.x - spacerCanvasBox.x,
+      y: spacerTarget.y - spacerCanvasBox.y,
+    },
+  });
+  await page.waitForFunction(() =>
+    document
+      .querySelector(".layout-canvas")
+      ?.getAttribute("data-layout-cells")
+      ?.startsWith("S,2,3,4,5,1,6"),
+  );
+  assert.equal(await canvas.getAttribute("data-layout-columns"), "6");
+  const spacerLayout = await canvas.getAttribute("data-layout-cells");
+
+  await page.getByRole("button", { name: "撤销" }).click();
+  await page.waitForFunction(
+    (expected) =>
+      document.querySelector(".layout-canvas")?.getAttribute("data-layout-cells") ===
+      expected,
+    movedLayout,
+  );
+  await page.getByRole("button", { name: "重做" }).click();
+  await page.waitForFunction(
+    (expected) =>
+      document.querySelector(".layout-canvas")?.getAttribute("data-layout-cells") ===
+      expected,
+    spacerLayout,
+  );
+
+  const spacerSource = await cellCenter(0, 0);
+  const spacerDestination = await cellCenter(2, 5);
+  await page.mouse.move(spacerSource.x, spacerSource.y);
+  await page.mouse.down();
+  await page.mouse.move(spacerDestination.x, spacerDestination.y, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForFunction(() =>
+    document
+      .querySelector(".layout-canvas")
+      ?.getAttribute("data-layout-cells")
+      ?.endsWith("-,-,S"),
+  );
+
+  const movedSpacerPosition = await cellCenter(2, 5);
+  await page.mouse.dblclick(movedSpacerPosition.x, movedSpacerPosition.y);
+  await page.waitForFunction(
+    () =>
+      !document
+        .querySelector(".layout-canvas")
+        ?.getAttribute("data-layout-cells")
+        ?.includes("S"),
+  );
+  const pagesAfterSpacerDelete = (await canvas.getAttribute("data-layout-cells"))
+    ?.split(",")
+    .filter((cell) => cell !== "-")
+    .map(Number)
+    .sort((a, b) => a - b);
+  assert.deepEqual(pagesAfterSpacerDelete, Array.from({ length: 15 }, (_, i) => i + 1));
+
+  await page.getByRole("button", { name: "删除最后一列" }).click();
+  await page.waitForFunction(
+    () => document.querySelector(".layout-canvas")?.getAttribute("data-layout-columns") === "5",
+  );
+  await page.getByRole("button", { name: "删除最后一列" }).click();
+  await page.getByText("最后一列仍有页面或空白块，不能删除。").waitFor();
+
   assert.equal(pageErrors.length, 0, `page errors: ${pageErrors.join("; ")}`);
   if (screenshotPath) await page.screenshot({ path: screenshotPath, fullPage: true });
 
@@ -134,6 +203,10 @@ const screenshotPath = process.env.SCREENSHOT_PATH;
       afterPan,
       movedLayout,
       cancelledDragPreservedLayout: true,
+      spacerInsertedAndExpanded: true,
+      spacerUndoRedo: true,
+      spacerMovedAndDeleted: true,
+      unsafeColumnDeleteBlocked: true,
       pageDimensions: pageDimensionsBefore,
       pageErrors,
     }),

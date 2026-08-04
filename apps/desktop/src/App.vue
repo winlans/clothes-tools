@@ -33,6 +33,11 @@ async function handleBrowserFile(event: Event) {
   target.value = "";
 }
 
+function startSpacerDrag(event: DragEvent) {
+  event.dataTransfer?.setData("application/x-pdf2plt-spacer", "new");
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = "copy";
+}
+
 watch(
   () => documentStore.info,
   (info) => {
@@ -125,6 +130,16 @@ onBeforeUnmount(() => {
       <div v-if="documentStore.info" class="editor-workspace">
         <aside class="page-sidebar" aria-label="PDF 页码列表">
           <span class="eyebrow">页面</span>
+          <button
+            type="button"
+            class="spacer-tool"
+            draggable="true"
+            title="拖到画板格子中插入空白占位"
+            @dragstart="startSpacerDrag"
+          >
+            <span class="spacer-tool__mark">＋</span>
+            拖入空白块
+          </button>
           <article
             v-for="page in documentStore.info.pages"
             :key="page.pageNumber"

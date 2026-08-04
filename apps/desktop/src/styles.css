@@ -217,6 +217,30 @@ h1 {
   margin: 2px 4px 0;
 }
 
+.spacer-tool {
+  display: grid;
+  min-height: 76px;
+  place-items: center;
+  gap: 4px;
+  border: 1px dashed #7397a9;
+  border-radius: 7px;
+  padding: 9px;
+  color: #b7d0dc;
+  background: #202a30;
+  cursor: grab;
+  font: inherit;
+  font-size: 12px;
+}
+
+.spacer-tool:active {
+  cursor: grabbing;
+}
+
+.spacer-tool__mark {
+  font-size: 22px;
+  line-height: 1;
+}
+
 .page-thumbnail {
   display: grid;
   gap: 6px;
@@ -280,6 +304,35 @@ h1 {
   color: #91a5b1;
   font-size: 13px;
   font-variant-numeric: tabular-nums;
+}
+
+.layout-commandbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.compact-button {
+  border: 1px solid #34434c;
+  border-radius: 6px;
+  padding: 6px 10px;
+  color: #bdcbd3;
+  background: #171d21;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.compact-button:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.command-separator {
+  width: 1px;
+  height: 22px;
+  margin: 0 3px;
+  background: #303c44;
 }
 
 .inline-error {
