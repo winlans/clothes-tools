@@ -63,10 +63,10 @@ pnpm cli -- --project layout.pattern-layout.json -o output.svg
 pnpm release:cli
 ```
 
-构建 AppImage 与 deb：
+构建 AppImage 与 deb，并执行新版 Mesa/GLib 兼容性后处理：
 
 ```bash
-pnpm tauri build
+pnpm release:desktop
 ```
 
 发布物位于 `dist/release/` 与

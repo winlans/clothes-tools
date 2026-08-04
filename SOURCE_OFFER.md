@@ -31,7 +31,7 @@ pnpm install --frozen-lockfile
 pnpm typecheck
 pnpm test
 pnpm release:cli
-pnpm tauri build
+pnpm release:desktop
 ```
 
 The CI recipe in `.github/workflows/linux-release.yml` is the authoritative,

@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+
+set -e
+
+this_dir="$(readlink -f "$(dirname "$0")")"
+
+source "$this_dir/apprun-hooks/linuxdeploy-plugin-gtk.sh"
+
+# PDF2PLT_HOST_GSTREAMER_PATHS
+# The generic AppRun prepends the AppDir plugin directory. Tauri currently
+# creates no such directory when bundleMediaFramework=false, so keep the host
+# plugin directories in the inherited value instead of disabling discovery.
+if [[ ! -d "$this_dir/usr/lib/gstreamer-1.0" ]]; then
+  host_gstreamer_paths=()
+  for candidate in \
+    /usr/lib/x86_64-linux-gnu/gstreamer-1.0 \
+    /usr/lib64/gstreamer-1.0 \
+    /usr/lib/gstreamer-1.0
+  do
+    if [[ -d "$candidate" ]]; then
+      host_gstreamer_paths+=("$candidate")
+    fi
+  done
+
+  if (( ${#host_gstreamer_paths[@]} > 0 )); then
+    joined_paths="$(IFS=:; echo "${host_gstreamer_paths[*]}")"
+    export GST_PLUGIN_SYSTEM_PATH="$joined_paths${GST_PLUGIN_SYSTEM_PATH:+:$GST_PLUGIN_SYSTEM_PATH}"
+    export GST_PLUGIN_SYSTEM_PATH_1_0="$joined_paths${GST_PLUGIN_SYSTEM_PATH_1_0:+:$GST_PLUGIN_SYSTEM_PATH_1_0}"
+  fi
+fi
+
+exec "$this_dir/AppRun.wrapped" "$@"

@@ -29,6 +29,9 @@
   仅为 glibc、pthread、dl 和 m；`deb` 只声明 WebKitGTK 与 GTK 运行时依赖。
 - 安装包内已检查 `LICENSE`、`THIRD_PARTY_NOTICES.md`、`SOURCE_OFFER.md` 和
   `USER_GUIDE.md`。
+- Ubuntu 26.04 KDE Wayland 回归发现并修复 Tauri 默认 AppImage 过度打包旧版
+  Wayland/GLib/GStreamer 导致的 `EGL_BAD_PARAMETER` 白屏；发布脚本现在会移除
+  冲突库、恢复主机 GStreamer 插件路径并执行发布物级检查。
 - 待人工项：在 CorelDRAW 或等价编辑器中导入验收样本，核对毫米尺寸并确认
   路径可选择、可编辑。
 

@@ -10,6 +10,7 @@
     "dev": "pnpm --filter @pdf2plt/desktop dev",
     "build": "pnpm -r build",
     "release:cli": "pnpm --filter @pdf2plt/cli release:linux",
+    "release:desktop": "pnpm tauri build && scripts/postprocess-appimage.sh apps/desktop/src-tauri/target/release/bundle/appimage/pdf2plt_0.1.0_amd64.AppImage",
     "smoke:pdf": "pnpm --filter @pdf2plt/core smoke:pdf",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",

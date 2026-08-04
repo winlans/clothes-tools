@@ -54,7 +54,7 @@ jobs:
         run: pnpm release:cli
 
       - name: Build AppImage and deb
-        run: pnpm tauri build
+        run: pnpm release:desktop
 
       - name: Collect and inspect release artifacts
         run: |
@@ -70,6 +70,7 @@ jobs:
           tar -tzf dist/release/pdf2plt-cli-linux-x64.tar.gz | grep -q '/LICENSE$'
           tar -tzf dist/release/pdf2plt-cli-linux-x64.tar.gz | grep -q '/SOURCE_OFFER.md$'
           test -s dist/release/pdf2plt-0.1.0-source.tar.gz
+          scripts/check-appimage-compat.sh dist/release/*.AppImage
           dpkg-deb --info dist/release/*.deb
           file dist/release/*.AppImage dist/release/pdf2plt-cli-linux-x64/pdf-pattern-svg
 

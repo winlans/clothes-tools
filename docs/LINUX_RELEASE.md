@@ -11,8 +11,13 @@ pnpm install --frozen-lockfile
 pnpm typecheck
 pnpm test
 pnpm release:cli
-pnpm tauri build
+pnpm release:desktop
 ```
+
+`release:desktop` 会在 Tauri 默认打包之后移除 AppImage 中会与新版本
+Mesa/GLib 冲突的旧版 Wayland、GLib 和 GStreamer 基础库，恢复主机 GStreamer
+插件路径，再使用固定版本且经过 SHA-256 校验的 appimagetool 重打包。不要把
+未经 `scripts/postprocess-appimage.sh` 处理的 Tauri 原始 AppImage 作为发布物。
 
 产物包括：
 
@@ -54,6 +59,8 @@ sha256sum dist/release/*
 5. 检查 SVG 只有一个根 `<svg>`，页面实例数与工程一致，且不是整页位图。
 6. 使用 `ldd` 和 `dpkg-deb -f` 检查运行时依赖；使用 `dpkg-deb -c` 检查许可
    证、第三方声明、源码说明和用户文档均已进入安装包。
+7. 运行 `scripts/check-appimage-compat.sh <AppImage>`，确认发布物不再携带会与
+   新版 Mesa/GLib 冲突的基础库，并在 Ubuntu 26.04 Wayland 上确认窗口不是白屏。
 
 本地容器基线位于
 `.scratch/tauri-vue-editor/release-build.Dockerfile` 与
