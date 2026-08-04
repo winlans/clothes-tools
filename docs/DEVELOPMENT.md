@@ -3,7 +3,7 @@
 ## 1. 文档状态
 
 - 状态：已确认方案，正在按任务实施
-- 首发平台：Linux x86_64
+- 发布平台：Linux x86_64、Windows x64
 - 桌面技术：Tauri 2 + Vue 3 + TypeScript
 - 画板技术：Konva（通过 Vue 组件封装）
 - PDF 引擎：MuPDF WASM
@@ -26,7 +26,7 @@ Vue 可以完整替代原方案中的 React。共享转换核心、CLI、工程�
 4. 应用根据逐页红线自动识别每列页数并按列优先排列；识别不可靠时使用默认值
    3，用户仍可直接修改。
 5. 用户通过拖拽、空白占位和自动吸附修正排版。
-6. 用户保存可继续编辑的工程，或直接导出 SVG。
+6. 用户直接导出 SVG。
 7. 导出过程重新使用 PDF 的矢量内容、接缝裁切和页面布局生成成品。
 
 ## 3. 用户故事
@@ -44,7 +44,7 @@ Vue 可以完整替代原方案中的 React。共享转换核心、CLI、工程�
 - **US-07 浏览画板**：用户可缩放、平移、适合内容，但不能意外改变成品比例。
 - **US-08 接缝调整**：应用自动检测拼接线，用户可直接微调坐标并决定是否应用
   页间接缝裁切。
-- **US-09 工程文件**：用户可保存和重新打开排版工程；PDF 移动后可重新关联。
+- **US-09 简单转换**：桌面端不要求工程文件，导入和微调后可直接导出。
 - **US-10 矢量导出**：导出 SVG 保持原 PDF 尺寸与矢量对象，且适合导入
   CorelDRAW。
 - **US-11 CLI 批处理**：已有 `-i/-o/-c/-p` 调用方式在新 CLI 中继续工作。
@@ -59,8 +59,8 @@ Vue 可以完整替代原方案中的 React。共享转换核心、CLI、工程�
 - 所有分块页尺寸一致；
 - 列优先矩形网格与空白占位；
 - 视图缩放，不改变页面输出比例；
-- SVG 导出、工程保存和 CLI；
-- Linux AppImage、deb 和 CLI 发布包。
+- SVG 导出和 CLI；
+- Linux AppImage/deb、Windows NSIS/MSI 和两平台 CLI 发布包。
 
 第一版不包含：
 
@@ -116,7 +116,7 @@ exportSvg(documentId: string, project: ExportProject): Promise<ExportResult>
 
 - 调用与桌面应用相同的 `packages/core`；
 - 运行时使用 MuPDF WASM，不调用 Python、Poppler 或 librsvg；
-- Linux 发布包包含 `pdf-pattern-svg` 可执行文件和相邻的
+- Linux 和 Windows 发布包包含对应的 `pdf-pattern-svg` 可执行文件和相邻的
   `mupdf-wasm.wasm`；
 - CLI 与桌面应用对同一工程必须得到相同 SVG。
 
@@ -347,6 +347,7 @@ pdf-pattern-svg --project layout.pattern-layout.json -o output.svg
 - Vue 组件和 Pinia store 使用 Vitest；
 - 拖拽、吸附、空白插入、缩放、工程保存和导出使用浏览器级自动化；
 - Linux 上执行 Tauri 启动、文件对话框、AppImage 和 deb 安装冒烟测试。
+- Windows CI 原生生成 NSIS 和 MSI；Windows 10/11 实机完成安装与 SVG 导出验收。
 
 ## 13. 交付顺序
 

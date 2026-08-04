@@ -1,8 +1,15 @@
-# pdf2plt 0.1.0 Linux 使用说明
+# pdf2plt 0.1.0 使用说明
 
 ## 桌面应用
 
-### AppImage
+### Windows 10/11 x64
+
+普通用户运行 `pdf2plt_0.1.0_x64-setup.exe` 安装；需要 MSI 部署时使用
+`pdf2plt_0.1.0_x64_en-US.msi`。应用依赖 Microsoft Edge WebView2，系统缺失时
+安装器会联网安装。当前未签名的自动构建包可能显示“未知发布者”，请先核对
+发布页提供的 SHA-256；正式发行版应使用有效的 Authenticode 签名。
+
+### Linux AppImage
 
 ```bash
 chmod +x pdf2plt_0.1.0_amd64.AppImage
@@ -12,7 +19,7 @@ chmod +x pdf2plt_0.1.0_amd64.AppImage
 如果系统没有 FUSE，可用
 `APPIMAGE_EXTRACT_AND_RUN=1 ./pdf2plt_0.1.0_amd64.AppImage` 启动。
 
-### Debian / Ubuntu
+### Linux Debian / Ubuntu
 
 ```bash
 sudo apt install ./pdf2plt_0.1.0_amd64.deb
@@ -35,7 +42,26 @@ librsvg、Node.js 或 Bun。
 
 ## 独立 CLI
 
-解压 `pdf2plt-cli-linux-x64.tar.gz` 后，必须保持可执行文件与 WASM 相邻：
+Windows 解压 `pdf2plt-cli-windows-x64.zip`，保持 `.exe` 与 WASM 相邻：
+
+```text
+pdf2plt-cli-windows-x64/
+  pdf-pattern-svg.exe
+  mupdf-wasm.wasm
+  LICENSE
+  THIRD_PARTY_NOTICES.md
+  SOURCE_OFFER.md
+  USER_GUIDE.md
+```
+
+PowerShell 示例：
+
+```powershell
+.\pdf-pattern-svg.exe -i input.pdf -c 3
+.\pdf-pattern-svg.exe -i input.pdf -p '1-3|6-4|-,7-9'
+```
+
+Linux 解压 `pdf2plt-cli-linux-x64.tar.gz` 后，必须保持可执行文件与 WASM 相邻：
 
 ```text
 pdf2plt-cli-linux-x64/
@@ -47,7 +73,7 @@ pdf2plt-cli-linux-x64/
   USER_GUIDE.md
 ```
 
-常用命令：
+Linux 常用命令：
 
 ```bash
 ./pdf-pattern-svg -i input.pdf -c 3

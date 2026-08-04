@@ -77,6 +77,25 @@ pnpm release:desktop
 [`LICENSE`](LICENSE)、[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) 与
 [`SOURCE_OFFER.md`](SOURCE_OFFER.md)。
 
+## Windows 发布
+
+在 Windows x64 构建独立 CLI ZIP：
+
+```powershell
+pnpm release:cli:windows
+```
+
+在 Windows x64 构建 NSIS `.exe` 和 WiX `.msi` 安装包：
+
+```powershell
+pnpm release:desktop:windows
+```
+
+正式 Windows 构建由
+`.github/workflows/windows-release.yml` 在 Windows Server 2022 原生完成。
+构建要求与签名、WebView2 和实机验收说明见
+[`docs/WINDOWS_RELEASE.md`](docs/WINDOWS_RELEASE.md)。
+
 构建不打包安装器的 Tauri 调试程序：
 
 ```bash

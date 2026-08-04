@@ -39,6 +39,24 @@ machine-readable reconstruction procedure. JavaScript and Rust dependency
 versions are pinned by the lock files; the CLI's adjacent `mupdf-wasm.wasm` is
 copied without modification from `mupdf@1.28.0`.
 
+## 重建 Windows x64 发布物
+
+Use Windows Server 2022 or Windows 10/11 x64 with Node.js 22, pnpm 11.17.0,
+Bun 1.3.14, the stable Rust MSVC toolchain, and Visual Studio 2022 Build Tools.
+Then run:
+
+```powershell
+pnpm install --frozen-lockfile
+pnpm typecheck
+pnpm test
+pnpm release:cli:windows
+pnpm release:desktop:windows
+```
+
+The authoritative Windows recipe is `.github/workflows/windows-release.yml`.
+It builds the MSI and NSIS installers natively on Windows and publishes the
+same-version source archive alongside them.
+
 For source availability questions, open an issue in the same repository from
 which this release was obtained and include the pdf2plt version and artifact
 name.

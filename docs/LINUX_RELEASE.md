@@ -49,8 +49,8 @@ sha256sum dist/release/*
 
 在发布前执行以下检查：
 
-1. 在干净 Ubuntu 22.04 环境安装 `deb`，启动 `pdf2plt`，导入真实 PDF，保存并
-   重开工程，再导出 SVG。
+1. 在干净 Ubuntu 22.04 环境安装 `deb`，启动 `pdf2plt`，导入真实 PDF，完成
+   自动排版与微调，再导出 SVG。
 2. 使用 `APPIMAGE_EXTRACT_AND_RUN=1` 启动 AppImage，确认主窗口可用。
 3. 在未安装 Node/Bun 的环境解压 CLI 包，确认可执行文件能找到相邻
    `mupdf-wasm.wasm` 并转换真实 PDF。

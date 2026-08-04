@@ -10,7 +10,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json --noEmit",
     "cli": "bun src/index.ts",
-    "release:linux": "bun scripts/build-release.ts",
+    "release:linux": "bun scripts/build-release.ts linux-x64",
+    "release:windows": "bun scripts/build-release.ts windows-x64",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

@@ -4,9 +4,31 @@ import { resolve } from "node:path";
 const packageDirectory = resolve(import.meta.dir, "..");
 const repositoryRoot = resolve(packageDirectory, "../..");
 const releaseRoot = resolve(repositoryRoot, "dist/release");
-const bundleName = "pdf2plt-cli-linux-x64";
+const releaseTarget = process.argv[2] ?? "linux-x64";
+const releaseTargets = {
+  "linux-x64": {
+    bunTarget: "bun-linux-x64-baseline",
+    bundleName: "pdf2plt-cli-linux-x64",
+    executableName: "pdf-pattern-svg",
+    archiveExtension: "tar.gz",
+  },
+  "windows-x64": {
+    bunTarget: "bun-windows-x64-baseline",
+    bundleName: "pdf2plt-cli-windows-x64",
+    executableName: "pdf-pattern-svg.exe",
+    archiveExtension: "zip",
+  },
+} as const;
+
+if (!(releaseTarget in releaseTargets)) {
+  throw new Error(`不支持的 CLI 发布目标：${releaseTarget}`);
+}
+
+const target = releaseTargets[releaseTarget as keyof typeof releaseTargets];
+const bundleName = target.bundleName;
 const bundleDirectory = resolve(releaseRoot, bundleName);
-const executablePath = resolve(bundleDirectory, "pdf-pattern-svg");
+const executablePath = resolve(bundleDirectory, target.executableName);
+const archivePath = resolve(releaseRoot, `${bundleName}.${target.archiveExtension}`);
 
 async function run(command: string[], cwd = repositoryRoot) {
   const child = Bun.spawn(command, {
@@ -20,20 +42,39 @@ async function run(command: string[], cwd = repositoryRoot) {
   }
 }
 
+function powershellLiteral(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+async function createWindowsZip() {
+  if (process.platform === "win32") {
+    await run([
+      "powershell.exe",
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      `Compress-Archive -LiteralPath ${powershellLiteral(bundleDirectory)} -DestinationPath ${powershellLiteral(archivePath)} -Force`,
+    ]);
+    return;
+  }
+  await run(["zip", "-rq", archivePath, bundleName], releaseRoot);
+}
+
 await mkdir(releaseRoot, { recursive: true });
 await rm(bundleDirectory, { recursive: true, force: true });
+await rm(archivePath, { force: true });
 await mkdir(bundleDirectory, { recursive: true });
 
 await run([
   "bun",
   "build",
   "--compile",
-  "--target=bun-linux-x64-baseline",
+  `--target=${target.bunTarget}`,
   resolve(packageDirectory, "src/index.ts"),
   "--outfile",
   executablePath,
 ]);
-await chmod(executablePath, 0o755);
+if (releaseTarget === "linux-x64") await chmod(executablePath, 0o755);
 
 for (const [source, destination] of [
   [resolve(packageDirectory, "node_modules/mupdf/dist/mupdf-wasm.wasm"), "mupdf-wasm.wasm"],
@@ -45,11 +86,7 @@ for (const [source, destination] of [
   await copyFile(source, resolve(bundleDirectory, destination));
 }
 
-await run([
-  "tar",
-  "-czf",
-  resolve(releaseRoot, `${bundleName}.tar.gz`),
-  bundleName,
-], releaseRoot);
+if (releaseTarget === "windows-x64") await createWindowsZip();
+else await run(["tar", "-czf", archivePath, bundleName], releaseRoot);
 
-console.log(`CLI 发布包：${resolve(releaseRoot, `${bundleName}.tar.gz`)}`);
+console.log(`CLI 发布包：${archivePath}`);
