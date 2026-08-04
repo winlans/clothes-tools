@@ -13,6 +13,7 @@ import { useGuideStore } from "./stores/guides";
 import { useProjectStore } from "./stores/project";
 
 const fileInput = ref<HTMLInputElement>();
+const showLegalNotice = ref(false);
 const documentStore = usePdfDocumentStore();
 const layoutStore = useLayoutStore();
 const guideStore = useGuideStore();
@@ -127,6 +128,9 @@ onBeforeUnmount(() => {
         <h1>pdf2plt</h1>
       </div>
       <div class="topbar__actions">
+        <button type="button" class="ghost-button" @click="showLegalNotice = true">
+          关于与许可证
+        </button>
         <button
           type="button"
           class="ghost-button"
@@ -176,6 +180,38 @@ onBeforeUnmount(() => {
         />
       </div>
     </header>
+
+    <div
+      v-if="showLegalNotice"
+      class="legal-backdrop"
+      @click.self="showLegalNotice = false"
+    >
+      <section
+        class="legal-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="legal-title"
+      >
+        <span class="eyebrow">pdf2plt 0.1.0</span>
+        <h2 id="legal-title">关于与许可证</h2>
+        <p>
+          pdf2plt 与内含的 MuPDF.js 按 GNU Affero General Public License
+          v3.0 或更高版本发布。
+        </p>
+        <p>
+          Copyright © 2004–2026 Artifex Software, Inc.；Copyright © 2026
+          pdf2plt contributors。
+        </p>
+        <p>
+          本软件不提供任何担保。你可以依照 AGPL-3.0-or-later 复制、修改和再发布。
+          完整条款、第三方声明与对应源码说明随安装包提供在 LICENSE、
+          THIRD_PARTY_NOTICES.md 和 SOURCE_OFFER.md 中。
+        </p>
+        <button type="button" class="primary-button" @click="showLegalNotice = false">
+          关闭
+        </button>
+      </section>
+    </div>
 
     <p v-if="projectStore.errorMessage" class="inline-error project-message" role="alert">
       {{ projectStore.errorMessage }}

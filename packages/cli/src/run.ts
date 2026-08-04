@@ -312,8 +312,3 @@ export async function runCli(options: CliOptions, output: CliOutput): Promise<nu
     document.close();
   }
 }
-
-export function normalizeCliError(error: unknown): Error {
-  if (error instanceof CliUsageError || error instanceof Pdf2PltError) return error;
-  return error instanceof Error ? error : new Error("发生未知错误。");
-}

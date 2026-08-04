@@ -4,7 +4,7 @@ import {
   serializePatternLayoutProject,
   type PatternLayoutProjectV1,
 } from "@pdf2plt/core";
-import { isTauri } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import { dirname, resolve as resolvePath } from "@tauri-apps/api/path";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { readFile, readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
@@ -53,6 +53,10 @@ async function readMatchingPdf(
   }
 }
 
+async function allowProjectPdf(path: string): Promise<string> {
+  return invoke<string>("allow_pdf_read_scope", { path });
+}
+
 export function useProjectFile() {
   const documentStore = usePdfDocumentStore();
   const layoutStore = useLayoutStore();
@@ -80,9 +84,15 @@ export function useProjectFile() {
       }
 
       for (const candidate of candidates) {
-        const bytes = await readMatchingPdf(candidate, project.source.sha256);
+        let readableCandidate: string;
+        try {
+          readableCandidate = await allowProjectPdf(candidate);
+        } catch {
+          continue;
+        }
+        const bytes = await readMatchingPdf(readableCandidate, project.source.sha256);
         if (bytes) {
-          await documentStore.open(bytes, fileNameFromPath(candidate), candidate);
+          await documentStore.open(bytes, fileNameFromPath(readableCandidate), readableCandidate);
           return;
         }
       }

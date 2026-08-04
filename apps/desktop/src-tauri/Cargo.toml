@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Visual PDF sewing-pattern layout tool"
 authors = ["pdf2plt contributors"]
 edition = "2021"
+license = "AGPL-3.0-or-later"
 
 [lib]
 name = "pdf2plt_lib"

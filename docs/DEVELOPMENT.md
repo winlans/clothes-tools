@@ -106,7 +106,8 @@ exportSvg(documentId: string, project: ExportProject): Promise<ExportResult>
 - Konva 负责画板渲染、拖拽、命中检测、缩放和平移；
 - MuPDF 放入专用 Web Worker，避免 PDF 解析和 SVG 导出阻塞界面；
 - Tauri dialog/fs/persisted-scope 插件处理文件选择、写入和工程重开；
-- Rust 代码只初始化 Tauri 与插件，不承载业务逻辑。
+- Rust 代码初始化 Tauri 与插件，并为工程中记录的单个 PDF 路径授予最小读取
+  权限；排版、解析与导出业务逻辑仍全部位于共享 TypeScript 核心。
 
 ### 5.3 `packages/cli`
 
@@ -311,7 +312,8 @@ pdf-pattern-svg --project layout.pattern-layout.json -o output.svg
 - 长任务不阻塞拖拽、缩放或窗口响应；
 - 预览缓存应可淘汰，常规 15 页文档内存目标低于 500MB；
 - 对不受信任 PDF 的处理全部限制在 MuPDF WASM Worker；
-- Tauri 文件权限仅开放给用户通过对话框选择的文件；
+- Tauri 文件权限仅开放给用户通过对话框选择的文件，或用户已选择工程中记录的
+  单个 `.pdf` 路径；工程源文件仍必须通过尺寸与 SHA-256 校验；
 - 发布包包含 AGPL、MuPDF 版权声明和完整对应源码获取方式。
 
 ## 12. 测试与验收

@@ -72,7 +72,43 @@ h1 {
 
 .topbar__actions {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 10px;
+}
+
+.legal-backdrop {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(5 8 10 / 76%);
+}
+
+.legal-dialog {
+  display: grid;
+  width: min(560px, 100%);
+  gap: 14px;
+  border: 1px solid #40515c;
+  border-radius: 12px;
+  padding: 24px;
+  color: #cbd7de;
+  background: #151b20;
+  box-shadow: 0 24px 80px rgb(0 0 0 / 45%);
+}
+
+.legal-dialog h2 {
+  color: #f1f5f8;
+}
+
+.legal-dialog p {
+  line-height: 1.65;
+}
+
+.legal-dialog .primary-button {
+  justify-self: end;
 }
 
 .project-message {

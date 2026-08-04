@@ -16,7 +16,9 @@ PDF 回归基线；新版应用不依赖 Python、Poppler 或 librsvg。
 需要 Node.js、pnpm、Rust 和 Bun。Ubuntu/Debian 构建 Tauri 桌面端还需要：
 
 ```bash
-sudo apt-get install -y libwebkit2gtk-4.1-dev libssl-dev librsvg2-dev libxdo-dev
+sudo apt-get install -y \
+  build-essential libayatana-appindicator3-dev libwebkit2gtk-4.1-dev \
+  libssl-dev librsvg2-dev libxdo-dev patchelf pkg-config
 ```
 
 安装 JavaScript 依赖并验证 workspace：
@@ -52,6 +54,28 @@ pnpm cli -- --project layout.pattern-layout.json -o output.svg
 默认拒绝覆盖已有文件；确认覆盖时添加 `--overwrite`。完整参数可通过
 `pnpm cli -- --help` 查看。旧版 `--rsvg-convert` 与 `--no-flatten` 仍可解析，
 但只会显示弃用提示，因为新版始终直接生成单根 SVG。
+
+## Linux 发布
+
+构建独立的 Linux x86_64 CLI（不要求目标机安装 Bun/Node）：
+
+```bash
+pnpm release:cli
+```
+
+构建 AppImage 与 deb：
+
+```bash
+pnpm tauri build
+```
+
+发布物位于 `dist/release/` 与
+`apps/desktop/src-tauri/target/release/bundle/`。发布时必须同时提供由
+`git archive` 生成的同版本源码包。安装和命令行用法见
+[`docs/USER_GUIDE.md`](docs/USER_GUIDE.md)，构建与验收流程见
+[`docs/LINUX_RELEASE.md`](docs/LINUX_RELEASE.md)，许可证和对应源码说明见
+[`LICENSE`](LICENSE)、[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) 与
+[`SOURCE_OFFER.md`](SOURCE_OFFER.md)。
 
 构建不打包安装器的 Tauri 调试程序：
 
