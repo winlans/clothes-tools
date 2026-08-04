@@ -1,6 +1,7 @@
 import {
   DEFAULT_SVG_EXPORT_OPTIONS,
   type GuideCoordinates,
+  type GuideDetectionOptions,
   type GuideDetectionResult,
   type LayoutGrid,
   type PdfDocumentInfo,
@@ -33,6 +34,9 @@ export interface DesktopSvgExport {
 let pendingExport:
   | { resolve(value: DesktopSvgExport): void; reject(reason: Error): void }
   | undefined;
+let pendingDetection:
+  | { resolve(value: GuideDetectionResult): void; reject(reason: Error): void }
+  | undefined;
 
 export const usePdfDocumentStore = defineStore("pdf-document", {
   state: () => ({
@@ -41,6 +45,8 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
     sourcePath: undefined as string | undefined,
     info: undefined as PdfDocumentInfo | undefined,
     guideDetection: undefined as GuideDetectionResult | undefined,
+    detectionStatus: "idle" as "idle" | "running" | "error",
+    detectionErrorMessage: "",
     sourceSha256: "",
     previews: {} as Record<number, PreviewState>,
     progress: { completed: 0, total: 0 },
@@ -76,11 +82,20 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
           pendingExport = undefined;
           return;
         }
+        if (this.detectionStatus === "running") {
+          this.detectionStatus = "error";
+          this.detectionErrorMessage = event.message || "红线检测 Worker 发生错误。";
+          pendingDetection?.reject(new Error(this.detectionErrorMessage));
+          pendingDetection = undefined;
+          return;
+        }
         this.status = "error";
         this.errorMessage = event.message || "PDF Worker 启动失败。";
       };
     },
     async open(bytes: Uint8Array<ArrayBuffer>, fileName: string, sourcePath?: string) {
+      pendingDetection?.reject(new Error("红线检测已取消。"));
+      pendingDetection = undefined;
       this.disposePreviews();
       this.ensureWorker();
       this.requestId += 1;
@@ -120,6 +135,17 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       }
       if (message.type === "guides") {
         this.guideDetection = message.result;
+        this.detectionStatus = "idle";
+        this.detectionErrorMessage = "";
+        pendingDetection?.resolve(message.result);
+        pendingDetection = undefined;
+        return;
+      }
+      if (message.type === "guides-error") {
+        this.detectionStatus = "error";
+        this.detectionErrorMessage = message.message;
+        pendingDetection?.reject(new Error(message.message));
+        pendingDetection = undefined;
         return;
       }
       if (message.type === "progress") {
@@ -164,6 +190,8 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       this.errorMessage = message.message;
     },
     close() {
+      pendingDetection?.reject(new Error("红线检测已取消。"));
+      pendingDetection = undefined;
       this.requestId += 1;
       const request: PdfWorkerRequest = { type: "close", requestId: this.requestId };
       this.worker?.postMessage(request);
@@ -173,6 +201,8 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       this.sourcePath = undefined;
       this.info = undefined;
       this.guideDetection = undefined;
+      this.detectionStatus = "idle";
+      this.detectionErrorMessage = "";
       this.sourceSha256 = "";
       this.errorMessage = "";
       this.progress = { completed: 0, total: 0 };
@@ -204,6 +234,21 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       };
       return new Promise<DesktopSvgExport>((resolve, reject) => {
         pendingExport = { resolve, reject };
+        this.worker?.postMessage(request);
+      });
+    },
+    detectGuides(options: GuideDetectionOptions): Promise<GuideDetectionResult> {
+      if (!this.worker || !this.info) return Promise.reject(new Error("请先打开 PDF。"));
+      if (pendingDetection) return Promise.reject(new Error("红线检测已在进行中。"));
+      this.detectionStatus = "running";
+      this.detectionErrorMessage = "";
+      const request: PdfWorkerRequest = {
+        type: "detect-guides",
+        requestId: this.requestId,
+        options: { ...options },
+      };
+      return new Promise<GuideDetectionResult>((resolve, reject) => {
+        pendingDetection = { resolve, reject };
         this.worker?.postMessage(request);
       });
     },

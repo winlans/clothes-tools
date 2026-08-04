@@ -3,7 +3,6 @@ import {
   parsePatternLayoutProject,
   serializePatternLayoutProject,
   type PatternLayoutProjectV1,
-  type ProjectGuideSettings,
 } from "@pdf2plt/core";
 import { isTauri } from "@tauri-apps/api/core";
 import { dirname, resolve as resolvePath } from "@tauri-apps/api/path";
@@ -11,6 +10,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { readFile, readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 
 import { sha256Hex } from "../project/fingerprint";
+import { guideSettingsFromLines } from "../project/guide-settings";
 import { useGuideStore } from "../stores/guides";
 import { useLayoutStore } from "../stores/layout";
 import { usePdfDocumentStore } from "../stores/pdf-document";
@@ -130,29 +130,6 @@ export function useProjectFile() {
     }
   }
 
-  function currentGuideSettings(): ProjectGuideSettings {
-    const coordinates = guideStore.coordinates;
-    const sources = Object.values(guideStore.lines).map((line) => line?.source);
-    const mode = coordinates
-      ? sources.includes("manual")
-        ? "manual"
-        : "auto"
-      : "none";
-    return {
-      ...projectStore.guideSettings,
-      mode,
-      ...(coordinates
-        ? {
-            seamLeft: coordinates.left,
-            seamRight: coordinates.right,
-            seamTop: coordinates.top,
-            seamBottom: coordinates.bottom,
-          }
-        : {}),
-      detection: { ...projectStore.guideSettings.detection },
-    };
-  }
-
   function buildProject(path?: string): PatternLayoutProjectV1 {
     const info = documentStore.info;
     const layout = layoutStore.layout;
@@ -173,7 +150,7 @@ export function useProjectFile() {
         pageSizePt: { ...info.pageSizePt },
       },
       layout: JSON.parse(JSON.stringify(layout)) as typeof layout,
-      guides: currentGuideSettings(),
+      guides: guideSettingsFromLines(projectStore.guideSettings, guideStore.lines),
       output: { ...projectStore.outputSettings },
       view: projectStore.view
         ? { ...projectStore.view }

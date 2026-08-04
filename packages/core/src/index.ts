@@ -1,5 +1,6 @@
 export * from "./guides/crop";
 export * from "./guides/detection";
+export * from "./guides/settings";
 export * from "./layout/automatic-layout";
 export * from "./layout/manual-layout";
 export * from "./layout/reorder";

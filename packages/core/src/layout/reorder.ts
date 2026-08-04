@@ -39,6 +39,17 @@ export function flattenLayout(layout: LayoutGrid): LayoutCell[] {
   );
 }
 
+export function getUnusedLayoutPages(layout: LayoutGrid, pageCount: number): number[] {
+  const used = new Set(
+    flattenLayout(layout).flatMap((cell) =>
+      cell?.kind === "page" ? [cell.pageNumber] : [],
+    ),
+  );
+  return Array.from({ length: pageCount }, (_, index) => index + 1).filter(
+    (pageNumber) => !used.has(pageNumber),
+  );
+}
+
 export function rebuildLayout(
   rows: number,
   cells: LayoutCell[],

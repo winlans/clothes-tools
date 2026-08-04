@@ -148,4 +148,40 @@ describe("pdf document store", () => {
     expect(store.exportStatus).toBe("complete");
     expect(store.exportSummary?.visibleObjects).toBe(4);
   });
+
+  it("reruns guide detection with validated inspector thresholds", async () => {
+    const store = usePdfDocumentStore();
+    store.requestId = 9;
+    store.info = {
+      documentId: "pdf-1",
+      pageCount: 1,
+      pageSizePt: { width: 200, height: 300 },
+      pages: [{ pageNumber: 1, width: 200, height: 300 }],
+    };
+    const postMessage = vi.fn();
+    store.worker = { postMessage } as unknown as Worker;
+    const options = {
+      dpi: 96,
+      redMin: 190,
+      otherMax: 110,
+      redDelta: 70,
+      minimumFraction: 0.04,
+    };
+    const detection = store.detectGuides(options);
+
+    expect(store.detectionStatus).toBe("running");
+    expect(postMessage).toHaveBeenCalledWith({
+      type: "detect-guides",
+      requestId: 9,
+      options,
+    });
+    store.handleWorkerMessage({
+      type: "guides",
+      requestId: 9,
+      result: { lines: {}, missing: ["left", "right", "top", "bottom"], options },
+    });
+
+    await expect(detection).resolves.toMatchObject({ options });
+    expect(store.detectionStatus).toBe("idle");
+  });
 });

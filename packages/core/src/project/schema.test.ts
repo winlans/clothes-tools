@@ -77,6 +77,21 @@ describe("pattern layout project schema", () => {
     expect(() => parsePatternLayoutProject(duplicate)).toThrow(/空白块 same 重复/);
   });
 
+  it("rejects out-of-page seams, inverted outer bounds, and incomplete manual mode", () => {
+    expect(() => parsePatternLayoutProject({
+      ...project(),
+      guides: { ...project().guides, seamLeft: -1 },
+    })).toThrow(/页面范围/);
+    expect(() => parsePatternLayoutProject({
+      ...project(),
+      guides: { ...project().guides, outerLeft: 190, outerRight: 180 },
+    })).toThrow(/左右外边界/);
+    const incomplete = project();
+    delete incomplete.guides.seamRight;
+    incomplete.guides.mode = "manual";
+    expect(() => parsePatternLayoutProject(incomplete)).toThrow(/缺少右拼接线/);
+  });
+
   it("creates portable relative PDF paths", () => {
     expect(createRelativeSourcePath("/work/pattern/layout.pattern-layout.json", "/work/pattern/input.pdf"))
       .toBe("./input.pdf");

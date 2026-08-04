@@ -6,6 +6,8 @@ import {
 import type { LayoutCell, LayoutGrid } from "../layout/automatic-layout";
 import type { PageSizePt } from "../pdf/document";
 import { Pdf2PltError } from "../pdf/errors";
+import type { GuideCropSettings } from "../guides/settings";
+import { resolveGuideGeometry } from "../guides/settings";
 
 export interface ProjectSource {
   absolutePath: string;
@@ -15,16 +17,7 @@ export interface ProjectSource {
   pageSizePt: PageSizePt;
 }
 
-export interface ProjectGuideSettings {
-  mode: "auto" | "manual" | "none";
-  seamLeft?: number;
-  seamRight?: number;
-  seamTop?: number;
-  seamBottom?: number;
-  outerLeft: number;
-  outerRight?: number;
-  outerTop: number;
-  outerBottom?: number;
+export interface ProjectGuideSettings extends GuideCropSettings {
   detection: GuideDetectionOptions;
 }
 
@@ -198,6 +191,34 @@ export function parsePatternLayoutProject(value: string | unknown): PatternLayou
     allowUnusedPages: booleanValue(rawOutput.allowUnusedPages, "output.allowUnusedPages"),
   };
   const layout = parseLayout(root.layout, pageCount);
+  for (const [name, value, limit] of [
+    ["seamLeft", guides.seamLeft, pageSizePt.width],
+    ["seamRight", guides.seamRight, pageSizePt.width],
+    ["seamTop", guides.seamTop, pageSizePt.height],
+    ["seamBottom", guides.seamBottom, pageSizePt.height],
+  ] as const) {
+    if (value !== undefined && (value < 0 || value > limit + 0.05)) {
+      throw new Pdf2PltError("invalid-project", `guides.${name} 必须位于页面范围内。`);
+    }
+  }
+  if (
+    guides.seamLeft !== undefined &&
+    guides.seamRight !== undefined &&
+    guides.seamLeft >= guides.seamRight
+  ) {
+    throw new Pdf2PltError("invalid-project", "guides 左拼接线必须小于右拼接线。");
+  }
+  if (
+    guides.seamTop !== undefined &&
+    guides.seamBottom !== undefined &&
+    guides.seamTop >= guides.seamBottom
+  ) {
+    throw new Pdf2PltError("invalid-project", "guides 上拼接线必须小于下拼接线。");
+  }
+  resolveGuideGeometry({ ...guides, mode: "none" }, {}, pageSizePt, layout);
+  if (guides.mode === "manual") {
+    resolveGuideGeometry(guides, {}, pageSizePt, layout);
+  }
   if (!output.allowUnusedPages) {
     const usedPages = new Set(
       layout.cells.flat().flatMap((cell) => cell?.kind === "page" ? [cell.pageNumber] : []),

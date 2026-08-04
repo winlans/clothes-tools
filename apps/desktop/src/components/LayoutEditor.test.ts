@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useLayoutStore } from "../stores/layout";
 import { useGuideStore } from "../stores/guides";
+import { useProjectStore } from "../stores/project";
 import LayoutEditor from "./LayoutEditor.vue";
 
 const fitContent = vi.fn();
@@ -81,7 +82,7 @@ describe("LayoutEditor", () => {
       ["下拼接线 point 坐标", "1167"],
     ] as const;
 
-    expect(wrapper.text()).toContain("未检测到左、右、上、下方向红线");
+    expect(wrapper.text()).toContain("缺少左、右、上、下方向红线");
     for (const [name, value] of values) {
       const input = wrapper.get(`[aria-label="${name}"]`);
       await input.setValue(value);
@@ -91,9 +92,40 @@ describe("LayoutEditor", () => {
     expect(guideStore.canPreviewCropped).toBe(true);
     expect(guideStore.lines.left?.source).toBe("manual");
     const cropButton = wrapper.findAll("button").find((button) =>
-      button.text().includes("裁切拼接"),
+      button.text().includes("成品裁切"),
     );
     expect(cropButton?.attributes("disabled")).toBeUndefined();
-    expect(wrapper.text()).toContain("四条红线已检测");
+    expect(wrapper.text()).toContain("四条拼接线有效");
+  });
+
+  it("switches to no-seam geometry and updates output size after valid outer bounds", async () => {
+    const { wrapper } = mountEditor();
+    const noSeam = wrapper.findAll("button").find((button) => button.text() === "无接缝");
+    await noSeam?.trigger("click");
+
+    expect(wrapper.get('[aria-label="成品尺寸"]').text()).toBe("1485.00 × 1260.00 mm");
+    const outerLeft = wrapper.get('[aria-label="左外边界 point 坐标"]');
+    const outerRight = wrapper.get('[aria-label="右外边界 point 坐标"]');
+    await outerLeft.setValue("10");
+    await outerRight.setValue("800");
+    await outerRight.trigger("change");
+
+    expect(wrapper.get('[aria-label="成品尺寸"]').text()).toBe("1466.69 × 1260.00 mm");
+  });
+
+  it("persists advanced output switches in the shared project store", async () => {
+    const { wrapper } = mountEditor();
+    const projectStore = useProjectStore();
+    const checkboxes = wrapper.findAll('input[type="checkbox"]');
+
+    await checkboxes[0]?.setValue(true);
+    await checkboxes[1]?.setValue(true);
+    await checkboxes[2]?.setValue(true);
+
+    expect(projectStore.outputSettings).toEqual({
+      keepGuides: true,
+      keepBackground: true,
+      allowUnusedPages: true,
+    });
   });
 });

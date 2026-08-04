@@ -53,7 +53,7 @@ const screenshotPath = process.env.SCREENSHOT_PATH;
 
   const canvas = page.locator(".layout-canvas");
   await canvas.locator("canvas").first().waitFor();
-  await page.getByText("四条红线已检测，可切换裁切拼接预览。").waitFor();
+  await page.getByText("四条拼接线有效。").waitFor();
   const detectedGuides = {};
   for (const [direction, name] of [
     ["left", "左拼接线 point 坐标"],
@@ -67,8 +67,23 @@ const screenshotPath = process.env.SCREENSHOT_PATH;
   assert(Math.abs(detectedGuides.right - 818.893) < 1);
   assert(Math.abs(detectedGuides.top - 21.992) < 1);
   assert(Math.abs(detectedGuides.bottom - 1166.56) < 1);
+  assert.equal(await page.getByLabel("成品尺寸").textContent(), "1421.51 × 1227.56 mm");
+  await page.getByRole("button", { name: "手动", exact: true }).click();
+  assert.equal(
+    await page.getByRole("button", { name: "手动", exact: true }).getAttribute("aria-pressed"),
+    "true",
+  );
+  await page.getByRole("button", { name: "无接缝", exact: true }).click();
+  await page.waitForFunction(
+    () => document.querySelector('[aria-label="成品尺寸"]')?.textContent === "1485.00 × 1260.00 mm",
+  );
+  await page.getByRole("button", { name: "自动", exact: true }).click();
+  await page.waitForFunction(
+    () => document.querySelector('[aria-label="成品尺寸"]')?.textContent === "1421.51 × 1227.56 mm",
+  );
+  await page.getByRole("button", { name: "完整页面" }).click();
   const layoutBeforeCropToggle = await canvas.getAttribute("data-layout-cells");
-  await page.getByRole("button", { name: "裁切拼接" }).click();
+  await page.getByRole("button", { name: "成品裁切" }).click();
   await page.waitForFunction(
     () => document.querySelector(".layout-canvas")?.getAttribute("data-preview-mode") === "cropped",
   );
@@ -109,6 +124,17 @@ const screenshotPath = process.env.SCREENSHOT_PATH;
     uniqueIds: ids.length,
     references: references.length,
   };
+
+  await page.getByLabel("保留红色辅助线").check();
+  await page.getByLabel("保留白色背景").check();
+  const keptDownloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "导出 SVG" }).click();
+  const keptDownload = await keptDownloadPromise;
+  const keptSvg = await readFile(await keptDownload.path(), "utf8");
+  assert(keptSvg.includes('stroke="#ff0000"'));
+  assert(keptSvg.includes('fill="#ffffff"'));
+  await page.getByLabel("保留红色辅助线").uncheck();
+  await page.getByLabel("保留白色背景").uncheck();
 
   const beforeZoom = await canvas.getAttribute("data-camera-scale");
   const box = await canvas.boundingBox();
@@ -323,6 +349,8 @@ const screenshotPath = process.env.SCREENSHOT_PATH;
       spacerUndoRedo: true,
       spacerMovedAndDeleted: true,
       projectSavedAndRestored: true,
+      advancedModesAndLiveSize: true,
+      keepGuidesAndBackgroundExport: true,
       unsafeColumnDeleteBlocked: true,
       guideDetectionMatchesLegacy: true,
       cropTogglePreservedLayout: true,

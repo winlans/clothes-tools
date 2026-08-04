@@ -2,10 +2,12 @@ import {
   buildCombinedSvg,
   createAutomaticLayout,
   flattenLayout,
+  getUnusedLayoutPages,
   openMuPdfDocument,
   parsePatternLayoutProject,
   parsePageLayout,
   Pdf2PltError,
+  resolveGuideGeometry,
   type GuideCoordinates,
   type GuideDetectionOptions,
   type LayoutCell,
@@ -180,36 +182,10 @@ function validateLayoutPages(layout: LayoutGrid, pageCount: number, allowUnused:
     if (seen.has(page)) throw new CliUsageError(`工程页码 ${page} 重复。`);
     seen.add(page);
   }
-  const missing = Array.from({ length: pageCount }, (_, index) => index + 1).filter((page) => !seen.has(page));
+  const missing = getUnusedLayoutPages(layout, pageCount);
   if (missing.length > 0 && !allowUnused) {
     throw new CliUsageError(`布局遗漏 PDF 页码：${missing.join(",")}。`);
   }
-}
-
-function resolveGuides(
-  mode: GuideMode,
-  explicit: Partial<GuideCoordinates>,
-  detected: Partial<Record<"left" | "right" | "top" | "bottom", number>>,
-  pageSize: PageSizePt,
-  layout: LayoutGrid,
-): GuideCoordinates {
-  const seam = (direction: "left" | "right" | "top" | "bottom", fallback: number, needed: boolean) => {
-    if (mode === "none") return fallback;
-    const value = explicit[direction] ?? (mode === "auto" ? detected[direction] : undefined);
-    if (value !== undefined) return value;
-    if (!needed) return fallback;
-    throw new CliUsageError(`无法确定 ${direction} 拼接线；请使用对应的 --seam-* 参数。`);
-  };
-  return {
-    left: seam("left", 0, layout.columns > 1),
-    right: seam("right", pageSize.width, layout.columns > 1),
-    top: seam("top", 0, layout.rows > 1),
-    bottom: seam("bottom", pageSize.height, layout.rows > 1),
-    outerLeft: explicit.outerLeft ?? 0,
-    outerRight: explicit.outerRight ?? pageSize.width,
-    outerTop: explicit.outerTop ?? 0,
-    outerBottom: explicit.outerBottom ?? pageSize.height,
-  };
 }
 
 function defaultOutputPath(inputPath: string, projectPath?: string): string {
@@ -276,7 +252,22 @@ export async function runCli(options: CliOptions, output: CliOutput): Promise<nu
       ...(options.outerRight !== undefined ? { outerRight: options.outerRight } : {}),
       ...(options.outerBottom !== undefined ? { outerBottom: options.outerBottom } : {}),
     };
-    const guides = resolveGuides(mode, explicit, detected, document.info.pageSizePt, layout);
+    const guides = resolveGuideGeometry(
+      {
+        mode,
+        ...(explicit.left !== undefined ? { seamLeft: explicit.left } : {}),
+        ...(explicit.right !== undefined ? { seamRight: explicit.right } : {}),
+        ...(explicit.top !== undefined ? { seamTop: explicit.top } : {}),
+        ...(explicit.bottom !== undefined ? { seamBottom: explicit.bottom } : {}),
+        outerLeft: explicit.outerLeft ?? 0,
+        ...(explicit.outerRight !== undefined ? { outerRight: explicit.outerRight } : {}),
+        outerTop: explicit.outerTop ?? 0,
+        ...(explicit.outerBottom !== undefined ? { outerBottom: explicit.outerBottom } : {}),
+      },
+      detected,
+      document.info.pageSizePt,
+      layout,
+    ).coordinates;
     output.log(`页面：${document.info.pageCount}；网格：${layout.columns} 列 × ${layout.rows} 行`);
     output.log(`单页：${document.info.pageSizePt.width.toFixed(3)} × ${document.info.pageSizePt.height.toFixed(3)} pt`);
     if (detection) {

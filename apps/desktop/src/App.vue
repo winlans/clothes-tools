@@ -5,6 +5,7 @@ import LayoutEditor from "./components/LayoutEditor.vue";
 import { usePdfImport } from "./composables/use-pdf-import";
 import { useSvgExport } from "./composables/use-svg-export";
 import { useProjectFile } from "./composables/use-project-file";
+import { useResolvedSettings } from "./composables/use-resolved-settings";
 import { usePdfDocumentStore } from "./stores/pdf-document";
 import { useLayoutStore } from "./stores/layout";
 import { useGuideStore } from "./stores/guides";
@@ -18,6 +19,7 @@ const projectStore = useProjectStore();
 const pdfImport = usePdfImport();
 const svgExport = useSvgExport();
 const projectFile = useProjectFile();
+const resolvedSettings = useResolvedSettings(() => documentStore.info?.pageSizePt);
 
 const progressPercent = computed(() => {
   if (documentStore.progress.total === 0) return 0;
@@ -138,8 +140,9 @@ onBeforeUnmount(() => {
           type="button"
           class="primary-button"
           :disabled="
-            documentStore.exportStatus === 'running' || !guideStore.canPreviewCropped
+            documentStore.exportStatus === 'running' || !resolvedSettings.canExport.value
           "
+          :title="resolvedSettings.validationError.value || '导出合并后的矢量 SVG'"
           @click="svgExport.exportCurrentSvg()"
         >
           {{ documentStore.exportStatus === 'running' ? '正在导出…' : '导出 SVG' }}

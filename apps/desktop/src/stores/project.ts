@@ -70,6 +70,12 @@ export const useProjectStore = defineStore("project", {
     setView(camera: { scale: number; x: number; y: number }) {
       this.view = { zoom: camera.scale, panX: camera.x, panY: camera.y };
     },
+    setGuideSettings(settings: ProjectGuideSettings) {
+      this.guideSettings = { ...settings, detection: { ...settings.detection } };
+    },
+    setOutputSettings(settings: ProjectOutputSettings) {
+      this.outputSettings = { ...settings };
+    },
     beginSave() {
       this.status = "saving";
       this.errorMessage = "";

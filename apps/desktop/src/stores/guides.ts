@@ -106,6 +106,21 @@ export const useGuideStore = defineStore("guides", {
       this.errorMessage = "";
       return true;
     },
+    setPreviewModeValidated(mode: GuidePreviewMode, canCrop: boolean) {
+      if (mode === "cropped" && !canCrop) {
+        this.errorMessage = "当前接缝或外边界不能形成有效的成品预览。";
+        return false;
+      }
+      this.previewMode = mode;
+      this.errorMessage = "";
+      return true;
+    },
+    markLinesManual() {
+      for (const direction of GUIDE_DIRECTIONS) {
+        const line = this.lines[direction];
+        if (line) this.lines[direction] = { ...line, source: "manual", supportPages: 0 };
+      }
+    },
     clear() {
       this.documentId = "";
       this.lines = {};

@@ -1,5 +1,6 @@
 import type {
   GuideCoordinates,
+  GuideDetectionOptions,
   GuideDetectionResult,
   LayoutGrid,
   PdfDocumentInfo,
@@ -12,6 +13,11 @@ export type PdfWorkerRequest =
       requestId: number;
       bytes: Uint8Array<ArrayBuffer>;
       previewLongEdge: number;
+    }
+  | {
+      type: "detect-guides";
+      requestId: number;
+      options: GuideDetectionOptions;
     }
   | {
       type: "export-svg";
@@ -68,6 +74,12 @@ export type PdfWorkerResponse =
     }
   | {
       type: "export-error";
+      requestId: number;
+      code: string;
+      message: string;
+    }
+  | {
+      type: "guides-error";
       requestId: number;
       code: string;
       message: string;

@@ -51,6 +51,23 @@ worker.onmessage = async (event: MessageEvent<PdfWorkerRequest>) => {
     return;
   }
 
+  if (request.type === "detect-guides") {
+    try {
+      if (!currentDocument) {
+        throw new Pdf2PltError("document-not-open", "请先打开 PDF 再检测红线。");
+      }
+      respond({
+        type: "guides",
+        requestId: request.requestId,
+        result: currentDocument.detectGuides(request.options),
+      });
+    } catch (error) {
+      const serialized = serializeError(error);
+      respond({ type: "guides-error", requestId: request.requestId, ...serialized });
+    }
+    return;
+  }
+
   if (request.type === "export-svg") {
     try {
       if (!currentDocument) {

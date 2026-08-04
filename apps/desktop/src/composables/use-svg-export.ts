@@ -2,7 +2,7 @@ import { isTauri } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeFile } from "@tauri-apps/plugin-fs";
 
-import { useGuideStore } from "../stores/guides";
+import { useResolvedSettings } from "./use-resolved-settings";
 import { useLayoutStore } from "../stores/layout";
 import { usePdfDocumentStore } from "../stores/pdf-document";
 import { useProjectStore } from "../stores/project";
@@ -14,12 +14,18 @@ function outputName(fileName: string): string {
 export function useSvgExport() {
   const documentStore = usePdfDocumentStore();
   const layoutStore = useLayoutStore();
-  const guideStore = useGuideStore();
   const projectStore = useProjectStore();
+  const settings = useResolvedSettings(() => documentStore.info?.pageSizePt);
 
   async function exportCurrentSvg() {
     const layout = layoutStore.layout;
     if (!layout) return;
+    const resolved = settings.resolved.value.value;
+    if (!resolved || !settings.canExport.value) {
+      documentStore.exportStatus = "error";
+      documentStore.exportErrorMessage = settings.validationError.value || "当前设置无法导出。";
+      return;
+    }
     let selectedPath: string | undefined;
     if (isTauri()) {
       const selected = await save({
@@ -31,18 +37,7 @@ export function useSvgExport() {
     }
 
     try {
-      const seam = guideStore.coordinates;
-      const settings = projectStore.guideSettings;
-      const guides = seam
-        ? {
-            ...seam,
-            outerLeft: settings.outerLeft,
-            ...(settings.outerRight !== undefined ? { outerRight: settings.outerRight } : {}),
-            outerTop: settings.outerTop,
-            ...(settings.outerBottom !== undefined ? { outerBottom: settings.outerBottom } : {}),
-          }
-        : undefined;
-      const result = await documentStore.exportSvg(layout, guides, {
+      const result = await documentStore.exportSvg(layout, resolved.coordinates, {
         removeGuides: !projectStore.outputSettings.keepGuides,
         removeBackground: !projectStore.outputSettings.keepBackground,
       });
