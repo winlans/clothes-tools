@@ -24,10 +24,12 @@ const props = defineProps<{
   pageSize: PageSizePt;
   previews: PreviewState[];
   guides: GuideCoordinates | undefined;
+  initialCamera: Camera | undefined;
 }>();
 
 const emit = defineEmits<{
   zoomChange: [scale: number];
+  viewChange: [camera: Camera];
   movePage: [pageNumber: number, target: GridPosition];
   insertSpacer: [target: GridPosition];
   moveSpacer: [spacerId: string, target: GridPosition];
@@ -72,6 +74,7 @@ function applyCamera(nextCamera: Camera) {
   contentLayer?.scale({ x: camera.scale, y: camera.scale });
   contentLayer?.batchDraw();
   emit("zoomChange", camera.scale);
+  emit("viewChange", { ...camera });
 }
 
 function getContentSize() {
@@ -530,7 +533,8 @@ onMounted(() => {
   stage.add(contentLayer);
   resizeStage();
   renderScene();
-  fitContent();
+  if (props.initialCamera) applyCamera({ ...props.initialCamera });
+  else fitContent();
 
   stage.on("wheel", (event) => {
     event.evt.preventDefault();

@@ -5,6 +5,7 @@ import { writeFile } from "@tauri-apps/plugin-fs";
 import { useGuideStore } from "../stores/guides";
 import { useLayoutStore } from "../stores/layout";
 import { usePdfDocumentStore } from "../stores/pdf-document";
+import { useProjectStore } from "../stores/project";
 
 function outputName(fileName: string): string {
   return fileName.replace(/\.pdf$/i, "") + ".svg";
@@ -14,6 +15,7 @@ export function useSvgExport() {
   const documentStore = usePdfDocumentStore();
   const layoutStore = useLayoutStore();
   const guideStore = useGuideStore();
+  const projectStore = useProjectStore();
 
   async function exportCurrentSvg() {
     const layout = layoutStore.layout;
@@ -29,7 +31,21 @@ export function useSvgExport() {
     }
 
     try {
-      const result = await documentStore.exportSvg(layout, guideStore.coordinates);
+      const seam = guideStore.coordinates;
+      const settings = projectStore.guideSettings;
+      const guides = seam
+        ? {
+            ...seam,
+            outerLeft: settings.outerLeft,
+            ...(settings.outerRight !== undefined ? { outerRight: settings.outerRight } : {}),
+            outerTop: settings.outerTop,
+            ...(settings.outerBottom !== undefined ? { outerBottom: settings.outerBottom } : {}),
+          }
+        : undefined;
+      const result = await documentStore.exportSvg(layout, guides, {
+        removeGuides: !projectStore.outputSettings.keepGuides,
+        removeBackground: !projectStore.outputSettings.keepBackground,
+      });
       if (selectedPath) {
         await writeFile(selectedPath, result.bytes);
         return;

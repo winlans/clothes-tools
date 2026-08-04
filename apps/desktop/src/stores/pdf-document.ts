@@ -10,6 +10,7 @@ import { defineStore } from "pinia";
 import { markRaw } from "vue";
 
 import type { PdfWorkerRequest, PdfWorkerResponse } from "../workers/protocol";
+import { sha256Hex } from "../project/fingerprint";
 
 export interface PreviewState {
   pageNumber: number;
@@ -40,6 +41,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
     sourcePath: undefined as string | undefined,
     info: undefined as PdfDocumentInfo | undefined,
     guideDetection: undefined as GuideDetectionResult | undefined,
+    sourceSha256: "",
     previews: {} as Record<number, PreviewState>,
     progress: { completed: 0, total: 0 },
     errorMessage: "",
@@ -87,6 +89,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       this.sourcePath = sourcePath;
       this.info = undefined;
       this.guideDetection = undefined;
+      this.sourceSha256 = await sha256Hex(bytes);
       this.errorMessage = "";
       this.progress = { completed: 0, total: 0 };
       this.resetExport();
@@ -170,6 +173,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       this.sourcePath = undefined;
       this.info = undefined;
       this.guideDetection = undefined;
+      this.sourceSha256 = "";
       this.errorMessage = "";
       this.progress = { completed: 0, total: 0 };
       this.resetExport();

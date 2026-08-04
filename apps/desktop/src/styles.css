@@ -75,6 +75,10 @@ h1 {
   gap: 10px;
 }
 
+.project-message {
+  margin: 12px 24px 0;
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;

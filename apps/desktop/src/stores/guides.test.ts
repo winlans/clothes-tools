@@ -45,4 +45,22 @@ describe("guide store", () => {
     expect(store.canPreviewCropped).toBe(false);
     expect(store.missing).toEqual(["left", "right", "top", "bottom"]);
   });
+
+  it("restores saved seam coordinates instead of later detection defaults", () => {
+    const store = useGuideStore();
+    store.restore("saved", {
+      mode: "manual",
+      seamLeft: 21,
+      seamRight: 821,
+      seamTop: 23,
+      seamBottom: 1165,
+      outerLeft: 0,
+      outerTop: 0,
+      detection: { dpi: 72, redMin: 200, otherMax: 120, redDelta: 80, minimumFraction: 0.03 },
+    });
+
+    expect(store.coordinates).toEqual({ left: 21, right: 821, top: 23, bottom: 1165 });
+    expect(store.previewMode).toBe("cropped");
+    expect(store.lines.left?.source).toBe("manual");
+  });
 });

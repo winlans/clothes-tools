@@ -9,7 +9,10 @@ describe("App", () => {
   it("offers a local PDF import action", () => {
     setActivePinia(createPinia());
     const wrapper = mount(App, { global: { plugins: [createPinia()] } });
-    expect(wrapper.get("button").text()).toBe("打开 PDF");
+    expect(wrapper.findAll("button").map((button) => button.text())).toEqual([
+      "打开工程",
+      "打开 PDF",
+    ]);
     expect(wrapper.text()).toContain("不会上传到网络");
   });
 });

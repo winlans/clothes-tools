@@ -10,12 +10,22 @@
 
 ## Acceptance criteria
 
-- [ ] schemaVersion 1 有运行时校验和稳定序列化测试。
-- [ ] 保存后重开可恢复页码、空白、接缝、缩放和平移。
-- [ ] 工程优先使用相对路径，兼顾同目录整体移动。
-- [ ] 源文件缺失时显示重新选择对话框。
-- [ ] 页数、尺寸或 SHA-256 不一致时不得静默替换源 PDF。
-- [ ] Tauri 持久文件权限只覆盖用户已选择的工程与 PDF。
+- [x] schemaVersion 1 有运行时校验和稳定序列化测试。
+- [x] 保存后重开可恢复页码、空白、接缝、缩放和平移。
+- [x] 工程优先使用相对路径，兼顾同目录整体移动。
+- [x] 源文件缺失时显示重新选择对话框。
+- [x] 页数、尺寸或 SHA-256 不一致时不得静默替换源 PDF。
+- [x] Tauri 持久文件权限只覆盖用户已选择的工程与 PDF。
+
+## Verification
+
+- `pnpm test`
+- `pnpm typecheck`
+- `pnpm build`
+- `cargo check`（`pdf2plt-tauri-verify` 镜像，含 dialog/fs/persisted-scope 插件）
+- 浏览器 smoke：保存含空白块/接缝/相机状态的工程并重新选择 PDF 后完整恢复。
+- Tauri capability 仅启用 dialog 选取及 `fs:allow-read-file` / `fs:allow-write-file`，
+  未配置宽泛文件系统 scope；持久 scope 由用户选择的工程和 PDF 动态授予。
 
 ## Blocked by
 

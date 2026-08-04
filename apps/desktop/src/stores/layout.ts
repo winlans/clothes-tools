@@ -41,6 +41,16 @@ export const useLayoutStore = defineStore("layout", {
       this.future = [];
       this.nextSpacerId = 1;
     },
+    restore(documentId: string, pageCount: number, layout: LayoutGrid) {
+      this.documentId = documentId;
+      this.pageCount = pageCount;
+      this.pagesPerColumn = layout.rows;
+      this.layout = JSON.parse(JSON.stringify(layout)) as LayoutGrid;
+      this.errorMessage = "";
+      this.past = [];
+      this.future = [];
+      this.nextSpacerId = 1 + layout.cells.flat().filter((cell) => cell?.kind === "spacer").length;
+    },
     applyLayoutChange(
       change: (layout: LayoutGrid) => LayoutGrid,
       fallbackMessage: string,

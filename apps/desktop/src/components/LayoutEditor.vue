@@ -9,6 +9,7 @@ import { computed, reactive, ref, watch } from "vue";
 import type { PreviewState } from "../stores/pdf-document";
 import { useLayoutStore } from "../stores/layout";
 import { useGuideStore } from "../stores/guides";
+import { useProjectStore } from "../stores/project";
 import LayoutCanvas from "./LayoutCanvas.vue";
 
 const props = defineProps<{
@@ -18,6 +19,7 @@ const props = defineProps<{
 
 const layoutStore = useLayoutStore();
 const guideStore = useGuideStore();
+const projectStore = useProjectStore();
 const canvas = ref<InstanceType<typeof LayoutCanvas>>();
 const draftPagesPerColumn = ref(String(layoutStore.pagesPerColumn));
 const zoom = ref(1);
@@ -43,6 +45,15 @@ const activeGuides = computed(() =>
 );
 const missingGuideText = computed(() =>
   guideStore.missing.map((direction) => guideLabels[direction]).join("、"),
+);
+const initialCamera = computed(() =>
+  projectStore.view
+    ? {
+        scale: projectStore.view.zoom,
+        x: projectStore.view.panX,
+        y: projectStore.view.panY,
+      }
+    : undefined,
 );
 
 function applyAutomaticLayout() {
@@ -229,7 +240,9 @@ watch(
       :page-size="props.pageSize"
       :previews="props.previews"
       :guides="activeGuides"
+      :initial-camera="initialCamera"
       @zoom-change="zoom = $event"
+      @view-change="projectStore.setView"
       @move-page="layoutStore.movePageTo"
       @insert-spacer="layoutStore.insertSpacer"
       @move-spacer="layoutStore.moveSpacerTo"

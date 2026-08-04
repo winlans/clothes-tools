@@ -6,4 +6,5 @@ export * from "./layout/reorder";
 export * from "./pdf/document";
 export * from "./pdf/errors";
 export * from "./pdf/mupdf-engine";
+export * from "./project/schema";
 export * from "./svg/exporter";

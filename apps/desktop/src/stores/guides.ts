@@ -5,6 +5,7 @@ import {
   type GuideDirection,
   type GuideLine,
   type PageSizePt,
+  type ProjectGuideSettings,
 } from "@pdf2plt/core";
 import { defineStore } from "pinia";
 
@@ -52,6 +53,24 @@ export const useGuideStore = defineStore("guides", {
       this.lines = { ...result.lines };
       this.missing = [...result.missing];
       this.previewMode = "full";
+      this.errorMessage = "";
+    },
+    restore(documentId: string, settings: ProjectGuideSettings) {
+      this.documentId = documentId;
+      const source = settings.mode === "manual" ? "manual" : "auto";
+      this.lines = {};
+      for (const [direction, coordinatePt] of [
+        ["left", settings.seamLeft],
+        ["right", settings.seamRight],
+        ["top", settings.seamTop],
+        ["bottom", settings.seamBottom],
+      ] as const) {
+        if (coordinatePt !== undefined) {
+          this.lines[direction] = { coordinatePt, source, supportPages: 0, pixelWeight: 0 };
+        }
+      }
+      this.missing = GUIDE_DIRECTIONS.filter((direction) => !this.lines[direction]);
+      this.previewMode = this.missing.length === 0 && settings.mode !== "none" ? "cropped" : "full";
       this.errorMessage = "";
     },
     setManual(direction: GuideDirection, coordinatePt: number, pageSize: PageSizePt) {

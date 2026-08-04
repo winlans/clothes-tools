@@ -3,6 +3,7 @@ import {
   createAutomaticLayout,
   flattenLayout,
   openMuPdfDocument,
+  parsePatternLayoutProject,
   parsePageLayout,
   Pdf2PltError,
   type GuideCoordinates,
@@ -11,6 +12,7 @@ import {
   type LayoutGrid,
   type PageSizePt,
 } from "@pdf2plt/core";
+import { createHash } from "node:crypto";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
 import mupdf from "mupdf";
@@ -25,8 +27,9 @@ export interface CliOutput {
 
 interface ProjectData {
   sourcePath: string;
-  pageCount?: number;
-  pageSizePt?: PageSizePt;
+  sha256: string;
+  pageCount: number;
+  pageSizePt: PageSizePt;
   layout: LayoutGrid;
   guideMode: GuideMode;
   seams: Partial<GuideCoordinates>;
@@ -34,56 +37,6 @@ interface ProjectData {
   keepGuides: boolean;
   keepBackground: boolean;
   allowUnusedPages: boolean;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function optionalNumber(record: Record<string, unknown>, key: string): number | undefined {
-  const value = record[key];
-  if (value === undefined || value === null) return undefined;
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new CliUsageError(`工程字段 ${key} 必须是数字。`);
-  }
-  return value;
-}
-
-function normalizeProjectLayout(value: unknown): LayoutGrid {
-  if (!isRecord(value)) throw new CliUsageError("工程缺少有效的 layout。");
-  const rows = value.rows;
-  const columns = value.columns;
-  if (!Number.isInteger(rows) || !Number.isInteger(columns) || Number(rows) < 1 || Number(columns) < 1) {
-    throw new CliUsageError("工程 layout 的 rows/columns 必须是正整数。");
-  }
-  if (
-    value.traversal !== "column-major" ||
-    !Array.isArray(value.cells) ||
-    value.cells.length !== Number(rows)
-  ) {
-    throw new CliUsageError("工程 layout 结构无效或不是 column-major。");
-  }
-  let spacerNumber = 1;
-  const cells: LayoutCell[][] = value.cells.map((rawRow, row) => {
-    if (!Array.isArray(rawRow) || rawRow.length !== columns) {
-      throw new CliUsageError(`工程 layout 第 ${row + 1} 行的列数不正确。`);
-    }
-    return rawRow.map((rawCell): LayoutCell => {
-      if (rawCell === null) return null;
-      if (!isRecord(rawCell)) throw new CliUsageError("工程 layout 包含无效格子。");
-      if (rawCell.kind === "page" && Number.isInteger(rawCell.pageNumber)) {
-        return { kind: "page", pageNumber: Number(rawCell.pageNumber) };
-      }
-      if (rawCell.kind === "spacer") {
-        const spacerId = typeof rawCell.spacerId === "string"
-          ? rawCell.spacerId
-          : `project-spacer-${spacerNumber++}`;
-        return { kind: "spacer", spacerId };
-      }
-      throw new CliUsageError("工程 layout 包含未知格子类型。");
-    });
-  });
-  return { rows: Number(rows), columns: Number(columns), traversal: "column-major", cells };
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -96,67 +49,67 @@ async function exists(path: string): Promise<boolean> {
 }
 
 async function readProject(projectPath: string): Promise<ProjectData> {
-  let parsed: unknown;
+  let parsed;
   try {
-    parsed = JSON.parse(await readFile(projectPath, "utf8"));
+    parsed = parsePatternLayoutProject(await readFile(projectPath, "utf8"));
   } catch (error) {
-    throw new CliUsageError(
-      error instanceof SyntaxError ? "工程 JSON 格式无效。" : `无法读取工程：${projectPath}`,
-    );
+    if (error instanceof Pdf2PltError) throw error;
+    throw new CliUsageError(`无法读取工程：${projectPath}`);
   }
-  if (!isRecord(parsed) || parsed.schemaVersion !== 1) {
-    throw new CliUsageError("仅支持 schemaVersion 1 的工程文件。");
-  }
-  const source = parsed.source;
-  if (!isRecord(source)) throw new CliUsageError("工程缺少 source 信息。");
-  const candidates: string[] = [];
-  if (typeof source.relativePath === "string") {
-    candidates.push(resolve(dirname(projectPath), source.relativePath));
-  }
-  if (typeof source.absolutePath === "string") {
-    candidates.push(isAbsolute(source.absolutePath) ? source.absolutePath : resolve(source.absolutePath));
-  }
+  const candidates = [
+    ...(parsed.source.relativePath
+      ? [resolve(dirname(projectPath), parsed.source.relativePath)]
+      : []),
+    ...(parsed.source.absolutePath
+      ? [isAbsolute(parsed.source.absolutePath)
+          ? parsed.source.absolutePath
+          : resolve(parsed.source.absolutePath)]
+      : []),
+  ];
   let sourcePath: string | undefined;
+  let foundCandidate = false;
   for (const candidate of candidates) {
     if (await exists(candidate)) {
-      sourcePath = candidate;
-      break;
+      foundCandidate = true;
+      try {
+        const digest = createHash("sha256").update(await readFile(candidate)).digest("hex");
+        if (digest === parsed.source.sha256) {
+          sourcePath = candidate;
+          break;
+        }
+      } catch {
+        // Continue to the next recorded source path.
+      }
     }
   }
   if (!sourcePath) {
+    if (foundCandidate) {
+      throw new CliUsageError("工程候选 PDF 的 SHA-256 均不匹配，已停止导出。");
+    }
     throw new CliUsageError("工程引用的 PDF 不存在；请修正 relativePath 或 absolutePath。");
   }
-  const pageSize = isRecord(source.pageSizePt) ? source.pageSizePt : undefined;
-  const guides = isRecord(parsed.guides) ? parsed.guides : {};
-  const detection = isRecord(guides.detection) ? guides.detection : undefined;
-  const output = isRecord(parsed.output) ? parsed.output : {};
-  const mode = guides.mode;
-  if (mode !== undefined && mode !== "auto" && mode !== "manual" && mode !== "none") {
-    throw new CliUsageError("工程 guides.mode 无效。");
-  }
-  const seams: Partial<GuideCoordinates> = {};
-  for (const [projectKey, coordinateKey] of [
-    ["seamLeft", "left"], ["seamRight", "right"], ["seamTop", "top"],
-    ["seamBottom", "bottom"], ["outerLeft", "outerLeft"],
-    ["outerRight", "outerRight"], ["outerTop", "outerTop"],
-    ["outerBottom", "outerBottom"],
-  ] as const) {
-    const coordinate = optionalNumber(guides, projectKey);
-    if (coordinate !== undefined) seams[coordinateKey] = coordinate;
-  }
+  const guides = parsed.guides;
   return {
     sourcePath,
-    ...(typeof source.pageCount === "number" ? { pageCount: source.pageCount } : {}),
-    ...(pageSize && typeof pageSize.width === "number" && typeof pageSize.height === "number"
-      ? { pageSizePt: { width: pageSize.width, height: pageSize.height } }
-      : {}),
-    layout: normalizeProjectLayout(parsed.layout),
-    guideMode: mode ?? "auto",
-    seams,
-    ...(detection ? { detection: detection as Partial<GuideDetectionOptions> } : {}),
-    keepGuides: output.keepGuides === true,
-    keepBackground: output.keepBackground === true,
-    allowUnusedPages: output.allowUnusedPages === true,
+    sha256: parsed.source.sha256,
+    pageCount: parsed.source.pageCount,
+    pageSizePt: parsed.source.pageSizePt,
+    layout: parsed.layout,
+    guideMode: guides.mode,
+    seams: {
+      ...(guides.seamLeft !== undefined ? { left: guides.seamLeft } : {}),
+      ...(guides.seamRight !== undefined ? { right: guides.seamRight } : {}),
+      ...(guides.seamTop !== undefined ? { top: guides.seamTop } : {}),
+      ...(guides.seamBottom !== undefined ? { bottom: guides.seamBottom } : {}),
+      outerLeft: guides.outerLeft,
+      ...(guides.outerRight !== undefined ? { outerRight: guides.outerRight } : {}),
+      outerTop: guides.outerTop,
+      ...(guides.outerBottom !== undefined ? { outerBottom: guides.outerBottom } : {}),
+    },
+    detection: guides.detection,
+    keepGuides: parsed.output.keepGuides,
+    keepBackground: parsed.output.keepBackground,
+    allowUnusedPages: parsed.output.allowUnusedPages,
   };
 }
 
@@ -271,7 +224,14 @@ export async function runCli(options: CliOptions, output: CliOutput): Promise<nu
   const project = projectPath ? await readProject(projectPath) : undefined;
   const inputPath = project?.sourcePath ?? resolve(options.input ?? "");
   if (!(await exists(inputPath))) throw new CliUsageError(`输入文件不存在：${inputPath}`);
-  const document = await openMuPdfDocument(mupdf, new Uint8Array(await readFile(inputPath)));
+  const pdfBytes = new Uint8Array(await readFile(inputPath));
+  if (project) {
+    const sha256 = createHash("sha256").update(pdfBytes).digest("hex");
+    if (sha256 !== project.sha256) {
+      throw new CliUsageError("工程记录的 SHA-256 与当前 PDF 不一致，已停止导出。");
+    }
+  }
+  const document = await openMuPdfDocument(mupdf, pdfBytes);
   try {
     if (project?.pageCount !== undefined && project.pageCount !== document.info.pageCount) {
       throw new CliUsageError(`工程记录 ${project.pageCount} 页，但当前 PDF 有 ${document.info.pageCount} 页。`);

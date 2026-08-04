@@ -224,6 +224,64 @@ const screenshotPath = process.env.SCREENSHOT_PATH;
       ?.endsWith("-,-,S"),
   );
 
+  const savedLayout = await canvas.getAttribute("data-layout-cells");
+  const savedCamera = {
+    scale: Number(await canvas.getAttribute("data-camera-scale")),
+    x: Number(await canvas.getAttribute("data-camera-x")),
+    y: Number(await canvas.getAttribute("data-camera-y")),
+  };
+  const projectDownloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "保存工程" }).click();
+  const projectDownload = await projectDownloadPromise;
+  const projectPath = await projectDownload.path();
+  assert(projectPath, "saved project must have a local download path");
+  const savedProject = JSON.parse(await readFile(projectPath, "utf8"));
+  assert.equal(savedProject.schemaVersion, 1);
+  assert.match(savedProject.source.sha256, /^[a-f0-9]{64}$/);
+  assert(savedProject.layout.cells.flat().some((cell) => cell?.kind === "spacer"));
+  assert.deepEqual(savedProject.view, {
+    zoom: savedCamera.scale,
+    panX: savedCamera.x,
+    panY: savedCamera.y,
+  });
+  assert(Math.abs(savedProject.guides.seamLeft - detectedGuides.left) < 0.01);
+
+  const projectChooserPromise = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "打开工程" }).click();
+  const projectChooser = await projectChooserPromise;
+  const pdfChooserPromise = page.waitForEvent("filechooser");
+  await projectChooser.setFiles(projectPath);
+  const pdfChooser = await pdfChooserPromise;
+  await pdfChooser.setFiles(pdfFixture);
+  await page.getByText(/工程已打开：/).waitFor({ timeout: 30000 });
+  await page.waitForFunction(
+    (expected) =>
+      document.querySelector(".layout-canvas")?.getAttribute("data-layout-cells") === expected,
+    savedLayout,
+  );
+  await page.waitForFunction(
+    (expected) => {
+      const element = document.querySelector(".layout-canvas");
+      return element
+        && Number(element.getAttribute("data-camera-scale")) === expected.scale
+        && Number(element.getAttribute("data-camera-x")) === expected.x
+        && Number(element.getAttribute("data-camera-y")) === expected.y;
+    },
+    savedCamera,
+  );
+  assert(
+    Math.abs(
+      Number(await page.getByRole("spinbutton", { name: "左拼接线 point 坐标" }).inputValue())
+        - savedProject.guides.seamLeft,
+    ) < 0.001,
+  );
+  await page.getByRole("button", { name: "完整页面" }).click();
+  await page.waitForFunction(
+    () => document.querySelector(".layout-canvas")?.getAttribute("data-preview-mode") === "full",
+  );
+  await page.getByRole("button", { name: "适合内容" }).click();
+  await canvas.evaluate((element) => element.scrollIntoView({ block: "start" }));
+
   const movedSpacerPosition = await cellCenter(2, 5);
   await page.mouse.dblclick(movedSpacerPosition.x, movedSpacerPosition.y);
   await page.waitForFunction(
@@ -264,6 +322,7 @@ const screenshotPath = process.env.SCREENSHOT_PATH;
       spacerInsertedAndExpanded: true,
       spacerUndoRedo: true,
       spacerMovedAndDeleted: true,
+      projectSavedAndRestored: true,
       unsafeColumnDeleteBlocked: true,
       guideDetectionMatchesLegacy: true,
       cropTogglePreservedLayout: true,

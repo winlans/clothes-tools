@@ -4,16 +4,20 @@ import { computed, onBeforeUnmount, ref, watch } from "vue";
 import LayoutEditor from "./components/LayoutEditor.vue";
 import { usePdfImport } from "./composables/use-pdf-import";
 import { useSvgExport } from "./composables/use-svg-export";
+import { useProjectFile } from "./composables/use-project-file";
 import { usePdfDocumentStore } from "./stores/pdf-document";
 import { useLayoutStore } from "./stores/layout";
 import { useGuideStore } from "./stores/guides";
+import { useProjectStore } from "./stores/project";
 
 const fileInput = ref<HTMLInputElement>();
 const documentStore = usePdfDocumentStore();
 const layoutStore = useLayoutStore();
 const guideStore = useGuideStore();
+const projectStore = useProjectStore();
 const pdfImport = usePdfImport();
 const svgExport = useSvgExport();
+const projectFile = useProjectFile();
 
 const progressPercent = computed(() => {
   if (documentStore.progress.total === 0) return 0;
@@ -42,10 +46,37 @@ function startSpacerDrag(event: DragEvent) {
   if (event.dataTransfer) event.dataTransfer.effectAllowed = "copy";
 }
 
+function closeDocument() {
+  documentStore.close();
+  projectStore.startNewDocument();
+}
+
 watch(
   () => documentStore.info,
   (info) => {
     if (info) {
+      const pending = projectStore.pendingProject;
+      if (pending) {
+        const samePageCount = info.pageCount === pending.source.pageCount;
+        const samePageSize =
+          Math.abs(info.pageSizePt.width - pending.source.pageSizePt.width) <= 0.02 &&
+          Math.abs(info.pageSizePt.height - pending.source.pageSizePt.height) <= 0.02;
+        const sameSha = documentStore.sourceSha256 === pending.source.sha256;
+        if (!samePageCount || !samePageSize || !sameSha) {
+          const mismatch = !sameSha
+            ? "SHA-256"
+            : !samePageCount
+              ? "页数"
+              : "页面尺寸";
+          documentStore.close();
+          projectStore.fail(`所选 PDF 的${mismatch}与工程记录不一致，未恢复布局。`);
+          return;
+        }
+        layoutStore.restore(info.documentId, info.pageCount, pending.layout);
+        guideStore.restore(info.documentId, pending.guides);
+        projectStore.completeOpen(pending);
+        return;
+      }
       layoutStore.initialize(info.documentId, info.pageCount);
       guideStore.initialize(info.documentId);
     } else {
@@ -59,7 +90,14 @@ watch(
 watch(
   () => [documentStore.info?.documentId, documentStore.guideDetection] as const,
   ([documentId, detection]) => {
-    if (documentId && detection) guideStore.applyDetection(documentId, detection);
+    if (
+      documentId &&
+      detection &&
+      !projectStore.pendingProject &&
+      !projectStore.activeProject
+    ) {
+      guideStore.applyDetection(documentId, detection);
+    }
   },
 );
 
@@ -79,6 +117,23 @@ onBeforeUnmount(() => {
       </div>
       <div class="topbar__actions">
         <button
+          type="button"
+          class="ghost-button"
+          :disabled="projectStore.status === 'opening' || projectStore.status === 'saving'"
+          @click="projectFile.openProject()"
+        >
+          {{ projectStore.status === 'opening' ? '正在打开…' : '打开工程' }}
+        </button>
+        <button
+          v-if="documentStore.info"
+          type="button"
+          class="ghost-button"
+          :disabled="projectStore.status === 'saving'"
+          @click="projectFile.saveProject()"
+        >
+          {{ projectStore.status === 'saving' ? '正在保存…' : '保存工程' }}
+        </button>
+        <button
           v-if="documentStore.info"
           type="button"
           class="primary-button"
@@ -93,7 +148,7 @@ onBeforeUnmount(() => {
           v-if="documentStore.info"
           type="button"
           class="ghost-button"
-          @click="documentStore.close()"
+          @click="closeDocument"
         >
           关闭
         </button>
@@ -109,6 +164,13 @@ onBeforeUnmount(() => {
         />
       </div>
     </header>
+
+    <p v-if="projectStore.errorMessage" class="inline-error project-message" role="alert">
+      {{ projectStore.errorMessage }}
+    </p>
+    <p v-else-if="projectStore.successMessage" class="export-summary project-message" role="status">
+      {{ projectStore.successMessage }}
+    </p>
 
     <section v-if="documentStore.status === 'idle'" class="empty-state">
       <div class="empty-state__mark">PDF</div>

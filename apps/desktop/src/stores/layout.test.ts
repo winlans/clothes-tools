@@ -61,4 +61,28 @@ describe("layout store", () => {
     expect(store.past).toHaveLength(0);
     expect(store.future).toHaveLength(0);
   });
+
+  it("restores saved page and spacer placement without stale history", () => {
+    const store = useLayoutStore();
+    store.initialize("old", 2);
+    store.addColumn();
+    store.restore("restored", 2, {
+      rows: 1,
+      columns: 3,
+      traversal: "column-major",
+      cells: [[
+        { kind: "page", pageNumber: 2 },
+        { kind: "spacer", spacerId: "saved-blank" },
+        { kind: "page", pageNumber: 1 },
+      ]],
+    });
+
+    expect(store.layout?.cells[0]).toEqual([
+      { kind: "page", pageNumber: 2 },
+      { kind: "spacer", spacerId: "saved-blank" },
+      { kind: "page", pageNumber: 1 },
+    ]);
+    expect(store.canUndo).toBe(false);
+    expect(store.canRedo).toBe(false);
+  });
 });
