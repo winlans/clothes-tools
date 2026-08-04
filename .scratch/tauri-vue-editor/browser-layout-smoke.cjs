@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { readFile } = require("node:fs/promises");
+const { readFile, readdir } = require("node:fs/promises");
 const { chromium } = require("playwright");
 
 const appUrl = process.env.APP_URL ?? "http://127.0.0.1:1420";
@@ -9,6 +9,28 @@ const screenshotPath = process.env.SCREENSHOT_PATH;
 (async () => {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Performance.enable");
+  async function rendererHeapMb() {
+    const result = await cdp.send("Performance.getMetrics");
+    const bytes = result.metrics.find((metric) => metric.name === "JSHeapUsedSize")?.value ?? 0;
+    return Number((bytes / 1024 / 1024).toFixed(2));
+  }
+  async function rendererRssMb() {
+    let totalKb = 0;
+    for (const entry of await readdir("/proc")) {
+      if (!/^\d+$/.test(entry)) continue;
+      try {
+        const command = await readFile(`/proc/${entry}/cmdline`, "utf8");
+        if (!/chrom(?:e|ium)/i.test(command) || !command.includes("--type=renderer")) continue;
+        const status = await readFile(`/proc/${entry}/status`, "utf8");
+        totalKb += Number(status.match(/^VmRSS:\s+(\d+)\s+kB$/m)?.[1] ?? 0);
+      } catch {
+        // A process may exit between listing and reading /proc.
+      }
+    }
+    return Number((totalKb / 1024).toFixed(2));
+  }
   const pageErrors = [];
   const consoleErrors = [];
   const wasmResponses = [];
@@ -27,6 +49,7 @@ const screenshotPath = process.env.SCREENSHOT_PATH;
   });
 
   await page.goto(appUrl, { waitUntil: "networkidle" });
+  const importStarted = Date.now();
   await page.setInputFiles('input[type="file"]', pdfFixture);
   try {
     await page.getByText("5 列 × 3 行").waitFor({ timeout: 10000 });
@@ -46,13 +69,40 @@ const screenshotPath = process.env.SCREENSHOT_PATH;
     throw error;
   }
   await page.waitForFunction(
+    () => document.querySelectorAll(".page-thumbnail img").length >= 1,
+    undefined,
+    { timeout: 3000 },
+  );
+  const firstPreviewMs = Date.now() - importStarted;
+  const canvas = page.locator(".layout-canvas");
+  await canvas.locator("canvas").first().waitFor();
+  await canvas.scrollIntoViewIfNeeded();
+  const previewResponsiveScale = await canvas.getAttribute("data-camera-scale");
+  const previewResponsiveBox = await canvas.boundingBox();
+  assert(previewResponsiveBox, "canvas must exist while previews are still rendering");
+  await page.mouse.move(
+    previewResponsiveBox.x + previewResponsiveBox.width / 2,
+    previewResponsiveBox.y + previewResponsiveBox.height / 2,
+  );
+  await page.mouse.wheel(0, -80);
+  await page.waitForFunction(
+    (before) =>
+      document.querySelector(".layout-canvas")?.getAttribute("data-camera-scale") !== before,
+    previewResponsiveScale,
+  );
+  await page.waitForFunction(
     () => document.querySelectorAll(".page-thumbnail img").length === 15,
     undefined,
     { timeout: 30000 },
   );
+  const fullPreviewMs = Date.now() - importStarted;
+  assert(firstPreviewMs < 3000, `first preview took ${firstPreviewMs}ms`);
+  assert(fullPreviewMs < 15000, `full preview took ${fullPreviewMs}ms`);
+  const previewHeapMb = await rendererHeapMb();
+  const previewRssMb = await rendererRssMb();
+  assert(previewHeapMb < 500, `renderer heap after preview was ${previewHeapMb}MB`);
+  assert(previewRssMb < 500, `renderer RSS after preview was ${previewRssMb}MB`);
 
-  const canvas = page.locator(".layout-canvas");
-  await canvas.locator("canvas").first().waitFor();
   await page.getByText("四条拼接线有效。").waitFor();
   const detectedGuides = {};
   for (const [direction, name] of [
@@ -99,9 +149,27 @@ const screenshotPath = process.env.SCREENSHOT_PATH;
     () => document.querySelector(".layout-canvas")?.getAttribute("data-preview-mode") === "full",
   );
 
+  await canvas.scrollIntoViewIfNeeded();
+  const responsiveScaleBefore = await canvas.getAttribute("data-camera-scale");
+  const responsiveBox = await canvas.boundingBox();
+  assert(responsiveBox, "canvas must be visible during export");
+  const exportStarted = Date.now();
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "导出 SVG" }).click();
+  await page.getByRole("button", { name: "取消导出" }).waitFor();
+  await page.mouse.move(
+    responsiveBox.x + responsiveBox.width / 2,
+    responsiveBox.y + responsiveBox.height / 2,
+  );
+  await page.mouse.wheel(0, -120);
+  await page.waitForFunction(
+    (before) =>
+      document.querySelector(".layout-canvas")?.getAttribute("data-camera-scale") !== before,
+    responsiveScaleBefore,
+  );
   const download = await downloadPromise;
+  const exportMs = Date.now() - exportStarted;
+  assert(exportMs < 15000, `SVG export took ${exportMs}ms`);
   const exportedSvg = await readFile(await download.path(), "utf8");
   const ids = [...exportedSvg.matchAll(/\bid="([^"]+)"/g)].map((match) => match[1]);
   const references = [
@@ -135,6 +203,18 @@ const screenshotPath = process.env.SCREENSHOT_PATH;
   assert(keptSvg.includes('fill="#ffffff"'));
   await page.getByLabel("保留红色辅助线").uncheck();
   await page.getByLabel("保留白色背景").uncheck();
+
+  let cancelledExportDownloads = 0;
+  const countCancelledDownload = () => {
+    cancelledExportDownloads += 1;
+  };
+  page.on("download", countCancelledDownload);
+  await page.getByRole("button", { name: "导出 SVG" }).click();
+  await page.getByRole("button", { name: "取消导出" }).click();
+  await page.getByText("SVG 导出已取消，未写入输出文件。").waitFor();
+  await page.waitForTimeout(250);
+  page.off("download", countCancelledDownload);
+  assert.equal(cancelledExportDownloads, 0);
 
   const beforeZoom = await canvas.getAttribute("data-camera-scale");
   const box = await canvas.boundingBox();
@@ -295,6 +375,11 @@ const screenshotPath = process.env.SCREENSHOT_PATH;
     },
     savedCamera,
   );
+  await page.waitForFunction(
+    () => document.querySelectorAll(".page-thumbnail img").length === 15,
+    undefined,
+    { timeout: 15000 },
+  );
   assert(
     Math.abs(
       Number(await page.getByRole("spinbutton", { name: "左拼接线 point 坐标" }).inputValue())
@@ -331,6 +416,39 @@ const screenshotPath = process.env.SCREENSHOT_PATH;
   await page.getByRole("button", { name: "删除最后一列" }).click();
   await page.getByText("最后一列仍有页面或空白块，不能删除。").waitFor();
 
+  const repeatedOpenHeapMb = [];
+  const repeatedOpenRssMb = [];
+  for (let cycle = 0; cycle < 2; cycle += 1) {
+    await page.getByRole("button", { name: "关闭", exact: true }).click();
+    await page.getByText("导入分块版图").waitFor();
+    await page.setInputFiles('input[type="file"]', pdfFixture);
+    await page.waitForFunction(
+      () => document.querySelectorAll(".page-thumbnail img").length === 15,
+      undefined,
+      { timeout: 15000 },
+    );
+    await cdp.send("HeapProfiler.collectGarbage");
+    repeatedOpenHeapMb.push(await rendererHeapMb());
+    repeatedOpenRssMb.push(await rendererRssMb());
+  }
+  assert(repeatedOpenHeapMb.every((value) => value < 500));
+  assert(
+    (repeatedOpenHeapMb.at(-1) ?? 0) <= (repeatedOpenHeapMb[0] ?? 0) + 50,
+    `renderer heap kept growing: ${repeatedOpenHeapMb.join(", ")}MB`,
+  );
+
+  await page.getByRole("button", { name: "关闭", exact: true }).click();
+  await page.getByText("导入分块版图").waitFor();
+  await page.setInputFiles('input[type="file"]', pdfFixture);
+  const cancelPreviewButton = page.getByRole("button", { name: "取消预览" });
+  await cancelPreviewButton.waitFor({ timeout: 3000 });
+  await cancelPreviewButton.click();
+  await cancelPreviewButton.waitFor({ state: "hidden" });
+  const previewsAtCancellation = await page.locator(".page-thumbnail img").count();
+  await page.waitForTimeout(300);
+  assert.equal(await page.locator(".page-thumbnail img").count(), previewsAtCancellation);
+  assert(previewsAtCancellation < 15, "preview cancellation should stop before all pages render");
+
   assert.equal(pageErrors.length, 0, `page errors: ${pageErrors.join("; ")}`);
   if (screenshotPath) await page.screenshot({ path: screenshotPath, fullPage: true });
 
@@ -351,6 +469,18 @@ const screenshotPath = process.env.SCREENSHOT_PATH;
       projectSavedAndRestored: true,
       advancedModesAndLiveSize: true,
       keepGuidesAndBackgroundExport: true,
+      exportCancellationWithoutDownload: true,
+      previewCancellationStoppedAt: previewsAtCancellation,
+      previewInteractionResponsive: true,
+      performance: {
+        firstPreviewMs,
+        fullPreviewMs,
+        exportMs,
+        previewHeapMb,
+        previewRssMb,
+        repeatedOpenHeapMb,
+        repeatedOpenRssMb,
+      },
       unsafeColumnDeleteBlocked: true,
       guideDetectionMatchesLegacy: true,
       cropTogglePreservedLayout: true,

@@ -52,6 +52,7 @@ export function useSvgExport() {
       anchor.click();
       setTimeout(() => URL.revokeObjectURL(url), 0);
     } catch (error) {
+      if (documentStore.exportStatus === "cancelled") return;
       if (!documentStore.exportErrorMessage) {
         documentStore.exportErrorMessage =
           error instanceof Error ? error.message : "SVG 导出失败。";

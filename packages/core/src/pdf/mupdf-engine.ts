@@ -157,8 +157,54 @@ export async function openMuPdfDocument(
     ensureOpen();
     const options = resolveGuideDetectionOptions(overrides);
     const scale = options.dpi / 72;
+    const samplePage = (pageIndex: number) => {
+      const page = document.loadPage(pageIndex);
+      try {
+        const pixmap = page.toPixmap(
+          mupdf.Matrix.scale(scale, scale),
+          mupdf.ColorSpace.DeviceRGB,
+          false,
+          true,
+        );
+        try {
+          return detectPageGuideSamples(
+            {
+              pageNumber: pageIndex + 1,
+              width: pixmap.getWidth(),
+              height: pixmap.getHeight(),
+              stride: pixmap.getStride(),
+              components: pixmap.getNumberOfComponents(),
+              pixels: pixmap.getPixels(),
+            },
+            pageSizePt,
+            options,
+          );
+        } finally {
+          pixmap.destroy();
+        }
+      } finally {
+        page.destroy();
+      }
+    };
     const samples = [];
     for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
+      samples.push(samplePage(pageIndex));
+    }
+    return buildGuideDetectionResult(samples, pageSizePt, options);
+  };
+
+  const detectGuidesAsync: OpenDocumentResult["detectGuidesAsync"] = async (
+    overrides = {},
+    hooks = {},
+  ) => {
+    ensureOpen();
+    const options = resolveGuideDetectionOptions(overrides);
+    const scale = options.dpi / 72;
+    const samples = [];
+    for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
+      if (hooks.isCancelled?.()) {
+        throw new Pdf2PltError("task-cancelled", "红线检测已取消。");
+      }
       const page = document.loadPage(pageIndex);
       try {
         const pixmap = page.toPixmap(
@@ -188,6 +234,8 @@ export async function openMuPdfDocument(
       } finally {
         page.destroy();
       }
+      hooks.onProgress?.(pageIndex + 1, pageCount);
+      await (hooks.yieldControl?.() ?? Promise.resolve());
     }
     return buildGuideDetectionResult(samples, pageSizePt, options);
   };
@@ -202,6 +250,7 @@ export async function openMuPdfDocument(
     renderPreview,
     renderSvgPage,
     detectGuides,
+    detectGuidesAsync,
     close() {
       if (!closed) {
         closed = true;

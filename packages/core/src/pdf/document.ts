@@ -37,6 +37,14 @@ export interface OpenDocumentResult {
   renderPreview(pageNumber: number, options: PreviewOptions): PreviewImage;
   renderSvgPage(pageNumber: number): string;
   detectGuides(options?: Partial<GuideDetectionOptions>): GuideDetectionResult;
+  detectGuidesAsync(
+    options?: Partial<GuideDetectionOptions>,
+    hooks?: {
+      isCancelled?(): boolean;
+      onProgress?(completed: number, total: number): void;
+      yieldControl?(): Promise<void>;
+    },
+  ): Promise<GuideDetectionResult>;
   close(): void;
 }
 

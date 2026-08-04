@@ -2,7 +2,7 @@
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { usePdfDocumentStore } from "./pdf-document";
+import { MAX_PREVIEW_CACHE, usePdfDocumentStore } from "./pdf-document";
 
 const createObjectURL = vi.fn(() => "blob:preview-1");
 const revokeObjectURL = vi.fn();
@@ -183,5 +183,124 @@ describe("pdf document store", () => {
 
     await expect(detection).resolves.toMatchObject({ options });
     expect(store.detectionStatus).toBe("idle");
+  });
+
+  it("keeps a bounded LRU preview cache while pinning visible pages", () => {
+    const store = usePdfDocumentStore();
+    store.requestId = 11;
+    store.info = {
+      documentId: "large-pdf",
+      pageCount: 24,
+      pageSizePt: { width: 200, height: 300 },
+      pages: Array.from({ length: 24 }, (_, index) => ({
+        pageNumber: index + 1,
+        width: 200,
+        height: 300,
+      })),
+    };
+    store.visiblePreviewPages = [1];
+
+    for (let pageNumber = 1; pageNumber <= 20; pageNumber += 1) {
+      store.handleWorkerMessage({
+        type: "preview",
+        requestId: 11,
+        pageNumber,
+        width: 100,
+        height: 150,
+        bytes: new Uint8Array([pageNumber]),
+      });
+    }
+
+    expect(Object.keys(store.previews)).toHaveLength(MAX_PREVIEW_CACHE);
+    expect(store.previews[1]).toBeDefined();
+    expect(store.previews[2]).toBeUndefined();
+    expect(store.previews[3]).toBeUndefined();
+    expect(revokeObjectURL).toHaveBeenCalledTimes(2);
+  });
+
+  it("prioritizes missing visible previews and cancels export cooperatively", async () => {
+    const store = usePdfDocumentStore();
+    store.requestId = 12;
+    store.info = {
+      documentId: "pdf-1",
+      pageCount: 3,
+      pageSizePt: { width: 200, height: 300 },
+      pages: Array.from({ length: 3 }, (_, index) => ({
+        pageNumber: index + 1,
+        width: 200,
+        height: 300,
+      })),
+    };
+    const postMessage = vi.fn();
+    store.worker = { postMessage } as unknown as Worker;
+    store.prioritizePreviews([3]);
+    expect(postMessage).toHaveBeenCalledWith({
+      type: "request-previews",
+      requestId: 12,
+      pageNumbers: [3],
+    });
+
+    const exported = store.exportSvg(
+      {
+        rows: 1,
+        columns: 1,
+        traversal: "column-major",
+        cells: [[{ kind: "page", pageNumber: 1 }]],
+      },
+      { left: 0, right: 200, top: 0, bottom: 300 },
+    );
+    store.cancelExport();
+    expect(postMessage).toHaveBeenLastCalledWith({
+      type: "cancel-task",
+      requestId: 12,
+      task: "export",
+    });
+    store.handleWorkerMessage({ type: "task-cancelled", requestId: 12, task: "export" });
+
+    await expect(exported).rejects.toThrow(/取消/);
+    expect(store.exportStatus).toBe("cancelled");
+  });
+
+  it("cancels preview and detection tasks without closing the document", async () => {
+    const store = usePdfDocumentStore();
+    store.requestId = 13;
+    store.status = "loading";
+    store.previewStatus = "running";
+    store.detectionStatus = "idle";
+    store.info = {
+      documentId: "pdf-1",
+      pageCount: 3,
+      pageSizePt: { width: 200, height: 300 },
+      pages: Array.from({ length: 3 }, (_, index) => ({
+        pageNumber: index + 1,
+        width: 200,
+        height: 300,
+      })),
+    };
+    const postMessage = vi.fn();
+    store.worker = { postMessage } as unknown as Worker;
+
+    store.cancelPreview();
+    store.handleWorkerMessage({ type: "task-cancelled", requestId: 13, task: "preview" });
+    expect(postMessage).toHaveBeenCalledWith({
+      type: "cancel-task",
+      requestId: 13,
+      task: "preview",
+    });
+    expect(store.status).toBe("ready");
+    expect(store.previewStatus).toBe("cancelled");
+
+    const detection = store.detectGuides({
+      dpi: 144,
+      redMin: 200,
+      otherMax: 120,
+      redDelta: 80,
+      minimumFraction: 0.03,
+    });
+    store.cancelDetection();
+    store.handleWorkerMessage({ type: "task-cancelled", requestId: 13, task: "detection" });
+    await expect(detection).rejects.toThrow(/取消/);
+    expect(store.detectionStatus).toBe("cancelled");
+    expect(store.info?.documentId).toBe("pdf-1");
   });
 });

@@ -88,8 +88,20 @@ async function redetect() {
     localError.value = "";
     guideStore.setPreviewModeValidated("cropped", Boolean(settings.resolved.value.value));
   } catch (error) {
-    localError.value = error instanceof Error ? error.message : "红线检测失败。";
+    localError.value = documentStore.detectionStatus === "cancelled"
+      ? ""
+      : error instanceof Error
+        ? error.message
+        : "红线检测失败。";
   }
+}
+
+function handleDetectionAction() {
+  if (documentStore.detectionStatus === "running") {
+    documentStore.cancelDetection();
+    return;
+  }
+  void redetect();
 }
 
 async function setMode(mode: GuideMode) {
@@ -240,12 +252,14 @@ watch(
         <button
           type="button"
           class="compact-button"
-          :disabled="documentStore.detectionStatus === 'running'"
-          @click="redetect"
+          @click="handleDetectionAction"
         >
-          {{ documentStore.detectionStatus === 'running' ? '检测中…' : '重新检测' }}
+          {{ documentStore.detectionStatus === 'running' ? '取消检测' : '重新检测' }}
         </button>
       </div>
+      <small v-if="documentStore.detectionStatus === 'running'" class="task-progress-text">
+        {{ documentStore.detectionProgress.completed }}/{{ documentStore.detectionProgress.total || '…' }} 页
+      </small>
       <div class="inspector-grid inspector-grid--two">
         <label v-for="entry in ([['dpi', 'DPI'], ['redMin', '红色下限'], ['otherMax', '绿蓝上限'], ['redDelta', '红色差值'], ['minimumFraction', '最小跨度']] as const)" :key="entry[0]">
           <span>{{ entry[1] }}</span>

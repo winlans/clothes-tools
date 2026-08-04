@@ -13,6 +13,13 @@ export type PdfWorkerRequest =
       requestId: number;
       bytes: Uint8Array<ArrayBuffer>;
       previewLongEdge: number;
+      previewPriority: number[];
+    }
+  | { type: "request-previews"; requestId: number; pageNumbers: number[] }
+  | {
+      type: "cancel-task";
+      requestId: number;
+      task: "preview" | "detection" | "export";
     }
   | {
       type: "detect-guides";
@@ -54,6 +61,12 @@ export type PdfWorkerResponse =
       total: number;
     }
   | {
+      type: "detection-progress";
+      requestId: number;
+      completed: number;
+      total: number;
+    }
+  | {
       type: "complete";
       requestId: number;
     }
@@ -83,6 +96,11 @@ export type PdfWorkerResponse =
       requestId: number;
       code: string;
       message: string;
+    }
+  | {
+      type: "task-cancelled";
+      requestId: number;
+      task: "preview" | "detection" | "export";
     }
   | {
       type: "error";

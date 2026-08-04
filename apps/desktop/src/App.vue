@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 
 import LayoutEditor from "./components/LayoutEditor.vue";
+import PageSidebar from "./components/PageSidebar.vue";
 import { usePdfImport } from "./composables/use-pdf-import";
 import { useSvgExport } from "./composables/use-svg-export";
 import { useProjectFile } from "./composables/use-project-file";
@@ -51,6 +52,14 @@ function startSpacerDrag(event: DragEvent) {
 function closeDocument() {
   documentStore.close();
   projectStore.startNewDocument();
+}
+
+async function handleExportAction() {
+  if (documentStore.exportStatus === "running") {
+    documentStore.cancelExport();
+    return;
+  }
+  await svgExport.exportCurrentSvg();
 }
 
 watch(
@@ -140,12 +149,12 @@ onBeforeUnmount(() => {
           type="button"
           class="primary-button"
           :disabled="
-            documentStore.exportStatus === 'running' || !resolvedSettings.canExport.value
+            documentStore.exportStatus !== 'running' && !resolvedSettings.canExport.value
           "
           :title="resolvedSettings.validationError.value || '导出合并后的矢量 SVG'"
-          @click="svgExport.exportCurrentSvg()"
+          @click="handleExportAction"
         >
-          {{ documentStore.exportStatus === 'running' ? '正在导出…' : '导出 SVG' }}
+          {{ documentStore.exportStatus === 'running' ? '取消导出' : '导出 SVG' }}
         </button>
         <button
           v-if="documentStore.info"
@@ -215,6 +224,9 @@ onBeforeUnmount(() => {
         <span>
           正在生成预览 {{ documentStore.progress.completed }}/{{ documentStore.progress.total || '…' }}
         </span>
+        <button type="button" class="compact-button" @click="documentStore.cancelPreview()">
+          取消预览
+        </button>
       </div>
 
       <div v-if="documentStore.exportStatus === 'running'" class="progress-row export-progress">
@@ -238,6 +250,9 @@ onBeforeUnmount(() => {
       <p v-if="documentStore.exportErrorMessage" class="inline-error" role="alert">
         {{ documentStore.exportErrorMessage }}
       </p>
+      <p v-if="documentStore.exportStatus === 'cancelled'" class="guide-warning" role="status">
+        SVG 导出已取消，未写入输出文件。
+      </p>
       <p
         v-if="documentStore.exportStatus === 'complete' && documentStore.exportSummary"
         class="export-summary"
@@ -250,34 +265,12 @@ onBeforeUnmount(() => {
       </p>
 
       <div v-if="documentStore.info" class="editor-workspace">
-        <aside class="page-sidebar" aria-label="PDF 页码列表">
-          <span class="eyebrow">页面</span>
-          <button
-            type="button"
-            class="spacer-tool"
-            draggable="true"
-            title="拖到画板格子中插入空白占位"
-            @dragstart="startSpacerDrag"
-          >
-            <span class="spacer-tool__mark">＋</span>
-            拖入空白块
-          </button>
-          <article
-            v-for="page in documentStore.info.pages"
-            :key="page.pageNumber"
-            class="page-thumbnail"
-          >
-            <div class="page-thumbnail__image">
-              <img
-                v-if="documentStore.previews[page.pageNumber]"
-                :src="documentStore.previews[page.pageNumber]?.url"
-                :alt="`第 ${page.pageNumber} 页缩略图`"
-              />
-              <span v-else>…</span>
-            </div>
-            <span>第 {{ page.pageNumber }} 页</span>
-          </article>
-        </aside>
+        <PageSidebar
+          :pages="documentStore.info.pages"
+          :previews="documentStore.previews"
+          @spacer-drag-start="startSpacerDrag"
+          @visible-pages="documentStore.prioritizePreviews"
+        />
 
         <LayoutEditor
           :page-size="documentStore.info.pageSizePt"
