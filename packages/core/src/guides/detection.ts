@@ -48,7 +48,10 @@ export interface GuideDetectionResult {
   lines: Partial<Record<GuideDirection, GuideLine>>;
   missing: GuideDirection[];
   options: GuideDetectionOptions;
+  inferredPagesPerColumn?: number;
 }
+
+export type PageGuideSamples = Partial<Record<GuideDirection, GuideSample>>;
 
 export function resolveGuideDetectionOptions(
   overrides: Partial<GuideDetectionOptions> = {},
@@ -218,8 +221,40 @@ export function detectRedGuides(
   return buildGuideDetectionResult(pageSamples, pageSize, options);
 }
 
+export function inferPagesPerColumnFromGuideSamples(
+  pageSamples: readonly PageGuideSamples[],
+): number | undefined {
+  const firstLeftIndex = pageSamples.findIndex(
+    (samples, index) => index > 0 && Boolean(samples.left),
+  );
+  if (firstLeftIndex < 2) return undefined;
+
+  const pagesPerColumn = firstLeftIndex;
+  const firstColumn = pageSamples.slice(0, pagesPerColumn);
+  const laterColumns = pageSamples.slice(pagesPerColumn);
+  if (
+    firstColumn.some((samples) => samples.left || !samples.right) ||
+    laterColumns.length === 0 ||
+    laterColumns.some((samples) => !samples.left)
+  ) {
+    return undefined;
+  }
+
+  for (let index = 0; index < pageSamples.length; index += 1) {
+    const samples = pageSamples[index];
+    if (!samples) return undefined;
+    const row = index % pagesPerColumn;
+    if (row === pagesPerColumn - 1) {
+      if (!samples.top || samples.bottom) return undefined;
+    } else if (!samples.bottom) {
+      return undefined;
+    }
+  }
+  return pagesPerColumn;
+}
+
 export function buildGuideDetectionResult(
-  pageSamples: readonly Partial<Record<GuideDirection, GuideSample>>[],
+  pageSamples: readonly PageGuideSamples[],
   pageSize: PageSizePt,
   options: GuideDetectionOptions,
 ): GuideDetectionResult {
@@ -247,9 +282,11 @@ export function buildGuideDetectionResult(
     const line = clusterGuideSamples(samples[direction], tolerance[direction]);
     if (line) lines[direction] = line;
   }
+  const inferredPagesPerColumn = inferPagesPerColumnFromGuideSamples(pageSamples);
   return {
     lines,
     missing: GUIDE_DIRECTIONS.filter((direction) => !lines[direction]),
     options,
+    ...(inferredPagesPerColumn !== undefined ? { inferredPagesPerColumn } : {}),
   };
 }

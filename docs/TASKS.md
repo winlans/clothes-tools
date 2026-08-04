@@ -16,6 +16,7 @@
 | 009 | [高级接缝和导出选项](../.scratch/tauri-vue-editor/009-advanced-options.md) | AFK | 006、007 |
 | 010 | [性能、取消与资源回收](../.scratch/tauri-vue-editor/010-performance-cancellation.md) | AFK | 001、006 |
 | 011 | [Linux 安装包与发布验收](../.scratch/tauri-vue-editor/011-linux-release.md) | HITL | 007–010 |
+| 012 | [从逐页红线自动识别每列页数](../.scratch/tauri-vue-editor/012-auto-column-height.md) | AFK | 002、005 |
 
 建议按编号顺序领取；没有直接依赖关系的任务可并行，例如 004 与 005、008 与
 009。每个任务的验收标准是完成条件，不以“代码已写完”代替可运行验证。

@@ -109,6 +109,9 @@ watch(
       !projectStore.activeProject
     ) {
       guideStore.applyDetection(documentId, detection);
+      if (detection.inferredPagesPerColumn !== undefined) {
+        layoutStore.applyDetectedPagesPerColumn(detection.inferredPagesPerColumn);
+      }
     }
   },
 );

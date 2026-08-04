@@ -19,6 +19,8 @@ export const useLayoutStore = defineStore("layout", {
     documentId: "",
     pageCount: 0,
     pagesPerColumn: 3,
+    detectedPagesPerColumn: undefined as number | undefined,
+    hasUserLayoutChanges: false,
     layout: undefined as LayoutGrid | undefined,
     errorMessage: "",
     past: [] as LayoutGrid[],
@@ -35,6 +37,8 @@ export const useLayoutStore = defineStore("layout", {
       this.documentId = documentId;
       this.pageCount = pageCount;
       this.pagesPerColumn = 3;
+      this.detectedPagesPerColumn = undefined;
+      this.hasUserLayoutChanges = false;
       this.errorMessage = "";
       this.layout = createAutomaticLayout(pageCount, this.pagesPerColumn);
       this.past = [];
@@ -45,6 +49,8 @@ export const useLayoutStore = defineStore("layout", {
       this.documentId = documentId;
       this.pageCount = pageCount;
       this.pagesPerColumn = layout.rows;
+      this.detectedPagesPerColumn = undefined;
+      this.hasUserLayoutChanges = true;
       this.layout = JSON.parse(JSON.stringify(layout)) as LayoutGrid;
       this.errorMessage = "";
       this.past = [];
@@ -64,6 +70,7 @@ export const useLayoutStore = defineStore("layout", {
         if (this.past.length > 100) this.past.shift();
         this.future = [];
         this.layout = next;
+        this.hasUserLayoutChanges = true;
         this.errorMessage = "";
         return true;
       } catch (error) {
@@ -81,6 +88,21 @@ export const useLayoutStore = defineStore("layout", {
         this.pagesPerColumn = value;
       }
       return changed;
+    },
+    applyDetectedPagesPerColumn(value: number): boolean {
+      this.detectedPagesPerColumn = value;
+      if (this.hasUserLayoutChanges) return false;
+      try {
+        this.layout = createAutomaticLayout(this.pageCount, value);
+        this.pagesPerColumn = value;
+        this.past = [];
+        this.future = [];
+        this.errorMessage = "";
+        return true;
+      } catch {
+        this.detectedPagesPerColumn = undefined;
+        return false;
+      }
     },
     movePageTo(pageNumber: number, target: GridPosition): boolean {
       return this.applyLayoutChange(
@@ -144,6 +166,8 @@ export const useLayoutStore = defineStore("layout", {
       this.documentId = "";
       this.pageCount = 0;
       this.pagesPerColumn = 3;
+      this.detectedPagesPerColumn = undefined;
+      this.hasUserLayoutChanges = false;
       this.layout = undefined;
       this.errorMessage = "";
       this.past = [];

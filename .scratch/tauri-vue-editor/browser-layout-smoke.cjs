@@ -104,6 +104,7 @@ const screenshotPath = process.env.SCREENSHOT_PATH;
   assert(previewRssMb < 500, `renderer RSS after preview was ${previewRssMb}MB`);
 
   await page.getByText("四条拼接线已检测，可直接微调。").waitFor();
+  await page.getByText("红线识别：每列 3 页").waitFor();
   const detectedGuides = {};
   for (const [direction, name] of [
     ["left", "左拼接线 point 坐标"],

@@ -77,6 +77,9 @@ watch(
         自动排列
       </button>
       <span class="layout-toolbar__summary">{{ layoutSummary }}</span>
+      <span v-if="layoutStore.detectedPagesPerColumn" class="guide-success">
+        红线识别：每列 {{ layoutStore.detectedPagesPerColumn }} 页
+      </span>
       <button type="button" class="ghost-button" @click="canvas?.fitContent()">
         适合内容
       </button>

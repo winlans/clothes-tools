@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_GUIDE_DETECTION_OPTIONS,
+  buildGuideDetectionResult,
   clusterGuideSamples,
   detectRedGuides,
+  inferPagesPerColumnFromGuideSamples,
   type GuidePixelPage,
+  type GuideSample,
 } from "./detection";
 
 function makePage(directions: Array<"left" | "right" | "top" | "bottom">): GuidePixelPage {
@@ -76,4 +79,57 @@ describe("red guide detection", () => {
 
     expect(line).toMatchObject({ coordinatePt: 10.2, supportPages: 2, pixelWeight: 50 });
   });
+
+  it("infers column height from the first left guide and row boundaries", () => {
+    const samples = [
+      pageSamples(1, ["right", "bottom"]),
+      pageSamples(2, ["right", "top", "bottom"]),
+      pageSamples(3, ["right", "top"]),
+      pageSamples(4, ["left", "right", "bottom"]),
+      pageSamples(5, ["left", "right", "top", "bottom"]),
+      pageSamples(6, ["left", "right", "top"]),
+    ];
+
+    expect(inferPagesPerColumnFromGuideSamples(samples)).toBe(3);
+    expect(buildGuideDetectionResult(
+      samples,
+      { width: 200, height: 240 },
+      DEFAULT_GUIDE_DETECTION_OPTIONS,
+    ).inferredPagesPerColumn).toBe(3);
+    expect(inferPagesPerColumnFromGuideSamples([
+      pageSamples(1, ["right", "top", "bottom"]),
+      pageSamples(2, ["right", "top", "bottom"]),
+      pageSamples(3, ["right", "top", "bottom"]),
+      pageSamples(4, ["right", "top"]),
+      pageSamples(5, ["left", "top", "bottom"]),
+      pageSamples(6, ["left", "top", "bottom"]),
+      pageSamples(7, ["left", "top", "bottom"]),
+      pageSamples(8, ["left", "top"]),
+    ])).toBe(4);
+  });
+
+  it("rejects incomplete or contradictory column markers", () => {
+    expect(inferPagesPerColumnFromGuideSamples([
+      pageSamples(1, ["right", "bottom"]),
+      pageSamples(2, ["right", "top", "bottom"]),
+      pageSamples(3, ["right", "top"]),
+      pageSamples(4, ["right", "bottom"]),
+    ])).toBeUndefined();
+    expect(inferPagesPerColumnFromGuideSamples([
+      pageSamples(1, ["right", "bottom"]),
+      pageSamples(2, ["right", "top", "bottom"]),
+      pageSamples(3, ["right", "top", "bottom"]),
+      pageSamples(4, ["left", "bottom"]),
+    ])).toBeUndefined();
+  });
 });
+
+function pageSamples(
+  pageNumber: number,
+  directions: Array<"left" | "right" | "top" | "bottom">,
+): Partial<Record<"left" | "right" | "top" | "bottom", GuideSample>> {
+  return Object.fromEntries(directions.map((direction) => [
+    direction,
+    { pageNumber, positionPt: 10, pixelWeight: 100 },
+  ]));
+}

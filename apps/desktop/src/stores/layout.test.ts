@@ -23,6 +23,28 @@ describe("layout store", () => {
     expect(store.errorMessage).toContain("正整数");
   });
 
+  it("applies a detected column height while the initial layout is untouched", () => {
+    const store = useLayoutStore();
+    store.initialize("pdf-1", 8);
+
+    expect(store.applyDetectedPagesPerColumn(4)).toBe(true);
+    expect(store.pagesPerColumn).toBe(4);
+    expect(store.detectedPagesPerColumn).toBe(4);
+    expect(store.layout).toMatchObject({ rows: 4, columns: 2 });
+    expect(store.canUndo).toBe(false);
+  });
+
+  it("keeps user layout changes when guide detection finishes later", () => {
+    const store = useLayoutStore();
+    store.initialize("pdf-1", 8);
+    store.setPagesPerColumn(2);
+
+    expect(store.applyDetectedPagesPerColumn(4)).toBe(false);
+    expect(store.pagesPerColumn).toBe(2);
+    expect(store.detectedPagesPerColumn).toBe(4);
+    expect(store.layout).toMatchObject({ rows: 2, columns: 4 });
+  });
+
   it("commits stable page moves without duplicates", () => {
     const store = useLayoutStore();
     store.initialize("pdf-1", 6);
