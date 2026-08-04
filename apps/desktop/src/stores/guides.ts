@@ -115,12 +115,6 @@ export const useGuideStore = defineStore("guides", {
       this.errorMessage = "";
       return true;
     },
-    markLinesManual() {
-      for (const direction of GUIDE_DIRECTIONS) {
-        const line = this.lines[direction];
-        if (line) this.lines[direction] = { ...line, source: "manual", supportPages: 0 };
-      }
-    },
     clear() {
       this.documentId = "";
       this.lines = {};

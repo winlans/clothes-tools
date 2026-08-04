@@ -103,7 +103,7 @@ const screenshotPath = process.env.SCREENSHOT_PATH;
   assert(previewHeapMb < 500, `renderer heap after preview was ${previewHeapMb}MB`);
   assert(previewRssMb < 500, `renderer RSS after preview was ${previewRssMb}MB`);
 
-  await page.getByText("四条拼接线有效。").waitFor();
+  await page.getByText("四条拼接线已检测，可直接微调。").waitFor();
   const detectedGuides = {};
   for (const [direction, name] of [
     ["left", "左拼接线 point 坐标"],
@@ -118,16 +118,14 @@ const screenshotPath = process.env.SCREENSHOT_PATH;
   assert(Math.abs(detectedGuides.top - 21.992) < 1);
   assert(Math.abs(detectedGuides.bottom - 1166.56) < 1);
   assert.equal(await page.getByLabel("成品尺寸").textContent(), "1421.51 × 1227.56 mm");
-  await page.getByRole("button", { name: "手动", exact: true }).click();
-  assert.equal(
-    await page.getByRole("button", { name: "手动", exact: true }).getAttribute("aria-pressed"),
-    "true",
-  );
-  await page.getByRole("button", { name: "无接缝", exact: true }).click();
+  assert.equal(await page.getByRole("button", { name: "手动", exact: true }).count(), 0);
+  const seamCropping = page.getByRole("checkbox", { name: "裁切页间接缝" });
+  assert.equal(await seamCropping.isChecked(), true);
+  await seamCropping.uncheck();
   await page.waitForFunction(
     () => document.querySelector('[aria-label="成品尺寸"]')?.textContent === "1485.00 × 1260.00 mm",
   );
-  await page.getByRole("button", { name: "自动", exact: true }).click();
+  await seamCropping.check();
   await page.waitForFunction(
     () => document.querySelector('[aria-label="成品尺寸"]')?.textContent === "1421.51 × 1227.56 mm",
   );
@@ -467,7 +465,7 @@ const screenshotPath = process.env.SCREENSHOT_PATH;
       spacerUndoRedo: true,
       spacerMovedAndDeleted: true,
       projectSavedAndRestored: true,
-      advancedModesAndLiveSize: true,
+      seamCroppingAndLiveSize: true,
       keepGuidesAndBackgroundExport: true,
       exportCancellationWithoutDownload: true,
       previewCancellationStoppedAt: previewsAtCancellation,

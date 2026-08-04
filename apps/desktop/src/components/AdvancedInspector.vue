@@ -4,7 +4,6 @@ import {
   resolveGuideDetectionOptions,
   resolveGuideGeometry,
   type GuideDirection,
-  type GuideMode,
   type PageSizePt,
   type ProjectGuideSettings,
   type ProjectOutputSettings,
@@ -49,6 +48,9 @@ const detectionDrafts = reactive({
 
 const missingGuideText = computed(() =>
   guideStore.missing.map((direction) => guideLabels[direction]).join("、"),
+);
+const hasManualGuides = computed(() =>
+  GUIDE_DIRECTIONS.some((direction) => guideStore.lines[direction]?.source === "manual"),
 );
 const outputSizeText = computed(() => {
   const geometry = settings.resolved.value.value?.geometry;
@@ -104,22 +106,19 @@ function handleDetectionAction() {
   void redetect();
 }
 
-async function setMode(mode: GuideMode) {
+function setSeamCropping(event: Event) {
   localError.value = "";
-  if (mode === "auto") {
-    await redetect();
-    return;
-  }
-  if (mode === "manual") guideStore.markLinesManual();
+  const enabled = (event.target as HTMLInputElement).checked;
+  const mode = enabled
+    ? hasManualGuides.value
+      ? "manual"
+      : "auto"
+    : "none";
   projectStore.setGuideSettings(currentSettings(mode));
   guideStore.setPreviewModeValidated("cropped", Boolean(settings.resolved.value.value));
 }
 
 function applyManualGuide(direction: GuideDirection) {
-  if (projectStore.guideSettings.mode !== "manual") {
-    guideStore.markLinesManual();
-    projectStore.setGuideSettings(currentSettings("manual"));
-  }
   if (guideStore.setManual(direction, Number(seamDrafts[direction]), props.pageSize)) {
     projectStore.setGuideSettings(currentSettings("manual"));
     localError.value = "";
@@ -186,28 +185,32 @@ watch(
 <template>
   <aside class="advanced-inspector" aria-label="高级接缝和导出设置">
     <section class="inspector-section">
-      <span class="eyebrow">接缝模式</span>
-      <div class="mode-switch mode-switch--wide" role="group" aria-label="接缝模式">
-        <button
-          v-for="entry in ([['auto', '自动'], ['manual', '手动'], ['none', '无接缝']] as const)"
-          :key="entry[0]"
-          type="button"
-          :class="{ active: projectStore.guideSettings.mode === entry[0] }"
-          :aria-pressed="projectStore.guideSettings.mode === entry[0]"
-          :disabled="documentStore.detectionStatus === 'running'"
-          @click="setMode(entry[0])"
-        >
-          {{ entry[1] }}
-        </button>
+      <div class="inspector-heading-row">
+        <span class="eyebrow">接缝裁切</span>
+        <label class="check-row">
+          <input
+            type="checkbox"
+            aria-label="裁切页间接缝"
+            :checked="projectStore.guideSettings.mode !== 'none'"
+            :disabled="documentStore.detectionStatus === 'running'"
+            @change="setSeamCropping"
+          />
+          应用
+        </label>
       </div>
 
       <p v-if="projectStore.guideSettings.mode === 'none'" class="guide-success">
-        不裁切页间接缝，仅应用外边界。
+        未裁切页间接缝，仅应用外边界。
       </p>
       <p v-else-if="guideStore.missing.length" class="guide-warning" role="status">
-        缺少{{ missingGuideText }}方向红线，可切换手动模式填写。
+        缺少{{ missingGuideText }}方向红线，可直接填写或重新检测。
       </p>
-      <p v-else class="guide-success" role="status">四条拼接线有效。</p>
+      <p v-else-if="hasManualGuides" class="guide-success" role="status">
+        拼接线已微调，可继续编辑或重新检测。
+      </p>
+      <p v-else class="guide-success" role="status">
+        四条拼接线已检测，可直接微调。
+      </p>
 
       <div class="inspector-grid inspector-grid--two">
         <label v-for="direction in GUIDE_DIRECTIONS" :key="direction">
@@ -218,11 +221,12 @@ watch(
             min="0"
             step="0.001"
             :aria-label="`${guideLabels[direction]}拼接线 point 坐标`"
+            :disabled="projectStore.guideSettings.mode === 'none'"
             @change="applyManualGuide(direction)"
             @keydown.enter="applyManualGuide(direction)"
           />
           <small :class="`source-${guideStore.lines[direction]?.source ?? 'missing'}`">
-            {{ guideStore.lines[direction]?.source === 'auto' ? '自动' : guideStore.lines[direction]?.source === 'manual' ? '手动' : '缺失' }}
+            {{ guideStore.lines[direction]?.source === 'auto' ? '检测值' : guideStore.lines[direction]?.source === 'manual' ? '已调整' : '缺失' }}
           </small>
         </label>
       </div>
@@ -282,6 +286,7 @@ watch(
       <label class="check-row">
         <input
           type="checkbox"
+          aria-label="保留红色辅助线"
           :checked="projectStore.outputSettings.keepGuides"
           @change="setOutputOption('keepGuides', $event)"
         />
@@ -290,6 +295,7 @@ watch(
       <label class="check-row">
         <input
           type="checkbox"
+          aria-label="保留白色背景"
           :checked="projectStore.outputSettings.keepBackground"
           @change="setOutputOption('keepBackground', $event)"
         />
@@ -298,6 +304,7 @@ watch(
       <label class="check-row">
         <input
           type="checkbox"
+          aria-label="允许未使用 PDF 页"
           :checked="projectStore.outputSettings.allowUnusedPages"
           @change="setOutputOption('allowUnusedPages', $event)"
         />

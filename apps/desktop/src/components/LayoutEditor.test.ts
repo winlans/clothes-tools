@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
-import { defineComponent, h } from "vue";
+import { defineComponent, h, nextTick } from "vue";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useLayoutStore } from "../stores/layout";
@@ -95,13 +95,40 @@ describe("LayoutEditor", () => {
       button.text().includes("成品裁切"),
     );
     expect(cropButton?.attributes("disabled")).toBeUndefined();
-    expect(wrapper.text()).toContain("四条拼接线有效");
+    expect(wrapper.text()).toContain("拼接线已微调");
   });
 
-  it("switches to no-seam geometry and updates output size after valid outer bounds", async () => {
+  it("keeps detected seams editable without exposing a separate manual mode", async () => {
     const { wrapper } = mountEditor();
-    const noSeam = wrapper.findAll("button").find((button) => button.text() === "无接缝");
-    await noSeam?.trigger("click");
+    const guideStore = useGuideStore();
+    const projectStore = useProjectStore();
+    guideStore.applyDetection("pdf-1", {
+      lines: {
+        left: { coordinatePt: 20, source: "auto", supportPages: 8, pixelWeight: 800 },
+        right: { coordinatePt: 820, source: "auto", supportPages: 8, pixelWeight: 800 },
+        top: { coordinatePt: 22, source: "auto", supportPages: 8, pixelWeight: 800 },
+        bottom: { coordinatePt: 1167, source: "auto", supportPages: 8, pixelWeight: 800 },
+      },
+      missing: [],
+      options: { dpi: 72, redMin: 200, otherMax: 120, redDelta: 80, minimumFraction: 0.03 },
+    });
+    await nextTick();
+
+    expect(wrapper.findAll("button").some((button) => button.text() === "手动")).toBe(false);
+    const left = wrapper.get('[aria-label="左拼接线 point 坐标"]');
+    await left.setValue("21");
+    await left.trigger("change");
+
+    expect(projectStore.guideSettings.mode).toBe("manual");
+    expect(guideStore.lines.left?.source).toBe("manual");
+    expect(guideStore.lines.right?.source).toBe("auto");
+  });
+
+  it("toggles seam cropping and updates output size after valid outer bounds", async () => {
+    const { wrapper } = mountEditor();
+    const seamCropping = wrapper.get('[aria-label="裁切页间接缝"]');
+    expect((seamCropping.element as HTMLInputElement).checked).toBe(true);
+    await seamCropping.setValue(false);
 
     expect(wrapper.get('[aria-label="成品尺寸"]').text()).toBe("1485.00 × 1260.00 mm");
     const outerLeft = wrapper.get('[aria-label="左外边界 point 坐标"]');
@@ -116,11 +143,9 @@ describe("LayoutEditor", () => {
   it("persists advanced output switches in the shared project store", async () => {
     const { wrapper } = mountEditor();
     const projectStore = useProjectStore();
-    const checkboxes = wrapper.findAll('input[type="checkbox"]');
-
-    await checkboxes[0]?.setValue(true);
-    await checkboxes[1]?.setValue(true);
-    await checkboxes[2]?.setValue(true);
+    await wrapper.get('[aria-label="保留红色辅助线"]').setValue(true);
+    await wrapper.get('[aria-label="保留白色背景"]').setValue(true);
+    await wrapper.get('[aria-label="允许未使用 PDF 页"]').setValue(true);
 
     expect(projectStore.outputSettings).toEqual({
       keepGuides: true,

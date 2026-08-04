@@ -543,10 +543,6 @@ h1 {
   border-bottom: 0;
 }
 
-.mode-switch--wide button {
-  flex: 1;
-}
-
 .inspector-grid {
   display: grid;
   gap: 7px;
