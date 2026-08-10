@@ -37,6 +37,19 @@ describe("CorelDRAW PLT exporter", () => {
     expect(result.plt).toContain("PD282,734,282,593,141,734;");
   });
 
+  it("supports nested negative SVG transforms", () => {
+    const result = buildCorelPlt(
+      svgResult(`
+        <g transform="translate(72 0) scale(-1 1)">
+          <path d="M0 0L18 0" fill="none" stroke="black"/>
+        </g>
+      `),
+    );
+
+    expect(result.plt).toContain("PU1016,1016;");
+    expect(result.plt).toContain("PD762,1016;");
+  });
+
   it("clips output paths to the combined layout crop", () => {
     const result = buildCorelPlt(
       svgResult(`

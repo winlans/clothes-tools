@@ -2,7 +2,11 @@
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { MAX_PREVIEW_CACHE, usePdfDocumentStore } from "./pdf-document";
+import {
+  MAX_DETAIL_PREVIEW_CACHE,
+  MAX_PREVIEW_CACHE,
+  usePdfDocumentStore,
+} from "./pdf-document";
 
 const createObjectURL = vi.fn(() => "blob:preview-1");
 const revokeObjectURL = vi.fn();
@@ -132,7 +136,11 @@ describe("pdf document store", () => {
         type: "export-vector",
         format: "svg",
         requestId: 3,
-        svgOptions: { removeGuides: true, removeBackground: true },
+        svgOptions: {
+          removeGuides: true,
+          removeBackground: true,
+          rotation: 0,
+        },
         pltOptions: { curveToleranceMm: 0.05 },
       }),
     );
@@ -251,6 +259,106 @@ describe("pdf document store", () => {
       type: "request-previews",
       requestId: 21,
       pageNumbers: layoutPages,
+    });
+  });
+
+  it("requests and bounds higher-resolution previews for currently visible pages", () => {
+    const store = usePdfDocumentStore();
+    store.requestId = 23;
+    store.info = {
+      documentId: "detail-preview",
+      pageCount: 6,
+      pageSizePt: { width: 200, height: 300 },
+      pages: Array.from({ length: 6 }, (_, index) => ({
+        pageNumber: index + 1,
+        width: 200,
+        height: 300,
+      })),
+    };
+    store.previews = {
+      1: { pageNumber: 1, width: 1067, height: 1600, url: "blob:base" },
+    };
+    const postMessage = vi.fn();
+    store.worker = { postMessage } as unknown as Worker;
+
+    store.requestDetailPreviews([1, 2, 3, 4, 5], 3200);
+    expect(postMessage).toHaveBeenCalledWith({
+      type: "request-detail-previews",
+      requestId: 23,
+      pageNumbers: [1, 2, 3, 4],
+      maxLongEdge: 3200,
+    });
+
+    for (let pageNumber = 1; pageNumber <= 5; pageNumber += 1) {
+      store.handleWorkerMessage({
+        type: "detail-preview",
+        requestId: 23,
+        pageNumber,
+        maxLongEdge: 3200,
+        width: 2133,
+        height: 3200,
+        bytes: new Uint8Array([pageNumber]),
+      });
+    }
+
+    expect(Object.keys(store.detailPreviews)).toHaveLength(MAX_DETAIL_PREVIEW_CACHE);
+    expect(store.detailPreviews[1]).toBeUndefined();
+    expect(store.previewList.find((preview) => preview.pageNumber === 2)?.height).toBe(3200);
+    postMessage.mockClear();
+    store.requestDetailPreviews([2], 2400);
+    expect(postMessage).not.toHaveBeenCalled();
+  });
+
+  it("renders magnifier regions from the PDF source at the requested resolution", async () => {
+    const store = usePdfDocumentStore();
+    store.requestId = 22;
+    store.info = {
+      documentId: "vector-magnifier",
+      pageCount: 1,
+      pageSizePt: { width: 200, height: 300 },
+      pages: [{ pageNumber: 1, width: 200, height: 300 }],
+    };
+    const postMessage = vi.fn();
+    store.worker = { postMessage } as unknown as Worker;
+
+    const rendered = store.renderRegion(1, {
+      x: 40,
+      y: 60,
+      width: 32,
+      height: 22,
+      outputWidth: 640,
+      outputHeight: 440,
+    });
+
+    expect(postMessage).toHaveBeenCalledWith({
+      type: "render-region",
+      requestId: 22,
+      regionRequestId: 1,
+      pageNumber: 1,
+      options: expect.objectContaining({
+        x: 40,
+        y: 60,
+        width: 32,
+        height: 22,
+        outputWidth: 640,
+        outputHeight: 440,
+        removeGuides: true,
+      }),
+    });
+    store.handleWorkerMessage({
+      type: "region",
+      requestId: 22,
+      regionRequestId: 1,
+      pageNumber: 1,
+      width: 640,
+      height: 440,
+      bytes: new Uint8Array([137, 80, 78, 71]),
+    });
+
+    await expect(rendered).resolves.toMatchObject({
+      pageNumber: 1,
+      width: 640,
+      height: 440,
     });
   });
 

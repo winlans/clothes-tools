@@ -9,4 +9,5 @@ export * from "./pdf/errors";
 export * from "./pdf/mupdf-engine";
 export * from "./plt/exporter";
 export * from "./project/schema";
+export * from "./rotation";
 export * from "./svg/exporter";

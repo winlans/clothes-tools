@@ -8,6 +8,7 @@ import type { PageSizePt } from "../pdf/document";
 import { Pdf2PltError } from "../pdf/errors";
 import type { GuideCropSettings } from "../guides/settings";
 import { resolveGuideGeometry } from "../guides/settings";
+import { isQuarterTurn, type QuarterTurn } from "../rotation";
 
 export interface ProjectSource {
   absolutePath: string;
@@ -25,6 +26,7 @@ export interface ProjectOutputSettings {
   keepGuides: boolean;
   keepBackground: boolean;
   allowUnusedPages: boolean;
+  rotation?: QuarterTurn;
 }
 
 export interface ProjectView {
@@ -185,10 +187,15 @@ export function parsePatternLayoutProject(value: string | unknown): PatternLayou
     detection,
   };
   const rawOutput = record(root.output, "output");
+  const rotation = rawOutput.rotation === undefined ? 0 : rawOutput.rotation;
+  if (!isQuarterTurn(rotation)) {
+    throw new Pdf2PltError("invalid-project", "output.rotation 必须是 0、90、180 或 270。");
+  }
   const output: ProjectOutputSettings = {
     keepGuides: booleanValue(rawOutput.keepGuides, "output.keepGuides"),
     keepBackground: booleanValue(rawOutput.keepBackground, "output.keepBackground"),
     allowUnusedPages: booleanValue(rawOutput.allowUnusedPages, "output.allowUnusedPages"),
+    rotation,
   };
   const layout = parseLayout(root.layout, pageCount);
   for (const [name, value, limit] of [

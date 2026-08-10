@@ -7,6 +7,7 @@ import {
   type GuideDetectionResult,
   type LayoutGrid,
   type PdfDocumentInfo,
+  type PdfRegionRenderOptions,
   type PltExportOptions,
   type SvgExportOptions,
 } from "@pdf2plt/core";
@@ -27,11 +28,17 @@ export interface PreviewState {
   url: string;
 }
 
+interface DetailPreviewState extends PreviewState {
+  maxLongEdge: number;
+}
+
 type DocumentStatus = "idle" | "loading" | "ready" | "error";
 type ExportStatus = "idle" | "running" | "complete" | "cancelled" | "error";
 type DetectionStatus = "idle" | "running" | "cancelled" | "error";
 
 export const MAX_PREVIEW_CACHE = 18;
+export const MAX_DETAIL_PREVIEW_CACHE = 4;
+const MAX_DETAIL_PREVIEW_LONG_EDGE = 4096;
 
 export interface DesktopVectorExport {
   format: VectorExportFormat;
@@ -48,6 +55,13 @@ export interface DesktopVectorExport {
 
 export type DesktopSvgExport = DesktopVectorExport;
 
+export interface DesktopPdfRegion {
+  pageNumber: number;
+  width: number;
+  height: number;
+  bytes: Uint8Array<ArrayBuffer>;
+}
+
 type PendingExport = { resolve(value: DesktopVectorExport): void; reject(reason: Error): void };
 type PendingDetection = {
   resolve(value: GuideDetectionResult): void;
@@ -56,6 +70,17 @@ type PendingDetection = {
 
 const pendingExports = new WeakMap<object, PendingExport>();
 const pendingDetections = new WeakMap<object, PendingDetection>();
+const pendingRegions = new WeakMap<
+  object,
+  Map<number, { resolve(value: DesktopPdfRegion): void; reject(reason: Error): void }>
+>();
+
+function rejectPendingRegions(store: object, message: string) {
+  const pending = pendingRegions.get(store);
+  if (!pending) return;
+  for (const request of pending.values()) request.reject(new Error(message));
+  pending.clear();
+}
 
 export const usePdfDocumentStore = defineStore("pdf-document", {
   state: () => ({
@@ -69,6 +94,9 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
     detectionErrorMessage: "",
     sourceSha256: "",
     previews: {} as Record<number, PreviewState>,
+    detailPreviews: {} as Record<number, DetailPreviewState>,
+    detailPreviewOrder: [] as number[],
+    pendingDetailPreviewEdges: {} as Record<number, number>,
     previewOrder: [] as number[],
     visiblePreviewPages: [] as number[],
     previewCacheLimit: MAX_PREVIEW_CACHE,
@@ -83,10 +111,12 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
     exportErrorMessage: "",
     worker: undefined as Worker | undefined,
     requestId: 0,
+    regionRequestId: 0,
   }),
   getters: {
     previewList(state): PreviewState[] {
-      return Object.values(state.previews).sort((a, b) => a.pageNumber - b.pageNumber);
+      return Object.values({ ...state.previews, ...state.detailPreviews })
+        .sort((a, b) => a.pageNumber - b.pageNumber);
     },
   },
   actions: {
@@ -101,6 +131,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
         this.handleWorkerMessage(event.data);
       };
       this.worker.onerror = (event) => {
+        rejectPendingRegions(this, event.message || "局部放大 Worker 发生错误。");
         if (this.exportStatus === "running") {
           this.exportStatus = "error";
           this.exportErrorMessage = event.message || "矢量导出 Worker 发生错误。";
@@ -120,6 +151,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       };
     },
     async open(bytes: Uint8Array<ArrayBuffer>, fileName: string, sourcePath?: string) {
+      rejectPendingRegions(this, "PDF 已切换，局部放大已取消。");
       pendingDetections.get(this)?.reject(new Error("红线检测已取消。"));
       pendingDetections.delete(this);
       this.disposePreviews();
@@ -168,6 +200,52 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
         };
         this.touchPreview(message.pageNumber);
         this.evictPreviewCache();
+        return;
+      }
+      if (message.type === "detail-preview") {
+        const pendingEdge = this.pendingDetailPreviewEdges[message.pageNumber];
+        if (pendingEdge !== undefined && message.maxLongEdge >= pendingEdge) {
+          delete this.pendingDetailPreviewEdges[message.pageNumber];
+        }
+        const previous = this.detailPreviews[message.pageNumber];
+        if (previous && previous.maxLongEdge > message.maxLongEdge) return;
+        const blob = new Blob([message.bytes], { type: "image/png" });
+        if (previous) URL.revokeObjectURL(previous.url);
+        this.detailPreviews[message.pageNumber] = {
+          pageNumber: message.pageNumber,
+          width: message.width,
+          height: message.height,
+          maxLongEdge: message.maxLongEdge,
+          url: URL.createObjectURL(blob),
+        };
+        this.touchDetailPreview(message.pageNumber);
+        this.evictDetailPreviewCache();
+        return;
+      }
+      if (message.type === "detail-preview-error") {
+        const pendingEdge = this.pendingDetailPreviewEdges[message.pageNumber];
+        if (pendingEdge !== undefined && message.maxLongEdge >= pendingEdge) {
+          delete this.pendingDetailPreviewEdges[message.pageNumber];
+        }
+        return;
+      }
+      if (message.type === "region") {
+        const pending = pendingRegions.get(this)?.get(message.regionRequestId);
+        if (!pending) return;
+        pendingRegions.get(this)?.delete(message.regionRequestId);
+        pending.resolve({
+          pageNumber: message.pageNumber,
+          width: message.width,
+          height: message.height,
+          bytes: message.bytes,
+        });
+        return;
+      }
+      if (message.type === "region-error") {
+        const pending = pendingRegions.get(this)?.get(message.regionRequestId);
+        if (!pending) return;
+        pendingRegions.get(this)?.delete(message.regionRequestId);
+        pending.reject(new Error(message.message));
         return;
       }
       if (message.type === "guides") {
@@ -247,6 +325,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       if (message.type === "task-cancelled") {
         if (message.task === "preview") {
           this.previewStatus = "cancelled";
+          this.pendingDetailPreviewEdges = {};
           if (this.info) this.status = "ready";
         } else if (message.task === "detection") {
           this.detectionStatus = "cancelled";
@@ -263,6 +342,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       this.errorMessage = message.message;
     },
     close() {
+      rejectPendingRegions(this, "局部放大已取消。");
       pendingDetections.get(this)?.reject(new Error("红线检测已取消。"));
       pendingDetections.delete(this);
       this.requestId += 1;
@@ -290,12 +370,36 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       this.previews = {};
       this.previewOrder = [];
       this.visiblePreviewPages = [];
+      this.disposeDetailPreviews();
+    },
+    disposeDetailPreviews() {
+      for (const preview of Object.values(this.detailPreviews)) {
+        URL.revokeObjectURL(preview.url);
+      }
+      this.detailPreviews = {};
+      this.detailPreviewOrder = [];
+      this.pendingDetailPreviewEdges = {};
     },
     touchPreview(pageNumber: number) {
       this.previewOrder = [
         ...this.previewOrder.filter((value) => value !== pageNumber),
         pageNumber,
       ];
+    },
+    touchDetailPreview(pageNumber: number) {
+      this.detailPreviewOrder = [
+        ...this.detailPreviewOrder.filter((value) => value !== pageNumber),
+        pageNumber,
+      ];
+    },
+    evictDetailPreviewCache() {
+      while (Object.keys(this.detailPreviews).length > MAX_DETAIL_PREVIEW_CACHE) {
+        const pageNumber = this.detailPreviewOrder.shift();
+        if (!pageNumber) return;
+        const preview = this.detailPreviews[pageNumber];
+        if (preview) URL.revokeObjectURL(preview.url);
+        delete this.detailPreviews[pageNumber];
+      }
     },
     evictPreviewCache() {
       while (Object.keys(this.previews).length > this.previewCacheLimit) {
@@ -325,6 +429,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
 
       this.previewRemoveGuides = removeGuides;
       this.previewGuideDetection = nextOptions;
+      this.disposeDetailPreviews();
       if (!this.worker || !this.info) return;
 
       const pageNumbers = [...new Set([
@@ -372,6 +477,60 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
         requestId: this.requestId,
         pageNumbers: missing,
       } satisfies PdfWorkerRequest);
+    },
+    requestDetailPreviews(pageNumbers: number[], maxLongEdge: number) {
+      if (!this.worker || !this.info) return;
+      const targetEdge = Math.max(
+        1601,
+        Math.min(MAX_DETAIL_PREVIEW_LONG_EDGE, Math.round(maxLongEdge)),
+      );
+      const visible = [...new Set(pageNumbers)]
+        .filter((pageNumber) => pageNumber >= 1 && pageNumber <= this.info!.pageCount)
+        .slice(0, MAX_DETAIL_PREVIEW_CACHE);
+      const missing = visible.filter((pageNumber) => {
+        const existingEdge = this.detailPreviews[pageNumber]?.maxLongEdge ?? 0;
+        const pendingEdge = this.pendingDetailPreviewEdges[pageNumber] ?? 0;
+        if (existingEdge >= targetEdge) {
+          this.touchDetailPreview(pageNumber);
+          return false;
+        }
+        if (pendingEdge >= targetEdge) return false;
+        this.pendingDetailPreviewEdges[pageNumber] = targetEdge;
+        return true;
+      });
+      this.evictDetailPreviewCache();
+      if (missing.length === 0) return;
+      this.worker.postMessage({
+        type: "request-detail-previews",
+        requestId: this.requestId,
+        pageNumbers: missing,
+        maxLongEdge: targetEdge,
+      } satisfies PdfWorkerRequest);
+    },
+    renderRegion(
+      pageNumber: number,
+      options: PdfRegionRenderOptions,
+    ): Promise<DesktopPdfRegion> {
+      if (!this.worker || !this.info) return Promise.reject(new Error("请先打开 PDF。"));
+      this.regionRequestId += 1;
+      const regionRequestId = this.regionRequestId;
+      const pending = pendingRegions.get(this) ?? new Map();
+      pendingRegions.set(this, pending);
+      const promise = new Promise<DesktopPdfRegion>((resolve, reject) => {
+        pending.set(regionRequestId, { resolve, reject });
+      });
+      this.worker.postMessage({
+        type: "render-region",
+        requestId: this.requestId,
+        regionRequestId,
+        pageNumber,
+        options: {
+          ...options,
+          removeGuides: this.previewRemoveGuides,
+          guideDetection: { ...this.previewGuideDetection },
+        },
+      } satisfies PdfWorkerRequest);
+      return promise;
     },
     cancelPreview() {
       if (!this.worker || this.previewStatus !== "running") return;
@@ -461,6 +620,8 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       this.worker = undefined;
       pendingExports.delete(this);
       pendingDetections.delete(this);
+      rejectPendingRegions(this, "局部放大已取消。");
+      pendingRegions.delete(this);
     },
   },
 });

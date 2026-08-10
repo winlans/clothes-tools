@@ -16,6 +16,15 @@ function isPdfName(name: string): boolean {
   return /\.pdf$/i.test(name);
 }
 
+function isBrowserFileDrag(dataTransfer: DataTransfer): boolean {
+  const types = Array.from(dataTransfer.types);
+  if (types.some((type) => type.startsWith("application/x-pdf2plt-"))) return false;
+  if (dataTransfer.files.length > 0) return true;
+  const items = Array.from(dataTransfer.items);
+  if (items.length > 0) return items.some((item) => item.kind === "file");
+  return types.includes("Files");
+}
+
 function resultMessage(result: BatchImportResult): string {
   const parts: string[] = [];
   if (result.duplicates) parts.push(`${result.duplicates} 个已打开文件已定位`);
@@ -124,10 +133,11 @@ export function usePdfImport() {
   }
 
   function handleBrowserDragOver(event: DragEvent) {
-    if (!event.dataTransfer?.types.includes("Files")) return;
+    if (!event.dataTransfer || !isBrowserFileDrag(event.dataTransfer)) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
-    dropCount.value = event.dataTransfer.items.length;
+    dropCount.value = Array.from(event.dataTransfer.items)
+      .filter((item) => item.kind === "file").length;
     dropActive.value = true;
   }
 
@@ -139,7 +149,11 @@ export function usePdfImport() {
   }
 
   function handleBrowserDrop(event: DragEvent) {
-    if (!event.dataTransfer?.types.includes("Files")) return;
+    if (
+      !event.dataTransfer ||
+      !isBrowserFileDrag(event.dataTransfer) ||
+      event.dataTransfer.files.length === 0
+    ) return;
     event.preventDefault();
     dropActive.value = false;
     dropCount.value = 0;

@@ -21,5 +21,12 @@ describe("PageSidebar", () => {
     await wrapper.setProps({ collapsed: false });
     expect(wrapper.findAll(".page-thumbnail")).toHaveLength(1);
     expect(wrapper.find('[aria-label="收起页面栏"]').exists()).toBe(true);
+
+    const scrollContent = wrapper.get(".page-sidebar__content");
+    expect(scrollContent.findAll(".page-thumbnail")).toHaveLength(1);
+    expect(scrollContent.find(".page-sidebar__header").exists()).toBe(false);
+    expect(wrapper.get(".page-sidebar__header").element.nextElementSibling).toBe(
+      scrollContent.element,
+    );
   });
 });

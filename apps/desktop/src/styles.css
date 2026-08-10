@@ -308,7 +308,7 @@ h1 {
 }
 
 .document-tabs,
-.page-sidebar,
+.page-sidebar__content,
 .advanced-inspector,
 .export-tab-list {
   scrollbar-color: #566a75 #171d21;
@@ -316,7 +316,7 @@ h1 {
 }
 
 .document-tabs::-webkit-scrollbar,
-.page-sidebar::-webkit-scrollbar,
+.page-sidebar__content::-webkit-scrollbar,
 .advanced-inspector::-webkit-scrollbar,
 .export-tab-list::-webkit-scrollbar {
   width: 8px;
@@ -324,7 +324,7 @@ h1 {
 }
 
 .document-tabs::-webkit-scrollbar-track,
-.page-sidebar::-webkit-scrollbar-track,
+.page-sidebar__content::-webkit-scrollbar-track,
 .advanced-inspector::-webkit-scrollbar-track,
 .export-tab-list::-webkit-scrollbar-track {
   border-radius: 999px;
@@ -332,7 +332,7 @@ h1 {
 }
 
 .document-tabs::-webkit-scrollbar-thumb,
-.page-sidebar::-webkit-scrollbar-thumb,
+.page-sidebar__content::-webkit-scrollbar-thumb,
 .advanced-inspector::-webkit-scrollbar-thumb,
 .export-tab-list::-webkit-scrollbar-thumb {
   border: 2px solid #171d21;
@@ -341,7 +341,7 @@ h1 {
 }
 
 .document-tabs::-webkit-scrollbar-thumb:hover,
-.page-sidebar::-webkit-scrollbar-thumb:hover,
+.page-sidebar__content::-webkit-scrollbar-thumb:hover,
 .advanced-inspector::-webkit-scrollbar-thumb:hover,
 .export-tab-list::-webkit-scrollbar-thumb:hover {
   background: #78909c;
@@ -603,13 +603,31 @@ h1 {
   color: #aab8c2;
 }
 
+.empty-state--import {
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+}
+
+.empty-state--import:focus-visible {
+  outline: none;
+}
+
 .session-waiting {
   min-height: calc(100vh - 190px);
 }
 
-.empty-state h2 {
+.empty-state h2,
+.empty-state__title {
   color: #f1f5f8;
   font-size: 22px;
+}
+
+.empty-state__description {
+  font-size: 16px;
 }
 
 .empty-state__mark {
@@ -624,6 +642,18 @@ h1 {
   font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.12em;
+}
+
+.empty-state--import:hover .empty-state__mark,
+.empty-state--import:focus-visible .empty-state__mark {
+  border-color: #79a9c0;
+  background: #1d282e;
+  box-shadow: 0 0 0 3px rgb(121 169 192 / 14%);
+}
+
+.empty-state--import:hover .empty-state__title,
+.empty-state--import:focus-visible .empty-state__title {
+  color: #ffffff;
 }
 
 .error-state {
@@ -684,10 +714,11 @@ h1 {
   position: sticky;
   top: calc(var(--app-top-chrome-height) + 20px);
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   max-height: calc(100vh - var(--app-top-chrome-height) - 40px);
   align-self: start;
   gap: 12px;
-  overflow-y: auto;
+  overflow: hidden;
   border: 1px solid #28333b;
   border-radius: 9px;
   padding: 10px;
@@ -699,6 +730,7 @@ h1 {
 }
 
 .page-sidebar--collapsed {
+  grid-template-rows: auto;
   min-height: 44px;
   place-items: start center;
   overflow: hidden;
@@ -710,6 +742,14 @@ h1 {
   align-items: center;
   justify-content: space-between;
   gap: 6px;
+}
+
+.page-sidebar__content {
+  display: grid;
+  min-height: 0;
+  gap: 12px;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .page-sidebar__toggle {
@@ -868,6 +908,25 @@ h1 {
   font-variant-numeric: tabular-nums;
 }
 
+.layout-refresh-button {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  place-items: center;
+  padding: 0;
+}
+
+.refresh-icon {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.4;
+}
+
 .layout-commandbar {
   display: flex;
   align-items: center;
@@ -957,6 +1016,32 @@ h1 {
 .mode-switch button.active {
   color: #e5f4fb;
   background: #28566b;
+}
+
+.mode-switch .rotation-icon-button {
+  display: grid;
+  width: 34px;
+  padding: 6px;
+  place-items: center;
+}
+
+.rotation-icon {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.4;
+}
+
+.rotation-angle {
+  min-width: 38px;
+  padding: 6px 4px;
+  color: #b8cbd4;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  background: #10171b;
 }
 
 .mode-switch button:disabled {
@@ -1303,6 +1388,7 @@ h1 {
 }
 
 .layout-canvas {
+  position: relative;
   width: 100%;
   height: max(520px, calc(100vh - 245px));
   overflow: hidden;
@@ -1317,6 +1403,29 @@ h1 {
     inset 0 0 0 1px rgb(255 255 255 / 28%),
     inset 0 12px 30px rgb(83 77 69 / 8%);
   outline: none;
+}
+
+.layout-canvas__stage {
+  position: absolute;
+  inset: 0;
+}
+
+.layout-canvas__magnifier {
+  position: absolute;
+  z-index: 4;
+  display: block;
+  box-sizing: border-box;
+  border: 2px solid #243d49;
+  border-radius: 4px;
+  background: #d7d2c9;
+  box-shadow:
+    0 10px 28px rgb(0 0 0 / 34%),
+    inset 0 0 0 1px rgb(255 255 255 / 72%);
+  pointer-events: none;
+}
+
+.layout-canvas__magnifier[hidden] {
+  display: none;
 }
 
 .layout-canvas:focus-visible {

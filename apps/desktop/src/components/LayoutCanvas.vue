@@ -2,28 +2,53 @@
 import {
   createLayoutCropGeometry,
   flattenLayout,
+  rotatedSize,
   type GuideCoordinates,
   type GridPosition,
   type LayoutGrid,
   type PageSizePt,
+  type PdfRegionRenderOptions,
+  type QuarterTurn,
 } from "@pdf2plt/core";
 import Konva from "konva";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
-import type { PreviewState } from "../stores/pdf-document";
+import type { DesktopPdfRegion, PreviewState } from "../stores/pdf-document";
 import {
   previewColorTreatment,
   previewInkLayerOpacities,
 } from "../stores/preview-appearance";
 import {
+  canvasPointToWorld,
+  canvasLayerTransform,
+  canvasCursor,
+  canvasRenderPixelRatio,
   fitCameraToContent,
+  isCanvasMagnifierShortcut,
   isCanvasPanGesture,
   panCameraBy,
   setCameraZoomAtPoint,
+  shouldFitCameraAfterSceneChange,
+  wheelPanDelta,
+  wheelZoomFactor,
   zoomCameraAtPoint,
   type Camera,
   type Point,
 } from "../canvas/camera";
+import {
+  detailPreviewLongEdge,
+  visibleDetailPreviewPages,
+} from "../canvas/detail-preview";
+import {
+  adjustMagnifierScale,
+  calculateMagnifierFrame,
+  calculateMagnifierTiles,
+  MAGNIFIER_SCALE,
+  magnifierRenderDelay,
+  shouldRenderMagnifierAt,
+} from "../canvas/magnifier";
+
+Konva.dragButtons = [2];
 
 const props = withDefaults(defineProps<{
   layout: LayoutGrid;
@@ -36,12 +61,18 @@ const props = withDefaults(defineProps<{
   foregroundColor?: string;
   backgroundColor?: string;
   lineWeight?: number;
+  rotation?: QuarterTurn;
+  renderRegion?: (
+    pageNumber: number,
+    options: PdfRegionRenderOptions,
+  ) => Promise<DesktopPdfRegion>;
 }>(), {
   editable: true,
   showGrid: true,
   foregroundColor: "#000000",
   backgroundColor: "#ffffff",
   lineWeight: 2,
+  rotation: 0,
 });
 
 const emit = defineEmits<{
@@ -51,6 +82,7 @@ const emit = defineEmits<{
   insertSpacer: [target: GridPosition];
   moveSpacer: [spacerId: string, target: GridPosition];
   deleteSpacer: [spacerId: string];
+  detailPreviewRequest: [pageNumbers: number[], maxLongEdge: number];
 }>();
 
 type DragItem =
@@ -65,12 +97,25 @@ interface ActiveDrag {
 }
 
 const host = ref<HTMLDivElement>();
+const stageHost = ref<HTMLDivElement>();
+const magnifierCanvas = ref<HTMLCanvasElement>();
 let stage: Konva.Stage | undefined;
 let contentLayer: Konva.Layer | undefined;
 let resizeObserver: ResizeObserver | undefined;
+let detailPreviewTimer: number | undefined;
+let renderPixelRatio = 2;
 let camera: Camera = { x: 0, y: 0, scale: 1 };
-let spacePressed = false;
+let magnifierActive = false;
+let magnifierScale = MAGNIFIER_SCALE;
 let pointerInside = false;
+let magnifierPointer: Point | undefined;
+let magnifierAnimationFrame: number | undefined;
+let magnifierThrottleTimer: number | undefined;
+let magnifierLastRenderStartedAt = Number.NEGATIVE_INFINITY;
+let magnifierRenderToken = 0;
+let magnifierBusy = false;
+let magnifierNeedsRedraw = false;
+let magnifierHasFrame = false;
 let panning = false;
 let lastPointer: Point | undefined;
 let activeDrag: ActiveDrag | undefined;
@@ -82,9 +127,280 @@ interface PreviewImageEntry {
 }
 
 const imageCache = new Map<string, PreviewImageEntry>();
+const loadedPreviewImages = new Map<number, HTMLImageElement>();
 const geometry = computed(() =>
   createLayoutCropGeometry(props.layout, props.pageSize, props.guides),
 );
+
+function updateCursor() {
+  if (!host.value) return;
+  host.value.style.cursor = canvasCursor(
+    magnifierActive,
+    panning || Boolean(activeDrag),
+  );
+}
+
+function hideMagnifier() {
+  magnifierRenderToken += 1;
+  magnifierNeedsRedraw = false;
+  if (magnifierAnimationFrame !== undefined) {
+    cancelAnimationFrame(magnifierAnimationFrame);
+    magnifierAnimationFrame = undefined;
+  }
+  if (magnifierThrottleTimer !== undefined) {
+    window.clearTimeout(magnifierThrottleTimer);
+    magnifierThrottleTimer = undefined;
+  }
+  if (magnifierCanvas.value) magnifierCanvas.value.hidden = true;
+}
+
+function decodeRegionImage(bytes: Uint8Array<ArrayBuffer>): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
+    const image = new window.Image();
+    image.decoding = "async";
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("无法解码局部放大图像。"));
+    };
+    image.src = url;
+  });
+}
+
+function drawMagnifierLabel(
+  context: CanvasRenderingContext2D,
+  width: number,
+) {
+  const scaleLabel = `${magnifierScale.toFixed(2)}×`;
+  context.font = "600 12px system-ui, sans-serif";
+  const labelWidth = Math.ceil(context.measureText(scaleLabel).width) + 14;
+  context.fillStyle = "rgb(15 23 28 / 78%)";
+  context.fillRect(width - labelWidth - 8, 8, labelWidth, 24);
+  context.fillStyle = "#eef7fa";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText(scaleLabel, width - labelWidth / 2 - 8, 20);
+}
+
+function drawRegionTile(
+  context: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  target: { x: number; y: number; width: number; height: number },
+) {
+  const colorTreatment = previewColorTreatment(
+    props.foregroundColor,
+    props.backgroundColor,
+  );
+  context.save();
+  context.beginPath();
+  context.rect(target.x, target.y, target.width, target.height);
+  context.clip();
+  context.translate(target.x, target.y);
+  if (props.rotation === 90) {
+    context.translate(target.width, 0);
+    context.rotate(Math.PI / 2);
+  } else if (props.rotation === 180) {
+    context.translate(target.width, target.height);
+    context.rotate(Math.PI);
+  } else if (props.rotation === 270) {
+    context.translate(0, target.height);
+    context.rotate((Math.PI * 3) / 2);
+  }
+  const drawSize = rotatedSize(target, props.rotation);
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, drawSize.width, drawSize.height);
+  for (const opacity of previewInkLayerOpacities(props.lineWeight)) {
+    context.globalCompositeOperation = "multiply";
+    context.globalAlpha = opacity;
+    context.drawImage(image, 0, 0, drawSize.width, drawSize.height);
+  }
+  context.globalAlpha = 1;
+  if (colorTreatment.mode !== "source") {
+    context.globalCompositeOperation = "color";
+    context.fillStyle = "#808080";
+    context.fillRect(0, 0, drawSize.width, drawSize.height);
+    if (colorTreatment.mode === "dark-background") {
+      context.globalCompositeOperation = "difference";
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, drawSize.width, drawSize.height);
+    }
+    context.globalCompositeOperation = colorTreatment.mode === "dark-background"
+      ? "multiply"
+      : "screen";
+    context.fillStyle = colorTreatment.compositeForegroundColor;
+    context.fillRect(0, 0, drawSize.width, drawSize.height);
+    context.globalCompositeOperation = colorTreatment.mode === "dark-background"
+      ? "screen"
+      : "multiply";
+    context.fillStyle = props.backgroundColor;
+    context.fillRect(0, 0, drawSize.width, drawSize.height);
+  }
+  context.restore();
+}
+
+async function renderVectorMagnifier() {
+  const canvas = magnifierCanvas.value;
+  const pointer = magnifierPointer;
+  if (!magnifierActive || !pointerInside || !stage || !canvas || !pointer || !props.renderRegion) {
+    hideMagnifier();
+    return;
+  }
+  const token = ++magnifierRenderToken;
+  const frame = calculateMagnifierFrame(
+    pointer,
+    { width: stage.width(), height: stage.height() },
+    undefined,
+    magnifierScale,
+  );
+  const pixelRatio = Math.max(1, window.devicePixelRatio || 1);
+  const outputWidth = Math.max(1, Math.round(frame.lens.width * pixelRatio));
+  const outputHeight = Math.max(1, Math.round(frame.lens.height * pixelRatio));
+  const sizeChanged = canvas.width !== outputWidth || canvas.height !== outputHeight;
+  if (sizeChanged) {
+    canvas.width = outputWidth;
+    canvas.height = outputHeight;
+    magnifierHasFrame = false;
+  }
+  canvas.style.left = `${frame.lens.x}px`;
+  canvas.style.top = `${frame.lens.y}px`;
+  canvas.style.width = `${frame.lens.width}px`;
+  canvas.style.height = `${frame.lens.height}px`;
+  const liveContext = canvas.getContext("2d");
+  if (!liveContext) {
+    hideMagnifier();
+    return;
+  }
+  if (!magnifierHasFrame) {
+    liveContext.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+    liveContext.fillStyle = "#d7d2c9";
+    liveContext.fillRect(0, 0, frame.lens.width, frame.lens.height);
+    drawMagnifierLabel(liveContext, frame.lens.width);
+  }
+  canvas.hidden = false;
+
+  const renderCanvas = document.createElement("canvas");
+  renderCanvas.width = outputWidth;
+  renderCanvas.height = outputHeight;
+  const context = renderCanvas.getContext("2d");
+  if (!context) return;
+  context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+  context.fillStyle = "#d7d2c9";
+  context.fillRect(0, 0, frame.lens.width, frame.lens.height);
+
+  const pages = [];
+  for (let row = 0; row < props.layout.rows; row += 1) {
+    for (let column = 0; column < props.layout.columns; column += 1) {
+      const cell = props.layout.cells[row]?.[column];
+      if (cell?.kind !== "page") continue;
+      pages.push({ pageNumber: cell.pageNumber, ...frameForCell({ row, column }) });
+    }
+  }
+  const tiles = calculateMagnifierTiles(
+    frame.source,
+    magnifierScale,
+    camera,
+    getSourceContentSize(),
+    pages,
+    props.rotation,
+  );
+  try {
+    const rendered = await Promise.all(tiles.map(async (tile) => {
+      const outputSize = rotatedSize(tile.target, props.rotation);
+      const region = await props.renderRegion!(tile.pageNumber, {
+        ...tile.source,
+        outputWidth: Math.max(1, Math.round(outputSize.width * pixelRatio)),
+        outputHeight: Math.max(1, Math.round(outputSize.height * pixelRatio)),
+      });
+      return { tile, image: await decodeRegionImage(region.bytes) };
+    }));
+    if (token !== magnifierRenderToken || !magnifierActive) return;
+    for (const { tile, image } of rendered) {
+      drawRegionTile(context, image, tile.target);
+    }
+    drawMagnifierLabel(context, frame.lens.width);
+    liveContext.setTransform(1, 0, 0, 1, 0, 0);
+    liveContext.clearRect(0, 0, canvas.width, canvas.height);
+    liveContext.drawImage(renderCanvas, 0, 0);
+    magnifierHasFrame = true;
+  } catch {
+    if (token !== magnifierRenderToken) return;
+    if (!magnifierHasFrame) {
+      liveContext.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      liveContext.fillStyle = "#6f1f24";
+      liveContext.font = "13px system-ui, sans-serif";
+      liveContext.textAlign = "center";
+      liveContext.textBaseline = "middle";
+      liveContext.fillText(
+        "局部矢量重绘失败",
+        frame.lens.width / 2,
+        frame.lens.height / 2,
+      );
+      drawMagnifierLabel(liveContext, frame.lens.width);
+    }
+  }
+}
+
+function drawMagnifier() {
+  magnifierAnimationFrame = undefined;
+  if (!magnifierActive || !pointerInside) {
+    hideMagnifier();
+    return;
+  }
+  if (magnifierBusy) {
+    magnifierNeedsRedraw = true;
+    return;
+  }
+  magnifierLastRenderStartedAt = performance.now();
+  magnifierBusy = true;
+  magnifierNeedsRedraw = false;
+  void renderVectorMagnifier().finally(() => {
+    magnifierBusy = false;
+    if (magnifierNeedsRedraw && magnifierActive && pointerInside) {
+      scheduleMagnifier(undefined, true);
+    }
+  });
+}
+
+function queueMagnifierDraw() {
+  if (
+    magnifierAnimationFrame !== undefined ||
+    magnifierThrottleTimer !== undefined
+  ) {
+    return;
+  }
+  const delay = magnifierRenderDelay(
+    magnifierLastRenderStartedAt,
+    performance.now(),
+  );
+  if (delay > 0) {
+    magnifierThrottleTimer = window.setTimeout(() => {
+      magnifierThrottleTimer = undefined;
+      if (!magnifierActive || !pointerInside) return;
+      magnifierAnimationFrame = requestAnimationFrame(drawMagnifier);
+    }, delay);
+    return;
+  }
+  magnifierAnimationFrame = requestAnimationFrame(drawMagnifier);
+}
+
+function scheduleMagnifier(
+  pointer = stage?.getPointerPosition() ?? undefined,
+  force = false,
+) {
+  const shouldRender = shouldRenderMagnifierAt(magnifierPointer, pointer, force);
+  if (pointer) magnifierPointer = pointer;
+  if (!shouldRender) return;
+  if (!magnifierActive || !pointerInside) return;
+  if (magnifierBusy) {
+    magnifierNeedsRedraw = true;
+    return;
+  }
+  queueMagnifierDraw();
+}
 
 function applyCamera(nextCamera: Camera) {
   camera = nextCamera;
@@ -93,23 +409,68 @@ function applyCamera(nextCamera: Camera) {
     host.value.dataset.cameraY = String(camera.y);
     host.value.dataset.cameraScale = String(camera.scale);
   }
-  contentLayer?.position({ x: camera.x, y: camera.y });
-  contentLayer?.scale({ x: camera.scale, y: camera.scale });
+  const transform = canvasLayerTransform(
+    camera,
+    getSourceContentSize(),
+    props.rotation,
+  );
+  contentLayer?.position({ x: transform.x, y: transform.y });
+  contentLayer?.scale({ x: transform.scaleX, y: transform.scaleY });
+  contentLayer?.rotation(transform.rotation);
   contentLayer?.batchDraw();
+  scheduleDetailPreview();
   emit("zoomChange", camera.scale);
   emit("viewChange", { ...camera });
 }
 
-function getContentSize() {
+function getSourceContentSize() {
   return {
     width: geometry.value.width,
     height: geometry.value.height,
   };
 }
 
+function getDisplayContentSize() {
+  return rotatedSize(getSourceContentSize(), props.rotation);
+}
+
+function requestDetailPreview() {
+  detailPreviewTimer = undefined;
+  if (!stage) return;
+  const maxLongEdge = detailPreviewLongEdge(
+    props.pageSize,
+    camera.scale,
+    renderPixelRatio,
+  );
+  if (!maxLongEdge) return;
+  const pages = [];
+  for (let row = 0; row < props.layout.rows; row += 1) {
+    for (let column = 0; column < props.layout.columns; column += 1) {
+      const cell = props.layout.cells[row]?.[column];
+      if (cell?.kind !== "page") continue;
+      pages.push({ pageNumber: cell.pageNumber, ...frameForCell({ row, column }) });
+    }
+  }
+  const visiblePages = visibleDetailPreviewPages(
+    camera,
+    { width: stage.width(), height: stage.height() },
+    getSourceContentSize(),
+    props.rotation,
+    pages,
+  );
+  if (visiblePages.length > 0) {
+    emit("detailPreviewRequest", visiblePages, maxLongEdge);
+  }
+}
+
+function scheduleDetailPreview() {
+  if (detailPreviewTimer !== undefined) window.clearTimeout(detailPreviewTimer);
+  detailPreviewTimer = window.setTimeout(requestDetailPreview, 120);
+}
+
 function fitContent() {
   if (!stage) return;
-  const content = getContentSize();
+  const content = getDisplayContentSize();
   applyCamera(
     fitCameraToContent(
       { width: stage.width(), height: stage.height() },
@@ -127,11 +488,15 @@ function setZoom(scale: number) {
   applyCamera(setCameraZoomAtPoint(camera, viewportCenter, scale));
 }
 
-function loadPreview(url: string, node: Konva.Image) {
+function loadPreview(url: string, pageNumber: number, node: Konva.Image) {
   const cached = imageCache.get(url);
   if (cached) {
     cached.nodes.add(node);
-    node.image(cached.image);
+    node.image(
+      cached.loaded
+        ? cached.image
+        : loadedPreviewImages.get(pageNumber) ?? cached.image,
+    );
     if (cached.loaded) node.getLayer()?.batchDraw();
     return;
   }
@@ -140,9 +505,11 @@ function loadPreview(url: string, node: Konva.Image) {
   image.decoding = "async";
   const entry: PreviewImageEntry = { image, loaded: false, nodes: new Set([node]) };
   imageCache.set(url, entry);
-  node.image(image);
+  node.image(loadedPreviewImages.get(pageNumber) ?? image);
   image.onload = () => {
+    if (imageCache.get(url) !== entry) return;
     entry.loaded = true;
+    loadedPreviewImages.set(pageNumber, image);
     for (const waitingNode of entry.nodes) {
       if (waitingNode.getLayer()) {
         waitingNode.image(image);
@@ -239,17 +606,13 @@ function restoreDraggedGroup(drag: ActiveDrag) {
   drag.group.position(positionForCell(drag.source));
   drag.group.opacity(1);
   showDropTarget();
-  if (stage) stage.container().style.cursor = "grab";
+  updateCursor();
   contentLayer?.batchDraw();
 }
 
 function bindCellDrag(group: Konva.Group, item: DragItem, source: GridPosition) {
-  group.on("mouseenter", () => {
-    if (stage && !spacePressed) stage.container().style.cursor = "grab";
-  });
-  group.on("mouseleave", () => {
-    if (stage && !panning && !activeDrag) stage.container().style.cursor = "default";
-  });
+  group.on("mouseenter", updateCursor);
+  group.on("mouseleave", updateCursor);
   group.on("dragstart", () => {
     activeDrag = { group, item, source, target: undefined };
     if (host.value) {
@@ -261,7 +624,7 @@ function bindCellDrag(group: Konva.Group, item: DragItem, source: GridPosition) 
     }
     group.opacity(0.78);
     group.moveToTop();
-    if (stage) stage.container().style.cursor = "grabbing";
+    updateCursor();
   });
   group.on("dragmove", () => {
     if (!activeDrag || activeDrag.group !== group) return;
@@ -283,7 +646,7 @@ function bindCellDrag(group: Konva.Group, item: DragItem, source: GridPosition) 
       delete host.value.dataset.draggingSpacer;
     }
     showDropTarget();
-    if (stage) stage.container().style.cursor = "grab";
+    updateCursor();
     if (item.kind === "page") {
       emit("movePage", item.pageNumber, drag.target);
     } else {
@@ -347,45 +710,47 @@ function createPageGroup(
         opacity,
         listening: false,
       });
-      loadPreview(preview.url, previewNode);
+      loadPreview(preview.url, pageNumber, previewNode);
       group.add(previewNode);
     }
-    group.add(
-      new Konva.Rect({
-        width: frame.width,
-        height: frame.height,
-        fill: "#808080",
-        globalCompositeOperation: "color",
-        listening: false,
-      }),
-      ...(colorTreatment.mode === "dark-background"
-        ? [
-            new Konva.Rect({
-              width: frame.width,
-              height: frame.height,
-              fill: "#ffffff",
-              globalCompositeOperation: "difference",
-              listening: false,
-            }),
-          ]
-        : []),
-      new Konva.Rect({
-        width: frame.width,
-        height: frame.height,
-        fill: colorTreatment.compositeForegroundColor,
-        globalCompositeOperation:
-          colorTreatment.mode === "dark-background" ? "multiply" : "screen",
-        listening: false,
-      }),
-      new Konva.Rect({
-        width: frame.width,
-        height: frame.height,
-        fill: props.backgroundColor,
-        globalCompositeOperation:
-          colorTreatment.mode === "dark-background" ? "screen" : "multiply",
-        listening: false,
-      }),
-    );
+    if (colorTreatment.mode !== "source") {
+      group.add(
+        new Konva.Rect({
+          width: frame.width,
+          height: frame.height,
+          fill: "#808080",
+          globalCompositeOperation: "color",
+          listening: false,
+        }),
+        ...(colorTreatment.mode === "dark-background"
+          ? [
+              new Konva.Rect({
+                width: frame.width,
+                height: frame.height,
+                fill: "#ffffff",
+                globalCompositeOperation: "difference",
+                listening: false,
+              }),
+            ]
+          : []),
+        new Konva.Rect({
+          width: frame.width,
+          height: frame.height,
+          fill: colorTreatment.compositeForegroundColor,
+          globalCompositeOperation:
+            colorTreatment.mode === "dark-background" ? "multiply" : "screen",
+          listening: false,
+        }),
+        new Konva.Rect({
+          width: frame.width,
+          height: frame.height,
+          fill: props.backgroundColor,
+          globalCompositeOperation:
+            colorTreatment.mode === "dark-background" ? "screen" : "multiply",
+          listening: false,
+        }),
+      );
+    }
   }
 
   if (props.showGrid) {
@@ -470,8 +835,14 @@ function createSpacerGroup(spacerId: string, source: GridPosition): Konva.Group 
 function positionFromClient(clientX: number, clientY: number): GridPosition | undefined {
   if (!host.value) return undefined;
   const bounds = host.value.getBoundingClientRect();
-  const worldX = (clientX - bounds.left - camera.x) / camera.scale;
-  const worldY = (clientY - bounds.top - camera.y) / camera.scale;
+  const world = canvasPointToWorld(
+    { x: clientX - bounds.left, y: clientY - bounds.top },
+    camera,
+    getSourceContentSize(),
+    props.rotation,
+  );
+  const worldX = world.x;
+  const worldY = world.y;
   const column = axisIndex(geometry.value.columns, worldX);
   const row = axisIndex(geometry.value.rows, worldY);
   if (
@@ -512,6 +883,10 @@ function renderScene() {
   activeDrag = undefined;
   dropHighlight = undefined;
   contentLayer.destroyChildren();
+  const activePreviewUrls = new Set(props.previews.map((preview) => preview.url));
+  for (const url of imageCache.keys()) {
+    if (!activePreviewUrls.has(url)) imageCache.delete(url);
+  }
   const previewByPage = new Map(
     props.previews.map((preview) => [preview.pageNumber, preview]),
   );
@@ -544,7 +919,7 @@ function renderScene() {
           width: frame.width,
           height: frame.height,
           fill: cell ? props.backgroundColor : "#d7d2c9",
-          ...(cell
+          ...(cell && props.showGrid
             ? {
                 shadowColor: "#5d574f",
                 shadowBlur: 7,
@@ -605,46 +980,56 @@ function startPan(pointer: Point | null) {
   if (!pointer || !stage) return;
   panning = true;
   lastPointer = pointer;
-  stage.container().style.cursor = "grabbing";
+  updateCursor();
 }
 
 function stopPan() {
   panning = false;
   lastPointer = undefined;
-  if (stage) stage.container().style.cursor = spacePressed ? "grab" : "default";
+  updateCursor();
 }
 
 function handleKeyDown(event: KeyboardEvent) {
+  if (isCanvasMagnifierShortcut(
+    event.code,
+    pointerInside,
+    document.activeElement === host.value,
+  )) {
+    event.preventDefault();
+    if (magnifierActive) return;
+    magnifierActive = true;
+    updateCursor();
+    scheduleMagnifier(stage?.getPointerPosition() ?? undefined, true);
+    return;
+  }
   if (event.code === "Escape" && activeDrag) {
     event.preventDefault();
     cancelActiveDrag();
-    return;
   }
-  if (event.code !== "Space") return;
-  if (!pointerInside && document.activeElement !== host.value) return;
-  event.preventDefault();
-  spacePressed = true;
-  contentLayer?.find(".layout-item").forEach((node) => node.draggable(false));
-  if (stage && !panning) stage.container().style.cursor = "grab";
 }
 
 function handleKeyUp(event: KeyboardEvent) {
-  if (event.code !== "Space") return;
-  spacePressed = false;
-  contentLayer?.find(".layout-item").forEach((node) => node.draggable(props.editable));
-  stopPan();
+  if (event.code !== "Space" || !magnifierActive) return;
+  event.preventDefault();
+  magnifierActive = false;
+  hideMagnifier();
+  updateCursor();
 }
 
 function handleBlur() {
-  spacePressed = false;
-  contentLayer?.find(".layout-item").forEach((node) => node.draggable(props.editable));
+  magnifierActive = false;
+  hideMagnifier();
   stopPan();
 }
 
 onMounted(() => {
-  if (!host.value) return;
-  stage = new Konva.Stage({ container: host.value, width: 1, height: 1 });
-  contentLayer = new Konva.Layer();
+  if (!host.value || !stageHost.value) return;
+  renderPixelRatio = canvasRenderPixelRatio(window.devicePixelRatio || 1);
+  Konva.pixelRatio = renderPixelRatio;
+  host.value.dataset.renderPixelRatio = String(renderPixelRatio);
+  stage = new Konva.Stage({ container: stageHost.value, width: 1, height: 1 });
+  updateCursor();
+  contentLayer = new Konva.Layer({ imageSmoothingEnabled: true });
   stage.add(contentLayer);
   resizeStage();
   renderScene();
@@ -653,15 +1038,41 @@ onMounted(() => {
 
   stage.on("wheel", (event) => {
     event.evt.preventDefault();
-    const pointer = stage?.getPointerPosition();
-    if (!pointer) return;
-    const factor = event.evt.deltaY > 0 ? 0.9 : 1.1;
-    applyCamera(zoomCameraAtPoint(camera, pointer, factor));
+    if (magnifierActive) {
+      magnifierScale = adjustMagnifierScale(
+        magnifierScale,
+        event.evt.deltaY,
+        event.evt.shiftKey,
+      );
+      if (host.value) host.value.dataset.magnifierScale = magnifierScale.toFixed(2);
+      scheduleMagnifier(stage?.getPointerPosition() ?? undefined, true);
+      return;
+    }
+    if (event.evt.ctrlKey) {
+      const pointer = stage?.getPointerPosition() ?? {
+        x: (stage?.width() ?? 0) / 2,
+        y: (stage?.height() ?? 0) / 2,
+      };
+      applyCamera(
+        zoomCameraAtPoint(
+          camera,
+          pointer,
+          wheelZoomFactor(event.evt.deltaY, event.evt.shiftKey),
+        ),
+      );
+      return;
+    }
+    applyCamera(
+      panCameraBy(
+        camera,
+        wheelPanDelta(event.evt.deltaX, event.evt.deltaY, event.evt.shiftKey),
+      ),
+    );
   });
   stage.on("mousedown", (event) => {
     host.value?.focus();
     const button = event.evt.button;
-    if (isCanvasPanGesture(button, spacePressed)) {
+    if (isCanvasPanGesture(button)) {
       event.evt.preventDefault();
       startPan(stage?.getPointerPosition() ?? null);
     }
@@ -671,6 +1082,7 @@ onMounted(() => {
   });
   stage.on("mousemove", () => {
     const pointer = stage?.getPointerPosition();
+    if (pointer) scheduleMagnifier(pointer);
     if (!panning || !pointer || !lastPointer) return;
     applyCamera(
       panCameraBy(camera, {
@@ -680,12 +1092,14 @@ onMounted(() => {
     );
     lastPointer = pointer;
   });
+  stage.on("mouseup", stopPan);
   stage.on("mouseenter", () => {
     pointerInside = true;
+    updateCursor();
   });
-  stage.on("mouseup", stopPan);
   stage.on("mouseleave", () => {
     pointerInside = false;
+    hideMagnifier();
     stopPan();
   });
 
@@ -706,28 +1120,55 @@ watch(
     props.foregroundColor,
     props.backgroundColor,
     props.lineWeight,
+    props.rotation,
   ] as const,
-  async ([layout, , , guides], [previousLayout, , , previousGuides]) => {
+  async (values, previousValues) => {
+    const layout = values[0];
+    const pageSize = values[1];
+    const guides = values[3];
+    const rotation = values[8];
+    const previousLayout = previousValues[0];
+    const previousPageSize = previousValues[1];
+    const previousGuides = previousValues[3];
+    const previousRotation = previousValues[8];
     renderScene();
-    if (
-      layout.rows !== previousLayout.rows ||
-      layout.columns !== previousLayout.columns ||
-      guides !== previousGuides
-    ) {
+    applyCamera(camera);
+    if (shouldFitCameraAfterSceneChange(
+      {
+        rows: layout.rows,
+        columns: layout.columns,
+        guides,
+        rotation,
+        pageWidth: pageSize.width,
+        pageHeight: pageSize.height,
+      },
+      {
+        rows: previousLayout.rows,
+        columns: previousLayout.columns,
+        guides: previousGuides,
+        rotation: previousRotation,
+        pageWidth: previousPageSize.width,
+        pageHeight: previousPageSize.height,
+      },
+    )) {
       await nextTick();
       fitContent();
     }
+    if (rotation !== previousRotation) scheduleMagnifier(undefined, true);
   },
   { deep: true },
 );
 
 onBeforeUnmount(() => {
   resizeObserver?.disconnect();
+  if (detailPreviewTimer !== undefined) window.clearTimeout(detailPreviewTimer);
+  hideMagnifier();
   window.removeEventListener("keydown", handleKeyDown);
   window.removeEventListener("keyup", handleKeyUp);
   window.removeEventListener("blur", handleBlur);
   stage?.destroy();
   imageCache.clear();
+  loadedPreviewImages.clear();
 });
 
 defineExpose({ fitContent, setZoom });
@@ -743,5 +1184,13 @@ defineExpose({ fitContent, setZoom });
     @dragover.prevent="handleExternalDragOver"
     @dragleave="handleExternalDragLeave"
     @drop.prevent="handleExternalDrop"
-  />
+  >
+    <div ref="stageHost" class="layout-canvas__stage" />
+    <canvas
+      ref="magnifierCanvas"
+      class="layout-canvas__magnifier"
+      aria-hidden="true"
+      hidden
+    />
+  </div>
 </template>

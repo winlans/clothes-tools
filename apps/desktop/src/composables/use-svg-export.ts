@@ -118,6 +118,7 @@ async function generateSessionVector(session: DocumentSession, format: VectorExp
   return documentStore.exportVector(format, layout, resolved.coordinates, {
     removeGuides: !projectStore.outputSettings.keepGuides,
     removeBackground: !projectStore.outputSettings.keepBackground,
+    rotation: projectStore.outputSettings.rotation ?? 0,
   });
 }
 
@@ -191,6 +192,7 @@ export function useVectorExport(sessionSource?: MaybeRefOrGetter<DocumentSession
       const result = await documentStore.exportVector(format, layout, resolved.coordinates, {
         removeGuides: !projectStore.outputSettings.keepGuides,
         removeBackground: !projectStore.outputSettings.keepBackground,
+        rotation: projectStore.outputSettings.rotation ?? 0,
       });
       if (selectedPath) await writeFile(selectedPath, result.bytes);
       else downloadBytes(result.bytes, fileName, format);

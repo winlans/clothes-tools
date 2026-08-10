@@ -1,7 +1,7 @@
 import { defineStore } from "pinia";
 
 export const MIN_PREVIEW_LINE_WEIGHT = 0.5;
-export const MAX_PREVIEW_LINE_WEIGHT = 3;
+export const MAX_PREVIEW_LINE_WEIGHT = 10;
 
 export interface PreviewAppearance {
   foregroundColor: string;
@@ -32,7 +32,7 @@ export function previewInkLayerOpacities(lineWeight: number): number[] {
 }
 
 export interface PreviewColorTreatment {
-  mode: "light-background" | "dark-background";
+  mode: "source" | "light-background" | "dark-background";
   compositeForegroundColor: string;
 }
 
@@ -54,14 +54,25 @@ export function previewColorTreatment(
   foregroundColor: string,
   backgroundColor: string,
 ): PreviewColorTreatment {
-  const foreground = parseHexColor(normalizeColor(
+  const normalizedForeground = normalizeColor(
     foregroundColor,
     DEFAULT_PREVIEW_APPEARANCE.foregroundColor,
-  ));
-  const background = parseHexColor(normalizeColor(
+  );
+  const normalizedBackground = normalizeColor(
     backgroundColor,
     DEFAULT_PREVIEW_APPEARANCE.backgroundColor,
-  ));
+  );
+  const foreground = parseHexColor(normalizedForeground);
+  const background = parseHexColor(normalizedBackground);
+  if (
+    normalizedForeground === DEFAULT_PREVIEW_APPEARANCE.foregroundColor &&
+    normalizedBackground === DEFAULT_PREVIEW_APPEARANCE.backgroundColor
+  ) {
+    return {
+      mode: "source",
+      compositeForegroundColor: DEFAULT_PREVIEW_APPEARANCE.foregroundColor,
+    };
+  }
   const luminance = (channels: number[]) =>
     channels[0]! * 0.2126 + channels[1]! * 0.7152 + channels[2]! * 0.0722;
   const darkBackground = luminance(background) < luminance(foreground);

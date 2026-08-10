@@ -42,12 +42,14 @@ describe("red guide detection", () => {
   it("removes solid and antialiased red guide pixels from previews", () => {
     const pixels = new Uint8ClampedArray([
       255, 0, 0,
-      255, 190, 190,
+      255, 252, 252,
       20, 20, 20,
       255, 180, 40,
+      255, 252, 252,
+      20, 20, 20,
     ]);
     const removed = removeRedGuidePixels(
-      { pageNumber: 1, width: 4, height: 1, stride: 12, components: 3, pixels },
+      { pageNumber: 1, width: 6, height: 1, stride: 18, components: 3, pixels },
       DEFAULT_GUIDE_DETECTION_OPTIONS,
     );
 
@@ -57,6 +59,8 @@ describe("red guide detection", () => {
       255, 255, 255,
       20, 20, 20,
       255, 180, 40,
+      255, 252, 252,
+      20, 20, 20,
     ]);
   });
 

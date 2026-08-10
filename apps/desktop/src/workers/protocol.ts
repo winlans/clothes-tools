@@ -4,6 +4,7 @@ import type {
   GuideDetectionResult,
   LayoutGrid,
   PdfDocumentInfo,
+  PdfRegionRenderOptions,
   PltExportOptions,
   SvgExportOptions,
 } from "@pdf2plt/core";
@@ -21,6 +22,19 @@ export type PdfWorkerRequest =
       previewGuideDetection: GuideDetectionOptions;
     }
   | { type: "request-previews"; requestId: number; pageNumbers: number[] }
+  | {
+      type: "request-detail-previews";
+      requestId: number;
+      pageNumbers: number[];
+      maxLongEdge: number;
+    }
+  | {
+      type: "render-region";
+      requestId: number;
+      regionRequestId: number;
+      pageNumber: number;
+      options: PdfRegionRenderOptions;
+    }
   | {
       type: "configure-preview-guides";
       requestId: number;
@@ -62,6 +76,39 @@ export type PdfWorkerResponse =
       width: number;
       height: number;
       bytes: Uint8Array<ArrayBuffer>;
+    }
+  | {
+      type: "detail-preview";
+      requestId: number;
+      pageNumber: number;
+      maxLongEdge: number;
+      width: number;
+      height: number;
+      bytes: Uint8Array<ArrayBuffer>;
+    }
+  | {
+      type: "detail-preview-error";
+      requestId: number;
+      pageNumber: number;
+      maxLongEdge: number;
+      code: string;
+      message: string;
+    }
+  | {
+      type: "region";
+      requestId: number;
+      regionRequestId: number;
+      pageNumber: number;
+      width: number;
+      height: number;
+      bytes: Uint8Array<ArrayBuffer>;
+    }
+  | {
+      type: "region-error";
+      requestId: number;
+      regionRequestId: number;
+      code: string;
+      message: string;
     }
   | {
       type: "guides";

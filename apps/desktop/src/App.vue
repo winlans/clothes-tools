@@ -321,6 +321,25 @@ function tabStatus(session: DocumentSession) {
   return "";
 }
 
+function scrollDocumentTabs(event: WheelEvent) {
+  const tabs = event.currentTarget as HTMLElement | null;
+  if (!tabs || tabs.scrollWidth <= tabs.clientWidth) return;
+  const rawDelta = Math.abs(event.deltaX) > Math.abs(event.deltaY)
+    ? event.deltaX
+    : event.deltaY;
+  if (rawDelta === 0) return;
+  const unit = event.deltaMode === 1
+    ? 32
+    : event.deltaMode === 2
+      ? tabs.clientWidth
+      : 1;
+  const maximum = tabs.scrollWidth - tabs.clientWidth;
+  const next = Math.max(0, Math.min(maximum, tabs.scrollLeft + rawDelta * unit));
+  if (next === tabs.scrollLeft) return;
+  tabs.scrollLeft = next;
+  event.preventDefault();
+}
+
 onMounted(async () => {
   await pdfImport.startNativeDragDrop();
   window.addEventListener("beforeunload", handleBeforeUnload);
@@ -491,7 +510,12 @@ onBeforeUnmount(() => {
       />
       </header>
 
-      <nav v-if="workspace.tabs.length" class="document-tabs" aria-label="打开的 PDF">
+      <nav
+        v-if="workspace.tabs.length"
+        class="document-tabs"
+        aria-label="打开的 PDF"
+        @wheel="scrollDocumentTabs"
+      >
         <button
           v-for="tab in workspace.tabs"
           :key="tab.id"
@@ -528,7 +552,7 @@ onBeforeUnmount(() => {
       @click.self="showLegalNotice = false"
     >
       <section class="legal-dialog" role="dialog" aria-modal="true" aria-labelledby="legal-title">
-        <span class="eyebrow">pdf2plt 0.1.0</span>
+        <span class="eyebrow">pdf2plt 0.1.4</span>
         <h2 id="legal-title">关于与许可证</h2>
         <p>
           pdf2plt 与内含的 MuPDF.js 按 GNU Affero General Public License
@@ -648,17 +672,26 @@ onBeforeUnmount(() => {
       </section>
     </div>
 
-    <section v-if="!activeSession" class="empty-state">
-      <div class="empty-state__mark">PDF</div>
-      <h2>导入分块版图</h2>
-      <p>可选择或一次拖入多个 PDF；页面只在本机解析，不会上传到网络。</p>
-    </section>
+    <button
+      v-if="!activeSession"
+      type="button"
+      class="empty-state empty-state--import"
+      aria-label="选择 PDF 文件导入"
+      @click="choosePdf"
+    >
+      <span class="empty-state__mark">PDF</span>
+      <span class="empty-state__title">导入分块版图</span>
+      <span class="empty-state__description">
+        可选择或一次拖入多个 PDF；页面只在本机解析，不会上传到网络。
+      </span>
+    </button>
 
     <DocumentWorkspace
       v-else
       :key="activeSession.id"
       :session="activeSession"
       @retry="workspace.retry(activeSession.id)"
+      @reload="workspace.retry(activeSession.id)"
     />
 
     <div v-if="pdfImport.dropActive.value" class="file-drop-overlay" role="status">

@@ -13,6 +13,7 @@ import {
   type LayoutCell,
   type LayoutGrid,
   type PageSizePt,
+  type QuarterTurn,
 } from "@pdf2plt/core";
 import { createHash } from "node:crypto";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
@@ -39,6 +40,7 @@ interface ProjectData {
   keepGuides: boolean;
   keepBackground: boolean;
   allowUnusedPages: boolean;
+  rotation: QuarterTurn;
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -112,6 +114,7 @@ async function readProject(projectPath: string): Promise<ProjectData> {
     keepGuides: parsed.output.keepGuides,
     keepBackground: parsed.output.keepBackground,
     allowUnusedPages: parsed.output.allowUnusedPages,
+    rotation: parsed.output.rotation ?? 0,
   };
 }
 
@@ -300,6 +303,7 @@ export async function runCli(options: CliOptions, output: CliOutput): Promise<nu
       {
         removeGuides: !(options.keepGuides || project?.keepGuides),
         removeBackground: !(options.keepBackground || project?.keepBackground),
+        rotation: project?.rotation ?? 0,
       },
     );
     await mkdir(dirname(outputPath), { recursive: true });

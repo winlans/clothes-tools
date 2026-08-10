@@ -2,7 +2,6 @@
 import { ref, watch } from "vue";
 
 import { MAX_CANVAS_ZOOM, MIN_CANVAS_ZOOM } from "../canvas/camera";
-import { formatUiNumber, roundUiNumber } from "../numbers";
 
 const props = defineProps<{
   scale: number;
@@ -16,7 +15,11 @@ const draftPercent = ref(formatPercent(props.scale));
 const invalid = ref(false);
 
 function formatPercent(scale: number): string {
-  return formatUiNumber(scale * 100);
+  return (scale * 100).toFixed(2);
+}
+
+function roundPercent(percent: number): number {
+  return Number(percent.toFixed(2));
 }
 
 function parsePercent(value: string): number | undefined {
@@ -38,9 +41,9 @@ function commitDraft() {
     return;
   }
   invalid.value = false;
-  const roundedPercent = roundUiNumber(percent);
-  draftPercent.value = formatUiNumber(roundedPercent);
-  emit("setZoom", roundedPercent / 100);
+  const roundedPercent = roundPercent(percent);
+  draftPercent.value = roundedPercent.toFixed(2);
+  emit("setZoom", Number((roundedPercent / 100).toFixed(4)));
 }
 
 function restoreDraft() {
@@ -54,7 +57,7 @@ function stepPercent(delta: number) {
   const minimum = MIN_CANVAS_ZOOM * 100;
   const maximum = MAX_CANVAS_ZOOM * 100;
   const next = Math.min(maximum, Math.max(minimum, current + delta));
-  draftPercent.value = formatUiNumber(next);
+  draftPercent.value = roundPercent(next).toFixed(2);
   commitDraft();
 }
 
@@ -84,7 +87,7 @@ watch(
         inputmode="decimal"
         aria-label="缩放百分比"
         :aria-invalid="invalid || undefined"
-        :title="invalid ? '请输入 10% 至 400% 之间的数字' : '最多保留 3 位小数，例如 37.125'"
+        :title="invalid ? '请输入 10% 至 400% 之间的数字' : '缩放比例保留 2 位小数'"
         @change="commitDraft"
         @keydown.enter.prevent="commitDraft"
         @keydown.escape.prevent="restoreDraft"

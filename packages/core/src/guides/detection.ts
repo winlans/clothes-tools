@@ -55,6 +55,12 @@ function isAntialiasedGuideRed(
     red - Math.max(green, blue) >= minimumDominance;
 }
 
+function isPaleGuideRed(red: number, green: number, blue: number): boolean {
+  return red > green &&
+    red > blue &&
+    Math.abs(green - blue) <= 12;
+}
+
 export function removeRedGuidePixels(
   page: GuidePixelPage,
   options: GuideDetectionOptions,
@@ -62,7 +68,7 @@ export function removeRedGuidePixels(
   if (page.width <= 0 || page.height <= 0 || page.components < 3) return 0;
   if (page.stride < page.width * page.components) return 0;
 
-  let removed = 0;
+  const seedMask = new Uint8Array(page.width * page.height);
   for (let y = 0; y < page.height; y += 1) {
     const rowOffset = y * page.stride;
     for (let x = 0; x < page.width; x += 1) {
@@ -79,6 +85,51 @@ export function removeRedGuidePixels(
       ) {
         continue;
       }
+      seedMask[y * page.width + x] = 1;
+    }
+  }
+
+  const removalMask = seedMask.slice();
+  const haloRadius = 2;
+  for (let y = 0; y < page.height; y += 1) {
+    for (let x = 0; x < page.width; x += 1) {
+      if (seedMask[y * page.width + x] !== 1) continue;
+      for (
+        let haloY = Math.max(0, y - haloRadius);
+        haloY <= Math.min(page.height - 1, y + haloRadius);
+        haloY += 1
+      ) {
+        const rowOffset = haloY * page.stride;
+        for (
+          let haloX = Math.max(0, x - haloRadius);
+          haloX <= Math.min(page.width - 1, x + haloRadius);
+          haloX += 1
+        ) {
+          const maskIndex = haloY * page.width + haloX;
+          if (removalMask[maskIndex] === 1) continue;
+          const offset = rowOffset + haloX * page.components;
+          const red = page.pixels[offset];
+          const green = page.pixels[offset + 1];
+          const blue = page.pixels[offset + 2];
+          if (
+            red !== undefined &&
+            green !== undefined &&
+            blue !== undefined &&
+            isPaleGuideRed(red, green, blue)
+          ) {
+            removalMask[maskIndex] = 1;
+          }
+        }
+      }
+    }
+  }
+
+  let removed = 0;
+  for (let y = 0; y < page.height; y += 1) {
+    const rowOffset = y * page.stride;
+    for (let x = 0; x < page.width; x += 1) {
+      if (removalMask[y * page.width + x] !== 1) continue;
+      const offset = rowOffset + x * page.components;
       page.pixels[offset] = 255;
       page.pixels[offset + 1] = 255;
       page.pixels[offset + 2] = 255;

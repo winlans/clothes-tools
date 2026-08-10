@@ -33,7 +33,10 @@ const LayoutCanvasStub = defineComponent({
     foregroundColor: { type: String, default: "" },
     backgroundColor: { type: String, default: "" },
     lineWeight: { type: Number, default: 1 },
+    rotation: { type: Number, default: 0 },
+    renderRegion: { type: Function, default: undefined },
   },
+  emits: ["detailPreviewRequest"],
   setup(props, { expose }) {
     expose({ fitContent, setZoom });
     return () => h("div", {
@@ -43,6 +46,7 @@ const LayoutCanvasStub = defineComponent({
       "data-foreground-color": props.foregroundColor,
       "data-background-color": props.backgroundColor,
       "data-line-weight": String(props.lineWeight),
+      "data-rotation": String(props.rotation),
     });
   },
 });
@@ -88,6 +92,29 @@ describe("LayoutEditor", () => {
     expect(wrapper.find('[data-testid="layout-canvas"]').exists()).toBe(true);
   });
 
+  it("rotates the complete preview left or right in 90-degree steps", async () => {
+    const { wrapper } = mountEditor();
+    const projectStore = useProjectStore();
+    const canvas = wrapper.get('[data-testid="layout-canvas"]');
+    const rotateLeft = wrapper.get('[aria-label="向左旋转 90 度"]');
+    const rotateRight = wrapper.get('[aria-label="向右旋转 90 度"]');
+
+    expect(canvas.attributes("data-rotation")).toBe("0");
+    expect(rotateLeft.text()).toBe("");
+    expect(rotateRight.text()).toBe("");
+    expect(rotateLeft.find("svg").exists()).toBe(true);
+    expect(rotateRight.find("svg").exists()).toBe(true);
+    await rotateLeft.trigger("click");
+    expect(canvas.attributes("data-rotation")).toBe("270");
+    await rotateRight.trigger("click");
+    await rotateRight.trigger("click");
+
+    expect(canvas.attributes("data-rotation")).toBe("90");
+    expect(projectStore.outputSettings).toMatchObject({
+      rotation: 90,
+    });
+  });
+
   it("requests previews for every page shown on the layout canvas", async () => {
     const documentStore = usePdfDocumentStore();
     documentStore.requestId = 31;
@@ -122,6 +149,23 @@ describe("LayoutEditor", () => {
     });
   });
 
+  it("requests sharper previews for visible pages after canvas zoom settles", async () => {
+    const requestDetailPreviews = vi.spyOn(
+      usePdfDocumentStore(),
+      "requestDetailPreviews",
+    );
+    const { wrapper } = mountEditor();
+
+    wrapper.getComponent(LayoutCanvasStub).vm.$emit(
+      "detailPreviewRequest",
+      [2, 3],
+      3200,
+    );
+    await nextTick();
+
+    expect(requestDetailPreviews).toHaveBeenCalledWith([2, 3], 3200);
+  });
+
   it("reflows the layout and reports invalid row counts", async () => {
     const { store, wrapper } = mountEditor();
     const input = wrapper.get('input[type="number"]');
@@ -135,6 +179,20 @@ describe("LayoutEditor", () => {
     await input.trigger("change");
     expect(wrapper.get('[role="alert"]').text()).toContain("正整数");
     expect(store.layout).toMatchObject({ columns: 3, rows: 5 });
+  });
+
+  it("requests a PDF reload from an icon-only refresh control", async () => {
+    const { store, wrapper } = mountEditor();
+    const refresh = wrapper.get('[aria-label="重新自动排列"]');
+
+    expect(refresh.text().trim()).toBe("");
+    expect(refresh.find("svg").exists()).toBe(true);
+    store.addRow();
+    expect(store.layout?.rows).toBe(4);
+
+    await refresh.trigger("click");
+    expect(wrapper.emitted("reload")).toHaveLength(1);
+    expect(store.layout?.rows).toBe(4);
   });
 
   it("uses custom decrement and increment controls for pages per column", async () => {
@@ -161,17 +219,17 @@ describe("LayoutEditor", () => {
     expect(fitContent).toHaveBeenCalledOnce();
   });
 
-  it("accepts exact decimal zoom percentages and 0.1% micro-adjustments", async () => {
+  it("rounds zoom percentages to two decimals and supports 0.1% adjustments", async () => {
     const { wrapper } = mountEditor();
     const input = wrapper.get('.canvas-preview-actions input[aria-label="缩放百分比"]');
 
     await input.setValue("37.125");
     await input.trigger("change");
-    expect(setZoom).toHaveBeenLastCalledWith(0.37125);
+    expect(setZoom).toHaveBeenLastCalledWith(0.3713);
 
     await wrapper.get('.canvas-preview-actions [aria-label="放大 0.1%"]')
       .trigger("click");
-    expect(setZoom).toHaveBeenLastCalledWith(0.37225);
+    expect(setZoom).toHaveBeenLastCalledWith(0.3723);
   });
 
   it("opens a full-screen read-only preview without WebKit element fullscreen", async () => {
@@ -193,7 +251,7 @@ describe("LayoutEditor", () => {
     const zoomInput = preview.get('input[aria-label="缩放百分比"]');
     await zoomInput.setValue("62.375");
     await zoomInput.trigger("change");
-    expect(setZoom).toHaveBeenLastCalledWith(0.62375);
+    expect(setZoom).toHaveBeenLastCalledWith(0.6238);
 
     await preview.get(".fullscreen-preview__close").trigger("click");
     await flushPromises();
@@ -354,6 +412,7 @@ describe("LayoutEditor", () => {
       keepGuides: true,
       keepBackground: true,
       allowUnusedPages: true,
+      rotation: 0,
     });
   });
 });

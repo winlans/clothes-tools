@@ -40,11 +40,21 @@ describe("global preview appearance", () => {
     expect(weighted[0]).toBe(1);
     expect(weighted[1]).toBeCloseTo(0.32);
     expect(previewInkLayerOpacities(3)).toEqual([1, 1, 1]);
+    expect(previewInkLayerOpacities(10)).toHaveLength(10);
+    expect(previewInkLayerOpacities(20)).toHaveLength(10);
+  });
+
+  it("clamps the global line weight at ten", () => {
+    const store = usePreviewAppearanceStore();
+    store.setLineWeight(20);
+    expect(store.lineWeight).toBe(10);
   });
 
   it("supports both dark-on-light and light-on-dark preview colors", () => {
-    expect(previewColorTreatment("#000000", "#ffffff").mode)
-      .toBe("light-background");
+    expect(previewColorTreatment("#000000", "#ffffff")).toEqual({
+      mode: "source",
+      compositeForegroundColor: "#000000",
+    });
     expect(previewColorTreatment("#f5f5f5", "#101214")).toEqual({
       mode: "dark-background",
       compositeForegroundColor: "#f4f4f4",

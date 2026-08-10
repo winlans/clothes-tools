@@ -41,6 +41,9 @@ describe("pattern layout project schema", () => {
     const second = serializePatternLayoutProject(parsePatternLayoutProject(first));
     expect(second).toBe(first);
     expect(first).toContain('"schemaVersion": 1');
+    expect(parsePatternLayoutProject(first).output).toMatchObject({
+      rotation: 0,
+    });
   });
 
   it("preserves spacer cells and view state", () => {
@@ -75,6 +78,17 @@ describe("pattern layout project schema", () => {
       { kind: "spacer", spacerId: "same" },
     );
     expect(() => parsePatternLayoutProject(duplicate)).toThrow(/空白块 same 重复/);
+  });
+
+  it("accepts only rotations in 90-degree increments", () => {
+    const rotated = project();
+    rotated.output.rotation = 270;
+    expect(parsePatternLayoutProject(rotated).output.rotation).toBe(270);
+
+    expect(() => parsePatternLayoutProject({
+      ...project(),
+      output: { ...project().output, rotation: 45 },
+    })).toThrow(/0、90、180 或 270/);
   });
 
   it("rejects out-of-page seams, inverted outer bounds, and incomplete manual mode", () => {

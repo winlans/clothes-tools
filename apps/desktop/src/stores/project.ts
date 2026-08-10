@@ -19,7 +19,12 @@ function defaultGuides(): ProjectGuideSettings {
 }
 
 function defaultOutput(): ProjectOutputSettings {
-  return { keepGuides: false, keepBackground: false, allowUnusedPages: false };
+  return {
+    keepGuides: false,
+    keepBackground: false,
+    allowUnusedPages: false,
+    rotation: 0,
+  };
 }
 
 export const useProjectStore = defineStore("project", {
@@ -49,7 +54,7 @@ export const useProjectStore = defineStore("project", {
       this.pendingProject = undefined;
       this.activeProject = project;
       this.guideSettings = { ...project.guides, detection: { ...project.guides.detection } };
-      this.outputSettings = { ...project.output };
+      this.outputSettings = { ...defaultOutput(), ...project.output };
       this.view = { ...project.view };
       this.status = "ready";
       this.successMessage = `工程已打开：${this.projectFileName || "未命名工程"}`;

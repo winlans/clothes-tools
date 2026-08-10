@@ -2,22 +2,55 @@
 import { mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { nextTick } from "vue";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import App from "./App.vue";
 import { createDocumentSession } from "./stores/document-session";
 import { useWorkspaceStore } from "./stores/workspace";
 
 describe("App", () => {
+  it("does not treat an internal sidebar drag as a PDF file import", async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const wrapper = mount(App, { global: { plugins: [pinia] } });
+    const dataTransfer = {
+      types: ["Files", "application/x-pdf2plt-spacer"],
+      items: [{ kind: "string", type: "application/x-pdf2plt-spacer" }],
+      files: [],
+      dropEffect: "none",
+    };
+
+    await wrapper.get("main").trigger("dragover", { dataTransfer });
+
+    expect(wrapper.find(".file-drop-overlay").exists()).toBe(false);
+
+    await wrapper.get("main").trigger("dragover", {
+      dataTransfer: {
+        types: ["Files"],
+        items: [{ kind: "file", type: "application/pdf" }],
+        files: [],
+        dropEffect: "none",
+      },
+    });
+    expect(wrapper.find(".file-drop-overlay").exists()).toBe(true);
+    wrapper.unmount();
+  });
+
   it("offers local import and the required legal notice", async () => {
     setActivePinia(createPinia());
     const wrapper = mount(App, { global: { plugins: [createPinia()] } });
-    expect(wrapper.findAll("button").map((button) => button.text())).toEqual([
+    expect(wrapper.findAll("button").slice(0, 4).map((button) => button.text())).toEqual([
       "打开 PDF",
       "导出 ⌄",
       "关闭标签",
       "更多 ⌄",
     ]);
+    const emptyImport = wrapper.get('[aria-label="选择 PDF 文件导入"]');
+    expect(emptyImport.text()).toContain("导入分块版图");
+    const fileInput = wrapper.get<HTMLInputElement>('input[type="file"]');
+    const inputClick = vi.spyOn(fileInput.element, "click").mockImplementation(() => undefined);
+    await emptyImport.trigger("click");
+    expect(inputClick).toHaveBeenCalledOnce();
     expect(wrapper.text()).not.toContain("打开工程");
     expect(wrapper.text()).not.toContain("保存工程");
     expect(wrapper.text()).toContain("不会上传到网络");
@@ -81,6 +114,78 @@ describe("App", () => {
 
     expect(layoutStore.pagesPerColumn).toBe(4);
     expect(layoutStore.layout).toMatchObject({ rows: 4, columns: 2 });
+    wrapper.unmount();
+  });
+
+  it("reloads the PDF source when automatic arrangement is refreshed", async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const wrapper = mount(App, {
+      global: { plugins: [pinia], stubs: { LayoutCanvas: true } },
+    });
+    const workspace = useWorkspaceStore(pinia);
+    const load = vi.fn(() => new Promise<Uint8Array<ArrayBuffer>>(() => undefined));
+    const session = createDocumentSession("refresh-tab", {
+      fileName: "sample.pdf",
+      sourceKey: "path:/tmp/sample.pdf",
+      sourcePath: "/tmp/sample.pdf",
+      load,
+    });
+    session.ui.loadStatus = "ready";
+    session.ui.dirty = true;
+    session.documentStore.status = "ready";
+    session.documentStore.info = {
+      documentId: "pdf-refresh",
+      pageCount: 4,
+      pageSizePt: { width: 841.89, height: 1190.551 },
+      pages: Array.from({ length: 4 }, (_, index) => ({
+        pageNumber: index + 1,
+        width: 841.89,
+        height: 1190.551,
+      })),
+    };
+    workspace.tabs = [session];
+    workspace.activate(session.id);
+    await nextTick();
+
+    await wrapper.get('[aria-label="重新自动排列"]').trigger("click");
+
+    expect(load).toHaveBeenCalledOnce();
+    expect(session.ui.loadStatus).toBe("loading");
+    expect(session.ui.dirty).toBe(false);
+    expect(session.documentStore.info).toBeUndefined();
+    wrapper.unmount();
+  });
+
+  it("scrolls overflowing document tabs horizontally with the mouse wheel", async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const wrapper = mount(App, { global: { plugins: [pinia] } });
+    const workspace = useWorkspaceStore(pinia);
+    const sessions = ["first.pdf", "second.pdf"].map((fileName, index) => {
+      const session = createDocumentSession(`wheel-tab-${index}`, {
+        fileName,
+        sourceKey: `path:/tmp/${fileName}`,
+        sourcePath: `/tmp/${fileName}`,
+        load: () => Promise.reject(new Error("not used")),
+      });
+      session.ui.loadStatus = "error";
+      return session;
+    });
+    workspace.tabs = sessions;
+    workspace.activate(sessions[0]!.id);
+    await nextTick();
+
+    const tabs = wrapper.get<HTMLElement>(".document-tabs");
+    Object.defineProperties(tabs.element, {
+      clientWidth: { configurable: true, value: 200 },
+      scrollWidth: { configurable: true, value: 600 },
+    });
+    const wheel = new WheelEvent("wheel", { cancelable: true, deltaY: 120 });
+    tabs.element.dispatchEvent(wheel);
+
+    expect(tabs.element.scrollLeft).toBe(120);
+    expect(wheel.defaultPrevented).toBe(true);
     wrapper.unmount();
   });
 

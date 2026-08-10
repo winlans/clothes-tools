@@ -4,6 +4,8 @@ import {
   type PdfPageInfo,
   type PreviewImage,
   type PreviewOptions,
+  type PdfRegionImage,
+  type PdfRegionRenderOptions,
 } from "./document";
 import { Pdf2PltError } from "./errors";
 import {
@@ -123,6 +125,96 @@ export async function openMuPdfDocument(
           bytes: png,
         };
       } finally {
+        pixmap.destroy();
+      }
+    } finally {
+      page.destroy();
+    }
+  };
+
+  const renderRegion = (
+    pageNumber: number,
+    options: PdfRegionRenderOptions,
+  ): PdfRegionImage => {
+    ensureOpen();
+    if (!Number.isInteger(pageNumber) || pageNumber < 1 || pageNumber > pageCount) {
+      throw new Pdf2PltError(
+        "invalid-page",
+        `页码 ${pageNumber} 超出范围 1..${pageCount}。`,
+      );
+    }
+    const values = [
+      options.x,
+      options.y,
+      options.width,
+      options.height,
+      options.outputWidth,
+      options.outputHeight,
+    ];
+    if (values.some((value) => !Number.isFinite(value))) {
+      throw new Pdf2PltError("invalid-region", "局部放大区域必须使用有限数值。");
+    }
+    if (
+      options.width <= 0 ||
+      options.height <= 0 ||
+      options.outputWidth <= 0 ||
+      options.outputHeight <= 0 ||
+      options.outputWidth > 4096 ||
+      options.outputHeight > 4096
+    ) {
+      throw new Pdf2PltError("invalid-region", "局部放大区域或输出尺寸无效。");
+    }
+
+    const outputWidth = Math.max(1, Math.round(options.outputWidth));
+    const outputHeight = Math.max(1, Math.round(options.outputHeight));
+    const page = document.loadPage(pageNumber - 1);
+    try {
+      const [pageX0, pageY0] = page.getBounds();
+      const scaleX = outputWidth / options.width;
+      const scaleY = outputHeight / options.height;
+      const pixmap = new mupdf.Pixmap(
+        mupdf.ColorSpace.DeviceRGB,
+        [0, 0, outputWidth, outputHeight],
+        false,
+      );
+      let device: InstanceType<MuPdfModule["DrawDevice"]> | undefined;
+      try {
+        pixmap.clear(255);
+        device = new mupdf.DrawDevice(mupdf.Matrix.identity, pixmap);
+        page.run(device, [
+          scaleX,
+          0,
+          0,
+          scaleY,
+          -(pageX0 + options.x) * scaleX,
+          -(pageY0 + options.y) * scaleY,
+        ]);
+        device.close();
+        if (options.removeGuides !== false) {
+          removeRedGuidePixels(
+            {
+              pageNumber,
+              width: outputWidth,
+              height: outputHeight,
+              stride: pixmap.getStride(),
+              components: pixmap.getNumberOfComponents(),
+              pixels: pixmap.getPixels(),
+            },
+            resolveGuideDetectionOptions(options.guideDetection),
+          );
+        }
+        const source = pixmap.asPNG();
+        const png = new Uint8Array(source.byteLength);
+        png.set(source);
+        return {
+          pageNumber,
+          width: outputWidth,
+          height: outputHeight,
+          mimeType: "image/png",
+          bytes: png,
+        };
+      } finally {
+        device?.destroy();
         pixmap.destroy();
       }
     } finally {
@@ -262,6 +354,7 @@ export async function openMuPdfDocument(
       pages,
     },
     renderPreview,
+    renderRegion,
     renderSvgPage,
     detectGuides,
     detectGuidesAsync,

@@ -110,6 +110,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 
   async function loadSession(session: DocumentSession) {
     session.ui.loadStatus = "loading";
+    session.ui.dirty = false;
     session.documentStore.close();
     session.projectStore.startNewDocument();
     try {

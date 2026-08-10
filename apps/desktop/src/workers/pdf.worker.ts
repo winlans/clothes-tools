@@ -30,6 +30,7 @@ let previewGuideDetection: GuideDetectionOptions = {
   ...DEFAULT_GUIDE_DETECTION_OPTIONS,
 };
 let previewQueue: number[] = [];
+let detailPreviewQueue: Array<{ pageNumber: number; maxLongEdge: number }> = [];
 let previewCompleted = new Set<number>();
 let previewTargetCount = 0;
 let previewGeneration = 0;
@@ -73,46 +74,89 @@ function queuePreviews(pageNumbers: readonly number[], priority: boolean) {
   previewTargetCount = new Set([...previewCompleted, ...previewQueue]).size;
 }
 
+function queueDetailPreviews(pageNumbers: readonly number[], maxLongEdge: number) {
+  const valid = [...new Set(pageNumbers)].filter(
+    (pageNumber) =>
+      Number.isInteger(pageNumber) &&
+      pageNumber >= 1 &&
+      pageNumber <= (currentDocument?.info.pageCount ?? 0),
+  );
+  const incoming = valid.map((pageNumber) => ({ pageNumber, maxLongEdge }));
+  const incomingPages = new Set(valid);
+  detailPreviewQueue = [
+    ...incoming,
+    ...detailPreviewQueue.filter((entry) => !incomingPages.has(entry.pageNumber)),
+  ];
+}
+
 async function drainPreviewQueue(requestId: number, generation: number) {
   if (previewRunningGeneration === generation) return;
   previewRunningGeneration = generation;
   try {
     while (
-      previewQueue.length > 0 &&
+      (previewQueue.length > 0 || detailPreviewQueue.length > 0) &&
       currentDocument &&
       activeRequestId === requestId &&
       previewGeneration === generation &&
       !cancelledTasks.has("preview")
     ) {
-      const pageNumber = previewQueue.shift();
+      const detailRequest = detailPreviewQueue.shift();
+      const pageNumber = detailRequest?.pageNumber ?? previewQueue.shift();
       if (!pageNumber) continue;
-      const preview = currentDocument.renderPreview(pageNumber, {
-        maxLongEdge: previewLongEdge,
-        removeGuides: removePreviewGuides,
-        guideDetection: previewGuideDetection,
-      });
-      previewCompleted.add(pageNumber);
-      respond(
-        {
-          type: "preview",
+      try {
+        const preview = currentDocument.renderPreview(pageNumber, {
+          maxLongEdge: detailRequest?.maxLongEdge ?? previewLongEdge,
+          removeGuides: removePreviewGuides,
+          guideDetection: previewGuideDetection,
+        });
+        if (detailRequest) {
+          respond(
+            {
+              type: "detail-preview",
+              requestId,
+              pageNumber,
+              maxLongEdge: detailRequest.maxLongEdge,
+              width: preview.width,
+              height: preview.height,
+              bytes: preview.bytes,
+            },
+            [preview.bytes.buffer],
+          );
+        } else {
+          previewCompleted.add(pageNumber);
+          respond(
+            {
+              type: "preview",
+              requestId,
+              pageNumber,
+              width: preview.width,
+              height: preview.height,
+              bytes: preview.bytes,
+            },
+            [preview.bytes.buffer],
+          );
+          respond({
+            type: "progress",
+            requestId,
+            completed: previewCompleted.size,
+            total: previewTargetCount,
+          });
+        }
+      } catch (error) {
+        if (!detailRequest) throw error;
+        respond({
+          type: "detail-preview-error",
           requestId,
           pageNumber,
-          width: preview.width,
-          height: preview.height,
-          bytes: preview.bytes,
-        },
-        [preview.bytes.buffer],
-      );
-      respond({
-        type: "progress",
-        requestId,
-        completed: previewCompleted.size,
-        total: previewTargetCount,
-      });
+          maxLongEdge: detailRequest.maxLongEdge,
+          ...serializeError(error),
+        });
+      }
       await yieldControl();
     }
     if (
       previewQueue.length === 0 &&
+      detailPreviewQueue.length === 0 &&
       currentDocument &&
       activeRequestId === requestId &&
       previewGeneration === generation &&
@@ -127,7 +171,7 @@ async function drainPreviewQueue(requestId: number, generation: number) {
   } finally {
     if (previewRunningGeneration === generation) previewRunningGeneration = undefined;
     if (
-      previewQueue.length > 0 &&
+      (previewQueue.length > 0 || detailPreviewQueue.length > 0) &&
       activeRequestId === requestId &&
       previewGeneration === generation &&
       !cancelledTasks.has("preview")
@@ -232,6 +276,7 @@ worker.onmessage = async (event: MessageEvent<PdfWorkerRequest>) => {
     currentDocument?.close();
     currentDocument = undefined;
     previewQueue = [];
+    detailPreviewQueue = [];
     previewCompleted = new Set();
     previewTargetCount = 0;
     previewLongEdge = request.previewLongEdge;
@@ -274,6 +319,7 @@ worker.onmessage = async (event: MessageEvent<PdfWorkerRequest>) => {
     activeRequestId = request.requestId;
     previewGeneration += 1;
     previewQueue = [];
+    detailPreviewQueue = [];
     previewTargetCount = 0;
     cancelledTasks.add("preview");
     cancelledTasks.add("detection");
@@ -288,7 +334,10 @@ worker.onmessage = async (event: MessageEvent<PdfWorkerRequest>) => {
 
   if (request.type === "cancel-task") {
     cancelledTasks.add(request.task);
-    if (request.task === "preview") previewQueue = [];
+    if (request.task === "preview") {
+      previewQueue = [];
+      detailPreviewQueue = [];
+    }
     respond({ type: "task-cancelled", requestId: request.requestId, task: request.task });
     return;
   }
@@ -300,9 +349,50 @@ worker.onmessage = async (event: MessageEvent<PdfWorkerRequest>) => {
     return;
   }
 
+  if (request.type === "request-detail-previews") {
+    cancelledTasks.delete("preview");
+    queueDetailPreviews(
+      request.pageNumbers,
+      Math.max(previewLongEdge, Math.min(4096, Math.round(request.maxLongEdge))),
+    );
+    void drainPreviewQueue(request.requestId, previewGeneration);
+    return;
+  }
+
+  if (request.type === "render-region") {
+    try {
+      if (!currentDocument) {
+        throw new Pdf2PltError("document-not-open", "请先打开 PDF 再使用局部放大。");
+      }
+      const region = currentDocument.renderRegion(request.pageNumber, request.options);
+      respond(
+        {
+          type: "region",
+          requestId: request.requestId,
+          regionRequestId: request.regionRequestId,
+          pageNumber: request.pageNumber,
+          width: region.width,
+          height: region.height,
+          bytes: region.bytes,
+        },
+        [region.bytes.buffer],
+      );
+    } catch (error) {
+      const serialized = serializeError(error);
+      respond({
+        type: "region-error",
+        requestId: request.requestId,
+        regionRequestId: request.regionRequestId,
+        ...serialized,
+      });
+    }
+    return;
+  }
+
   if (request.type === "configure-preview-guides") {
     previewGeneration += 1;
     previewQueue = [];
+    detailPreviewQueue = [];
     previewCompleted = new Set();
     previewTargetCount = 0;
     removePreviewGuides = request.removeGuides;

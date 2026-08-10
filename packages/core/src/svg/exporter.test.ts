@@ -64,4 +64,23 @@ describe("combined SVG exporter", () => {
     expect(result.svg).toContain("#ff0000");
     expect(result.svg).toContain("#ffffff");
   });
+
+  it("rotates the completed composition in 90-degree increments", () => {
+    const result = buildCombinedSvg(
+      [1, 2, 3, 4].map((pageNumber) => ({ pageNumber, svg: source })),
+      createAutomaticLayout(4, 2),
+      { width: 200, height: 300 },
+      undefined,
+      { rotation: 90 },
+    );
+
+    expect(result.svg).toContain('data-page="1" transform="translate(0 0)"');
+    expect(result.svg).toContain('data-page="4" transform="translate(200 300)"');
+    expect(result.svg).toContain(
+      '<g data-output-rotation="90" transform="translate(600 0) rotate(90)">',
+    );
+    expect(result.svg).toContain('viewBox="0 0 600 400"');
+    expect(result.widthPt).toBe(600);
+    expect(result.heightPt).toBe(400);
+  });
 });

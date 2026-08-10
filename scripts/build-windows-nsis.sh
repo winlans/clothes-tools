@@ -8,7 +8,7 @@ image_name="${PDF2PLT_WINDOWS_IMAGE:-pdf2plt-windows-cross-build:bookworm}"
 target_dir="${PDF2PLT_WINDOWS_TARGET_DIR:-/tmp/pdf2plt-windows-target}"
 xwin_cache_dir="${PDF2PLT_XWIN_CACHE_DIR:-/tmp/pdf2plt-xwin-cache}"
 target_triple="x86_64-pc-windows-msvc"
-installer_name="pdf2plt_0.1.0_x64-setup.exe"
+installer_name="pdf2plt_0.1.4_x64-setup.exe"
 
 mkdir -p "$target_dir" "$xwin_cache_dir"
 

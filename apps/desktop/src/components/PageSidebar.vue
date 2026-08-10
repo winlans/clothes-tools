@@ -14,7 +14,7 @@ const emit = defineEmits<{
   toggle: [];
   visiblePages: [pageNumbers: number[]];
 }>();
-const root = ref<HTMLElement>();
+const scrollRoot = ref<HTMLElement>();
 const visible = new Set<number>();
 let observer: IntersectionObserver | undefined;
 
@@ -26,7 +26,7 @@ async function observePages() {
     emit("visiblePages", []);
     return;
   }
-  if (!root.value || typeof IntersectionObserver === "undefined") {
+  if (!scrollRoot.value || typeof IntersectionObserver === "undefined") {
     emit("visiblePages", props.pages.slice(0, 3).map((page) => page.pageNumber));
     return;
   }
@@ -39,9 +39,9 @@ async function observePages() {
       }
       emit("visiblePages", [...visible].sort((a, b) => a - b));
     },
-    { root: root.value, rootMargin: "180px 0px", threshold: 0.01 },
+    { root: scrollRoot.value, rootMargin: "180px 0px", threshold: 0.01 },
   );
-  for (const element of root.value.querySelectorAll<HTMLElement>("[data-page-number]")) {
+  for (const element of scrollRoot.value.querySelectorAll<HTMLElement>("[data-page-number]")) {
     observer.observe(element);
   }
 }
@@ -53,7 +53,6 @@ onBeforeUnmount(() => observer?.disconnect());
 
 <template>
   <aside
-    ref="root"
     class="page-sidebar"
     :class="{ 'page-sidebar--collapsed': props.collapsed }"
     aria-label="PDF 页码列表"
@@ -81,32 +80,35 @@ onBeforeUnmount(() => observer?.disconnect());
           ‹
         </button>
       </div>
-      <button
-        type="button"
-        class="spacer-tool"
-        draggable="true"
-        title="拖到画板格子中插入空白占位"
-        @dragstart="emit('spacerDragStart', $event)"
-      >
-        <span class="spacer-tool__mark">＋</span>
-        拖入空白块
-      </button>
-      <article
-        v-for="page in props.pages"
-        :key="page.pageNumber"
-        class="page-thumbnail"
-        :data-page-number="page.pageNumber"
-      >
-        <div class="page-thumbnail__image">
-          <img
-            v-if="props.previews[page.pageNumber]"
-            :src="props.previews[page.pageNumber]?.url"
-            :alt="`第 ${page.pageNumber} 页缩略图`"
-          />
-          <span v-else>…</span>
-        </div>
-        <span>第 {{ page.pageNumber }} 页</span>
-      </article>
+      <div ref="scrollRoot" class="page-sidebar__content">
+        <button
+          type="button"
+          class="spacer-tool"
+          draggable="true"
+          title="拖到画板格子中插入空白占位"
+          @dragstart="emit('spacerDragStart', $event)"
+        >
+          <span class="spacer-tool__mark">＋</span>
+          拖入空白块
+        </button>
+        <article
+          v-for="page in props.pages"
+          :key="page.pageNumber"
+          class="page-thumbnail"
+          :data-page-number="page.pageNumber"
+        >
+          <div class="page-thumbnail__image">
+            <img
+              v-if="props.previews[page.pageNumber]"
+              :src="props.previews[page.pageNumber]?.url"
+              :alt="`第 ${page.pageNumber} 页缩略图`"
+              draggable="false"
+            />
+            <span v-else>…</span>
+          </div>
+          <span>第 {{ page.pageNumber }} 页</span>
+        </article>
+      </div>
     </template>
   </aside>
 </template>

@@ -34,9 +34,29 @@ export interface PreviewImage {
   bytes: Uint8Array<ArrayBuffer>;
 }
 
+export interface PdfRegionRenderOptions {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  outputWidth: number;
+  outputHeight: number;
+  removeGuides?: boolean;
+  guideDetection?: Partial<GuideDetectionOptions>;
+}
+
+export interface PdfRegionImage {
+  pageNumber: number;
+  width: number;
+  height: number;
+  mimeType: "image/png";
+  bytes: Uint8Array<ArrayBuffer>;
+}
+
 export interface OpenDocumentResult {
   info: PdfDocumentInfo;
   renderPreview(pageNumber: number, options: PreviewOptions): PreviewImage;
+  renderRegion(pageNumber: number, options: PdfRegionRenderOptions): PdfRegionImage;
   renderSvgPage(pageNumber: number): string;
   detectGuides(options?: Partial<GuideDetectionOptions>): GuideDetectionResult;
   detectGuidesAsync(

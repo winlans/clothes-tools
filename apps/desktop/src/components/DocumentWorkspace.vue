@@ -7,7 +7,7 @@ import LayoutEditor from "./LayoutEditor.vue";
 import PageSidebar from "./PageSidebar.vue";
 
 const props = defineProps<{ session: DocumentSession }>();
-const emit = defineEmits<{ retry: [] }>();
+const emit = defineEmits<{ retry: []; reload: [] }>();
 provideDocumentSession(props.session);
 
 const { documentStore, projectStore } = props.session;
@@ -129,6 +129,7 @@ function startSpacerDrag(event: DragEvent) {
       <LayoutEditor
         :page-size="documentStore.info.pageSizePt"
         :previews="documentStore.previewList"
+        @reload="emit('reload')"
       />
     </div>
   </section>

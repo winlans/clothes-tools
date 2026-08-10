@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { flattenLayout, type PageSizePt } from "@pdf2plt/core";
+import { flattenLayout, rotateQuarterTurn, type PageSizePt } from "@pdf2plt/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import { useResolvedSettings } from "../composables/use-resolved-settings";
-import { formatUiNumber } from "../numbers";
 import { useDocumentSession } from "../stores/document-session";
 import type { PreviewState } from "../stores/pdf-document";
 import { usePreviewAppearanceStore } from "../stores/preview-appearance";
@@ -17,6 +16,7 @@ const props = defineProps<{
   pageSize: PageSizePt;
   previews: PreviewState[];
 }>();
+const emit = defineEmits<{ reload: [] }>();
 
 const session = useDocumentSession();
 const { documentStore, layoutStore, guideStore, projectStore } = session;
@@ -68,11 +68,19 @@ function stepPagesPerColumn(delta: number) {
 }
 
 function displayZoom(scale: number): string {
-  return formatUiNumber(scale * 100);
+  return (scale * 100).toFixed(2);
 }
 
 function applyLayoutMutation(change: () => boolean) {
   if (change()) session.markDirty();
+}
+
+function rotateOutput(direction: -1 | 1) {
+  projectStore.setOutputSettings({
+    ...projectStore.outputSettings,
+    rotation: rotateQuarterTurn(projectStore.outputSettings.rotation ?? 0, direction),
+  });
+  session.markDirty();
 }
 
 async function openFullscreenPreview() {
@@ -190,8 +198,19 @@ onBeforeUnmount(() => {
           </button>
         </div>
       </label>
-      <button type="button" class="ghost-button" @click="applyAutomaticLayout">
-        自动排列
+      <button
+        type="button"
+        class="ghost-button layout-refresh-button"
+        aria-label="重新自动排列"
+        title="重新打开 PDF 并自动排列"
+        @click="emit('reload')"
+      >
+        <svg class="refresh-icon" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M13.5 5.8A5.8 5.8 0 0 0 3.1 3.7L1.8 5" />
+          <path d="M1.8 2.3V5h2.7" />
+          <path d="M2.5 10.2a5.8 5.8 0 0 0 10.4 2.1l1.3-1.3" />
+          <path d="M14.2 13.7V11h-2.7" />
+        </svg>
       </button>
       <span class="layout-toolbar__summary">{{ layoutSummary }}</span>
       <span v-if="layoutStore.detectedPagesPerColumn" class="guide-success">
@@ -292,6 +311,35 @@ onBeforeUnmount(() => {
               <input v-model="session.ui.showGrid" type="checkbox" />
               显示栅格
             </label>
+            <div class="mode-switch rotation-switch" role="group" aria-label="成品旋转">
+              <button
+                type="button"
+                class="rotation-icon-button"
+                aria-label="向左旋转 90 度"
+                title="向左旋转 90°"
+                @click="rotateOutput(-1)"
+              >
+                <svg class="rotation-icon" viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M4.1 5.3H1.7V2.9" />
+                  <path d="M2 5.1a6 6 0 1 1-.1 5.6" />
+                </svg>
+              </button>
+              <span class="rotation-angle" aria-live="polite">
+                {{ projectStore.outputSettings.rotation ?? 0 }}°
+              </span>
+              <button
+                type="button"
+                class="rotation-icon-button"
+                aria-label="向右旋转 90 度"
+                title="向右旋转 90°"
+                @click="rotateOutput(1)"
+              >
+                <svg class="rotation-icon" viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M11.9 5.3h2.4V2.9" />
+                  <path d="M14 5.1a6 6 0 1 0 .1 5.6" />
+                </svg>
+              </button>
+            </div>
             <ZoomControl :scale="zoom" @set-zoom="canvas?.setZoom($event)" />
             <button
               type="button"
@@ -316,6 +364,8 @@ onBeforeUnmount(() => {
           :foreground-color="previewAppearance.foregroundColor"
           :background-color="previewAppearance.backgroundColor"
           :line-weight="previewAppearance.lineWeight"
+          :rotation="projectStore.outputSettings.rotation ?? 0"
+          :render-region="documentStore.renderRegion"
           :initial-camera="initialCamera"
           @zoom-change="zoom = $event"
           @view-change="projectStore.setView"
@@ -323,13 +373,14 @@ onBeforeUnmount(() => {
           @insert-spacer="(target) => applyLayoutMutation(() => layoutStore.insertSpacer(target))"
           @move-spacer="(spacerId, target) => applyLayoutMutation(() => layoutStore.moveSpacerTo(spacerId, target))"
           @delete-spacer="(spacerId) => applyLayoutMutation(() => layoutStore.deleteSpacer(spacerId))"
+          @detail-preview-request="documentStore.requestDetailPreviews"
         />
 
         <footer class="canvas-status">
           <span>缩放 {{ displayZoom(zoom) }}%</span>
           <span>
             {{ guideStore.previewMode === 'cropped' ? '成品裁切预览' : '完整页面预览' }} ·
-            拖动成员吸附重排 · 双击删除空白 · 滚轮缩放 · 右键/中键或空格键＋左键平移
+            左键平移 · 右键拖动成员吸附重排 · 按住空格局部放大（滚轮调倍数） · 双击删除空白 · 滚轮滚动 · Ctrl＋滚轮缩放 · Ctrl＋Shift＋滚轮微调
           </span>
         </footer>
       </div>
@@ -371,6 +422,35 @@ onBeforeUnmount(() => {
             <input v-model="session.ui.showGrid" type="checkbox" />
             显示栅格
           </label>
+          <div class="mode-switch rotation-switch" role="group" aria-label="全屏成品旋转">
+            <button
+              type="button"
+              class="rotation-icon-button"
+              aria-label="全屏向左旋转 90 度"
+              title="向左旋转 90°"
+              @click="rotateOutput(-1)"
+            >
+              <svg class="rotation-icon" viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M4.1 5.3H1.7V2.9" />
+                <path d="M2 5.1a6 6 0 1 1-.1 5.6" />
+              </svg>
+            </button>
+            <span class="rotation-angle" aria-live="polite">
+              {{ projectStore.outputSettings.rotation ?? 0 }}°
+            </span>
+            <button
+              type="button"
+              class="rotation-icon-button"
+              aria-label="全屏向右旋转 90 度"
+              title="向右旋转 90°"
+              @click="rotateOutput(1)"
+            >
+              <svg class="rotation-icon" viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M11.9 5.3h2.4V2.9" />
+                <path d="M14 5.1a6 6 0 1 0 .1 5.6" />
+              </svg>
+            </button>
+          </div>
           <ZoomControl
             :scale="fullscreenZoom"
             @set-zoom="fullscreenCanvas?.setZoom($event)"
@@ -403,14 +483,17 @@ onBeforeUnmount(() => {
         :foreground-color="previewAppearance.foregroundColor"
         :background-color="previewAppearance.backgroundColor"
         :line-weight="previewAppearance.lineWeight"
+        :rotation="projectStore.outputSettings.rotation ?? 0"
+        :render-region="documentStore.renderRegion"
         :initial-camera="undefined"
         :editable="false"
         @zoom-change="fullscreenZoom = $event"
+        @detail-preview-request="documentStore.requestDetailPreviews"
       />
 
       <footer class="fullscreen-preview__status">
         <span>缩放 {{ displayZoom(fullscreenZoom) }}%</span>
-        <span>只读预览 · 滚轮缩放 · 右键/中键或空格键＋左键平移 · Esc 退出</span>
+        <span>只读预览 · 左键平移 · 按住空格局部放大（滚轮调倍数） · Ctrl＋滚轮缩放 · Esc 退出</span>
       </footer>
     </section>
   </section>

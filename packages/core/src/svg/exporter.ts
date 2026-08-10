@@ -2,6 +2,7 @@ import { createLayoutCropGeometry, type GuideCoordinates } from "../guides/crop"
 import type { LayoutGrid } from "../layout/automatic-layout";
 import type { PageSizePt } from "../pdf/document";
 import { Pdf2PltError } from "../pdf/errors";
+import { rotatedSize, type QuarterTurn } from "../rotation";
 
 export interface SvgPageSource {
   pageNumber: number;
@@ -11,11 +12,13 @@ export interface SvgPageSource {
 export interface SvgExportOptions {
   removeGuides: boolean;
   removeBackground: boolean;
+  rotation: QuarterTurn;
 }
 
 export const DEFAULT_SVG_EXPORT_OPTIONS: Readonly<SvgExportOptions> = {
   removeGuides: true,
   removeBackground: true,
+  rotation: 0,
 };
 
 export interface SvgExportResult {
@@ -121,21 +124,33 @@ export function buildCombinedSvg(
     }
   }
 
-  const widthMm = (geometry.width * 25.4) / 72;
-  const heightMm = (geometry.height * 25.4) / 72;
+  const outputSize = rotatedSize(geometry, options.rotation);
+  const widthMm = (outputSize.width * 25.4) / 72;
+  const heightMm = (outputSize.height * 25.4) / 72;
+  const rotationTransform: Record<QuarterTurn, string> = {
+    0: "",
+    90: `translate(${format(geometry.height)} 0) rotate(90)`,
+    180: `translate(${format(geometry.width)} ${format(geometry.height)}) rotate(180)`,
+    270: `translate(0 ${format(geometry.width)}) rotate(270)`,
+  };
+  const rotatedInstances = options.rotation === 0
+    ? instances
+    : [
+        `<g data-output-rotation="${options.rotation}" transform="${rotationTransform[options.rotation]}">${instances.join("\n")}</g>`,
+      ];
   const svg = [
     '<?xml version="1.0" encoding="UTF-8"?>',
-    `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" width="${widthMm.toFixed(6)}mm" height="${heightMm.toFixed(6)}mm" viewBox="0 0 ${format(geometry.width)} ${format(geometry.height)}">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" width="${widthMm.toFixed(6)}mm" height="${heightMm.toFixed(6)}mm" viewBox="0 0 ${format(outputSize.width)} ${format(outputSize.height)}">`,
     `<defs>${clips.join("")}</defs>`,
-    ...instances,
+    ...rotatedInstances,
     "</svg>",
   ].join("\n");
   const visibleObjects = (svg.match(/<(?:path|image|text|use|rect|circle|ellipse|line|polyline|polygon)\b/gi) ?? [])
     .length - clips.length;
   return {
     svg,
-    widthPt: geometry.width,
-    heightPt: geometry.height,
+    widthPt: outputSize.width,
+    heightPt: outputSize.height,
     pageInstances,
     visibleObjects: Math.max(0, visibleObjects),
   };
