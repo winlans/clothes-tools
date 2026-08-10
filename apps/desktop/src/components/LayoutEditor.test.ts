@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useLayoutStore } from "../stores/layout";
 import { useGuideStore } from "../stores/guides";
-import { usePdfDocumentStore } from "../stores/pdf-document";
+import { usePdfDocumentStore, type PreviewState } from "../stores/pdf-document";
 import {
   DEFAULT_PREVIEW_APPEARANCE,
   usePreviewAppearanceStore,
@@ -35,8 +35,9 @@ const LayoutCanvasStub = defineComponent({
     lineWeight: { type: Number, default: 1 },
     rotation: { type: Number, default: 0 },
     renderRegion: { type: Function, default: undefined },
+    compositionPreview: { type: Object, default: undefined },
   },
-  emits: ["detailPreviewRequest"],
+  emits: ["canvasPreviewRequest"],
   setup(props, { expose }) {
     expose({ fitContent, setZoom });
     return () => h("div", {
@@ -47,6 +48,7 @@ const LayoutCanvasStub = defineComponent({
       "data-background-color": props.backgroundColor,
       "data-line-weight": String(props.lineWeight),
       "data-rotation": String(props.rotation),
+      "data-composition-format": (props.compositionPreview as PreviewState | undefined)?.format,
     });
   },
 });
@@ -149,21 +151,21 @@ describe("LayoutEditor", () => {
     });
   });
 
-  it("requests sharper previews for visible pages after canvas zoom settles", async () => {
-    const requestDetailPreviews = vi.spyOn(
+  it("requests vector previews for visible pages after canvas movement settles", async () => {
+    const requestCanvasPreviews = vi.spyOn(
       usePdfDocumentStore(),
-      "requestDetailPreviews",
+      "requestCanvasPreviews",
     );
     const { wrapper } = mountEditor();
 
     wrapper.getComponent(LayoutCanvasStub).vm.$emit(
-      "detailPreviewRequest",
+      "canvasPreviewRequest",
       [2, 3],
       3200,
     );
     await nextTick();
 
-    expect(requestDetailPreviews).toHaveBeenCalledWith([2, 3], 3200);
+    expect(requestCanvasPreviews).toHaveBeenCalledWith([2, 3], 3200);
   });
 
   it("reflows the layout and reports invalid row counts", async () => {
@@ -233,6 +235,20 @@ describe("LayoutEditor", () => {
   });
 
   it("opens a full-screen read-only preview without WebKit element fullscreen", async () => {
+    const documentStore = usePdfDocumentStore();
+    documentStore.requestId = 32;
+    documentStore.info = {
+      documentId: "pdf-1",
+      pageCount: 15,
+      pageSizePt: { width: 841.89, height: 1190.551 },
+      pages: Array.from({ length: 15 }, (_, index) => ({
+        pageNumber: index + 1,
+        width: 841.89,
+        height: 1190.551,
+      })),
+    };
+    const postMessage = vi.fn();
+    documentStore.worker = { postMessage } as unknown as Worker;
     const { wrapper } = mountEditor();
     const fullscreenButton = wrapper.findAll("button").find(
       (button) => button.text() === "全屏预览",
@@ -247,6 +263,22 @@ describe("LayoutEditor", () => {
       .toBe("false");
     expect(requestElementFullscreen).not.toHaveBeenCalled();
     expect(setWindowFullscreen).toHaveBeenCalledWith(true);
+    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: "request-layout-svg-preview",
+      requestId: 32,
+      layoutPreviewRequestId: 1,
+    }));
+
+    documentStore.layoutSvgPreview = {
+      pageNumber: 0,
+      width: 4209.45,
+      height: 3571.653,
+      url: "blob:layout-svg",
+      format: "svg",
+    };
+    await nextTick();
+    expect(preview.get('[data-testid="layout-canvas"]')
+      .attributes("data-composition-format")).toBe("svg");
 
     const zoomInput = preview.get('input[aria-label="缩放百分比"]');
     await zoomInput.setValue("62.375");

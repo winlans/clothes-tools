@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   MAX_DETAIL_PREVIEW_CACHE,
   MAX_PREVIEW_CACHE,
+  MAX_VECTOR_PREVIEW_CACHE,
   usePdfDocumentStore,
 } from "./pdf-document";
 
@@ -307,6 +308,118 @@ describe("pdf document store", () => {
     postMessage.mockClear();
     store.requestDetailPreviews([2], 2400);
     expect(postMessage).not.toHaveBeenCalled();
+  });
+
+  it("prefers SVG workspace previews and uses raster detail only after SVG failure", () => {
+    const store = usePdfDocumentStore();
+    store.requestId = 24;
+    store.info = {
+      documentId: "vector-preview",
+      pageCount: 30,
+      pageSizePt: { width: 200, height: 300 },
+      pages: Array.from({ length: 30 }, (_, index) => ({
+        pageNumber: index + 1,
+        width: 200,
+        height: 300,
+      })),
+    };
+    store.previews = {
+      1: { pageNumber: 1, width: 1067, height: 1600, url: "blob:raster" },
+    };
+    const postMessage = vi.fn();
+    store.worker = { postMessage } as unknown as Worker;
+
+    const visible = Array.from({ length: 30 }, (_, index) => index + 1);
+    store.requestCanvasPreviews(visible, 3200);
+    expect(postMessage).toHaveBeenCalledWith({
+      type: "request-vector-previews",
+      requestId: 24,
+      pageNumbers: visible.slice(0, MAX_VECTOR_PREVIEW_CACHE),
+    });
+    expect(postMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "request-detail-previews" }),
+    );
+
+    store.handleWorkerMessage({
+      type: "vector-preview",
+      requestId: 24,
+      pageNumber: 1,
+      width: 200,
+      height: 300,
+      svg: '<svg xmlns="http://www.w3.org/2000/svg"/>',
+    });
+    expect(store.previewList[0]).toMatchObject({
+      pageNumber: 1,
+      url: "blob:preview-1",
+      format: "svg",
+    });
+
+    store.handleWorkerMessage({
+      type: "vector-preview-error",
+      requestId: 24,
+      pageNumber: 2,
+      code: "invalid-page-svg",
+      message: "invalid",
+    });
+    postMessage.mockClear();
+    store.requestCanvasPreviews([2], 3200);
+    expect(postMessage).toHaveBeenCalledWith({
+      type: "request-detail-previews",
+      requestId: 24,
+      pageNumbers: [2],
+      maxLongEdge: 3200,
+    });
+  });
+
+  it("requests and atomically stores the combined SVG used by fullscreen preview", () => {
+    const store = usePdfDocumentStore();
+    store.requestId = 25;
+    store.info = {
+      documentId: "layout-svg-preview",
+      pageCount: 1,
+      pageSizePt: { width: 200, height: 300 },
+      pages: [{ pageNumber: 1, width: 200, height: 300 }],
+    };
+    const postMessage = vi.fn();
+    store.worker = { postMessage } as unknown as Worker;
+    const layout = {
+      rows: 1,
+      columns: 1,
+      traversal: "column-major" as const,
+      cells: [[{ kind: "page" as const, pageNumber: 1 }]],
+    };
+
+    store.requestLayoutSvgPreview(
+      layout,
+      { left: 20, right: 180, top: 30, bottom: 270 },
+    );
+    expect(store.layoutSvgPreviewStatus).toBe("running");
+    expect(postMessage).toHaveBeenCalledWith({
+      type: "request-layout-svg-preview",
+      requestId: 25,
+      layoutPreviewRequestId: 1,
+      layout,
+      guides: { left: 20, right: 180, top: 30, bottom: 270 },
+      removeGuides: true,
+      guideDetection: store.previewGuideDetection,
+    });
+
+    store.handleWorkerMessage({
+      type: "layout-svg-preview",
+      requestId: 25,
+      layoutPreviewRequestId: 1,
+      width: 160,
+      height: 240,
+      svg: '<svg xmlns="http://www.w3.org/2000/svg"/>',
+    });
+    expect(store.layoutSvgPreviewStatus).toBe("ready");
+    expect(store.layoutSvgPreview).toMatchObject({
+      pageNumber: 0,
+      width: 160,
+      height: 240,
+      url: "blob:preview-1",
+      format: "svg",
+    });
   });
 
   it("renders magnifier regions from the PDF source at the requested resolution", async () => {

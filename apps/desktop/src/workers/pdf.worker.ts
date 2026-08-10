@@ -7,6 +7,7 @@ import {
   flattenLayout,
   openMuPdfDocument,
   Pdf2PltError,
+  prepareSvgPreview,
   type GuideDetectionOptions,
   type OpenDocumentResult,
 } from "@pdf2plt/core";
@@ -31,10 +32,12 @@ let previewGuideDetection: GuideDetectionOptions = {
 };
 let previewQueue: number[] = [];
 let detailPreviewQueue: Array<{ pageNumber: number; maxLongEdge: number }> = [];
+let vectorPreviewQueue: number[] = [];
 let previewCompleted = new Set<number>();
 let previewTargetCount = 0;
 let previewGeneration = 0;
 let previewRunningGeneration: number | undefined;
+let layoutPreviewGeneration = 0;
 const cancelledTasks = new Set<TaskKind>();
 
 mupdfGlobal.$libmupdf_wasm_Module = {
@@ -89,21 +92,54 @@ function queueDetailPreviews(pageNumbers: readonly number[], maxLongEdge: number
   ];
 }
 
+function queueVectorPreviews(pageNumbers: readonly number[]) {
+  const valid = [...new Set(pageNumbers)].filter(
+    (pageNumber) =>
+      Number.isInteger(pageNumber) &&
+      pageNumber >= 1 &&
+      pageNumber <= (currentDocument?.info.pageCount ?? 0),
+  );
+  const incomingPages = new Set(valid);
+  vectorPreviewQueue = [
+    ...valid,
+    ...vectorPreviewQueue.filter((pageNumber) => !incomingPages.has(pageNumber)),
+  ];
+}
+
 async function drainPreviewQueue(requestId: number, generation: number) {
   if (previewRunningGeneration === generation) return;
   previewRunningGeneration = generation;
   try {
     while (
-      (previewQueue.length > 0 || detailPreviewQueue.length > 0) &&
+      (previewQueue.length > 0 || detailPreviewQueue.length > 0 || vectorPreviewQueue.length > 0) &&
       currentDocument &&
       activeRequestId === requestId &&
       previewGeneration === generation &&
       !cancelledTasks.has("preview")
     ) {
-      const detailRequest = detailPreviewQueue.shift();
-      const pageNumber = detailRequest?.pageNumber ?? previewQueue.shift();
+      const vectorPageNumber = vectorPreviewQueue.shift();
+      const detailRequest = vectorPageNumber ? undefined : detailPreviewQueue.shift();
+      const pageNumber = vectorPageNumber ?? detailRequest?.pageNumber ?? previewQueue.shift();
       if (!pageNumber) continue;
       try {
+        if (vectorPageNumber) {
+          const svg = prepareSvgPreview(currentDocument.renderSvgPage(pageNumber), {
+            removeGuides: removePreviewGuides,
+            guideDetection: previewGuideDetection,
+          });
+          const page = currentDocument.info.pages[pageNumber - 1];
+          if (!page) throw new Pdf2PltError("invalid-page", `找不到第 ${pageNumber} 页。`);
+          respond({
+            type: "vector-preview",
+            requestId,
+            pageNumber,
+            width: page.width,
+            height: page.height,
+            svg,
+          });
+          await yieldControl();
+          continue;
+        }
         const preview = currentDocument.renderPreview(pageNumber, {
           maxLongEdge: detailRequest?.maxLongEdge ?? previewLongEdge,
           removeGuides: removePreviewGuides,
@@ -143,6 +179,16 @@ async function drainPreviewQueue(requestId: number, generation: number) {
           });
         }
       } catch (error) {
+        if (vectorPageNumber) {
+          respond({
+            type: "vector-preview-error",
+            requestId,
+            pageNumber,
+            ...serializeError(error),
+          });
+          await yieldControl();
+          continue;
+        }
         if (!detailRequest) throw error;
         respond({
           type: "detail-preview-error",
@@ -157,6 +203,7 @@ async function drainPreviewQueue(requestId: number, generation: number) {
     if (
       previewQueue.length === 0 &&
       detailPreviewQueue.length === 0 &&
+      vectorPreviewQueue.length === 0 &&
       currentDocument &&
       activeRequestId === requestId &&
       previewGeneration === generation &&
@@ -171,7 +218,7 @@ async function drainPreviewQueue(requestId: number, generation: number) {
   } finally {
     if (previewRunningGeneration === generation) previewRunningGeneration = undefined;
     if (
-      (previewQueue.length > 0 || detailPreviewQueue.length > 0) &&
+      (previewQueue.length > 0 || detailPreviewQueue.length > 0 || vectorPreviewQueue.length > 0) &&
       activeRequestId === requestId &&
       previewGeneration === generation &&
       !cancelledTasks.has("preview")
@@ -201,6 +248,69 @@ async function detectGuides(request: Extract<PdfWorkerRequest, { type: "detect-g
     if (cancelledTasks.has("detection") || activeRequestId !== request.requestId) return;
     const serialized = serializeError(error);
     respond({ type: "guides-error", requestId: request.requestId, ...serialized });
+  }
+}
+
+async function renderLayoutSvgPreview(
+  request: Extract<PdfWorkerRequest, { type: "request-layout-svg-preview" }>,
+) {
+  const generation = ++layoutPreviewGeneration;
+  try {
+    if (!currentDocument) {
+      throw new Pdf2PltError("document-not-open", "请先打开 PDF 再生成全屏预览。");
+    }
+    const pageNumbers = [
+      ...new Set(
+        flattenLayout(request.layout).flatMap((cell) =>
+          cell?.kind === "page" ? [cell.pageNumber] : [],
+        ),
+      ),
+    ];
+    const pages = [];
+    for (const pageNumber of pageNumbers) {
+      if (
+        generation !== layoutPreviewGeneration ||
+        request.requestId !== activeRequestId
+      ) return;
+      pages.push({
+        pageNumber,
+        svg: prepareSvgPreview(currentDocument.renderSvgPage(pageNumber), {
+          removeGuides: request.removeGuides,
+          guideDetection: request.guideDetection,
+        }),
+      });
+      await yieldControl();
+    }
+    if (
+      generation !== layoutPreviewGeneration ||
+      request.requestId !== activeRequestId
+    ) return;
+    const result = buildCombinedSvg(
+      pages,
+      request.layout,
+      currentDocument.info.pageSizePt,
+      request.guides,
+      { removeGuides: false, removeBackground: true, rotation: 0 },
+    );
+    respond({
+      type: "layout-svg-preview",
+      requestId: request.requestId,
+      layoutPreviewRequestId: request.layoutPreviewRequestId,
+      width: result.widthPt,
+      height: result.heightPt,
+      svg: result.svg,
+    });
+  } catch (error) {
+    if (
+      generation !== layoutPreviewGeneration ||
+      request.requestId !== activeRequestId
+    ) return;
+    respond({
+      type: "layout-svg-preview-error",
+      requestId: request.requestId,
+      layoutPreviewRequestId: request.layoutPreviewRequestId,
+      ...serializeError(error),
+    });
   }
 }
 
@@ -273,10 +383,12 @@ worker.onmessage = async (event: MessageEvent<PdfWorkerRequest>) => {
   if (request.type === "open") {
     activeRequestId = request.requestId;
     previewGeneration += 1;
+    layoutPreviewGeneration += 1;
     currentDocument?.close();
     currentDocument = undefined;
     previewQueue = [];
     detailPreviewQueue = [];
+    vectorPreviewQueue = [];
     previewCompleted = new Set();
     previewTargetCount = 0;
     previewLongEdge = request.previewLongEdge;
@@ -318,8 +430,10 @@ worker.onmessage = async (event: MessageEvent<PdfWorkerRequest>) => {
   if (request.type === "close") {
     activeRequestId = request.requestId;
     previewGeneration += 1;
+    layoutPreviewGeneration += 1;
     previewQueue = [];
     detailPreviewQueue = [];
+    vectorPreviewQueue = [];
     previewTargetCount = 0;
     cancelledTasks.add("preview");
     cancelledTasks.add("detection");
@@ -337,6 +451,7 @@ worker.onmessage = async (event: MessageEvent<PdfWorkerRequest>) => {
     if (request.task === "preview") {
       previewQueue = [];
       detailPreviewQueue = [];
+      vectorPreviewQueue = [];
     }
     respond({ type: "task-cancelled", requestId: request.requestId, task: request.task });
     return;
@@ -346,6 +461,18 @@ worker.onmessage = async (event: MessageEvent<PdfWorkerRequest>) => {
     cancelledTasks.delete("preview");
     queuePreviews(request.pageNumbers, true);
     void drainPreviewQueue(request.requestId, previewGeneration);
+    return;
+  }
+
+  if (request.type === "request-vector-previews") {
+    cancelledTasks.delete("preview");
+    queueVectorPreviews(request.pageNumbers);
+    void drainPreviewQueue(request.requestId, previewGeneration);
+    return;
+  }
+
+  if (request.type === "request-layout-svg-preview") {
+    void renderLayoutSvgPreview(request);
     return;
   }
 
@@ -391,8 +518,10 @@ worker.onmessage = async (event: MessageEvent<PdfWorkerRequest>) => {
 
   if (request.type === "configure-preview-guides") {
     previewGeneration += 1;
+    layoutPreviewGeneration += 1;
     previewQueue = [];
     detailPreviewQueue = [];
+    vectorPreviewQueue = [];
     previewCompleted = new Set();
     previewTargetCount = 0;
     removePreviewGuides = request.removeGuides;

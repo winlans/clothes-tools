@@ -54,6 +54,7 @@ const props = withDefaults(defineProps<{
   layout: LayoutGrid;
   pageSize: PageSizePt;
   previews: PreviewState[];
+  compositionPreview?: PreviewState | undefined;
   guides: GuideCoordinates | undefined;
   initialCamera: Camera | undefined;
   editable?: boolean;
@@ -82,7 +83,7 @@ const emit = defineEmits<{
   insertSpacer: [target: GridPosition];
   moveSpacer: [spacerId: string, target: GridPosition];
   deleteSpacer: [spacerId: string];
-  detailPreviewRequest: [pageNumbers: number[], maxLongEdge: number];
+  canvasPreviewRequest: [pageNumbers: number[], maxLongEdge?: number];
 }>();
 
 type DragItem =
@@ -434,7 +435,7 @@ function getDisplayContentSize() {
   return rotatedSize(getSourceContentSize(), props.rotation);
 }
 
-function requestDetailPreview() {
+function requestCanvasPreviews() {
   detailPreviewTimer = undefined;
   if (!stage) return;
   const maxLongEdge = detailPreviewLongEdge(
@@ -442,7 +443,6 @@ function requestDetailPreview() {
     camera.scale,
     renderPixelRatio,
   );
-  if (!maxLongEdge) return;
   const pages = [];
   for (let row = 0; row < props.layout.rows; row += 1) {
     for (let column = 0; column < props.layout.columns; column += 1) {
@@ -459,13 +459,13 @@ function requestDetailPreview() {
     pages,
   );
   if (visiblePages.length > 0) {
-    emit("detailPreviewRequest", visiblePages, maxLongEdge);
+    emit("canvasPreviewRequest", visiblePages, maxLongEdge);
   }
 }
 
 function scheduleDetailPreview() {
   if (detailPreviewTimer !== undefined) window.clearTimeout(detailPreviewTimer);
-  detailPreviewTimer = window.setTimeout(requestDetailPreview, 120);
+  detailPreviewTimer = window.setTimeout(requestCanvasPreviews, 120);
 }
 
 function fitContent() {
@@ -667,6 +667,7 @@ function createPageGroup(
   pageNumber: number,
   source: GridPosition,
   preview?: PreviewState,
+  transparentBackground = false,
 ): Konva.Group {
   const frame = frameForCell(source);
   const group = new Konva.Group({
@@ -686,7 +687,9 @@ function createPageGroup(
     new Konva.Rect({
       width: frame.width,
       height: frame.height,
-      fill: preview ? "#ffffff" : props.backgroundColor,
+      ...(transparentBackground
+        ? {}
+        : { fill: preview ? "#ffffff" : props.backgroundColor }),
     }),
   );
 
@@ -790,6 +793,69 @@ function createPageGroup(
   return group;
 }
 
+function createCompositionPreview(preview: PreviewState): Konva.Group {
+  const width = geometry.value.width;
+  const height = geometry.value.height;
+  const group = new Konva.Group({ width, height, listening: false });
+  group.add(new Konva.Rect({ width, height, fill: props.backgroundColor }));
+  const cachedImage = imageCache.get(preview.url)?.image ?? new window.Image();
+  for (const opacity of previewInkLayerOpacities(props.lineWeight)) {
+    const previewNode = new Konva.Image({
+      width,
+      height,
+      image: cachedImage,
+      globalCompositeOperation: "multiply",
+      opacity,
+      listening: false,
+    });
+    loadPreview(preview.url, 0, previewNode);
+    group.add(previewNode);
+  }
+  const colorTreatment = previewColorTreatment(
+    props.foregroundColor,
+    props.backgroundColor,
+  );
+  if (colorTreatment.mode !== "source") {
+    group.add(
+      new Konva.Rect({
+        width,
+        height,
+        fill: "#808080",
+        globalCompositeOperation: "color",
+        listening: false,
+      }),
+      ...(colorTreatment.mode === "dark-background"
+        ? [
+            new Konva.Rect({
+              width,
+              height,
+              fill: "#ffffff",
+              globalCompositeOperation: "difference",
+              listening: false,
+            }),
+          ]
+        : []),
+      new Konva.Rect({
+        width,
+        height,
+        fill: colorTreatment.compositeForegroundColor,
+        globalCompositeOperation:
+          colorTreatment.mode === "dark-background" ? "multiply" : "screen",
+        listening: false,
+      }),
+      new Konva.Rect({
+        width,
+        height,
+        fill: props.backgroundColor,
+        globalCompositeOperation:
+          colorTreatment.mode === "dark-background" ? "screen" : "multiply",
+        listening: false,
+      }),
+    );
+  }
+  return group;
+}
+
 function createSpacerGroup(spacerId: string, source: GridPosition): Konva.Group {
   const frame = frameForCell(source);
   const group = new Konva.Group({
@@ -883,7 +949,11 @@ function renderScene() {
   activeDrag = undefined;
   dropHighlight = undefined;
   contentLayer.destroyChildren();
-  const activePreviewUrls = new Set(props.previews.map((preview) => preview.url));
+  const activePreviewUrls = new Set(
+    props.compositionPreview
+      ? [props.compositionPreview.url]
+      : props.previews.map((preview) => preview.url),
+  );
   for (const url of imageCache.keys()) {
     if (!activePreviewUrls.has(url)) imageCache.delete(url);
   }
@@ -905,6 +975,27 @@ function renderScene() {
     host.value.dataset.showGrid = String(props.showGrid);
     host.value.dataset.contentWidth = String(geometry.value.width);
     host.value.dataset.contentHeight = String(geometry.value.height);
+    host.value.dataset.previewSource = props.compositionPreview ? "layout-svg" : "pages";
+  }
+
+  if (props.compositionPreview) {
+    contentLayer.add(createCompositionPreview(props.compositionPreview));
+    if (props.showGrid) {
+      for (let row = 0; row < props.layout.rows; row += 1) {
+        for (let column = 0; column < props.layout.columns; column += 1) {
+          const cell = props.layout.cells[row]?.[column];
+          if (cell?.kind === "page") {
+            contentLayer.add(
+              createPageGroup(cell.pageNumber, { row, column }, undefined, true),
+            );
+          } else if (cell?.kind === "spacer") {
+            contentLayer.add(createSpacerGroup(cell.spacerId, { row, column }));
+          }
+        }
+      }
+    }
+    contentLayer.batchDraw();
+    return;
   }
 
   for (let row = 0; row < props.layout.rows; row += 1) {
@@ -1115,6 +1206,7 @@ watch(
     props.layout,
     props.pageSize,
     props.previews,
+    props.compositionPreview,
     props.guides,
     props.showGrid,
     props.foregroundColor,
@@ -1125,12 +1217,12 @@ watch(
   async (values, previousValues) => {
     const layout = values[0];
     const pageSize = values[1];
-    const guides = values[3];
-    const rotation = values[8];
+    const guides = values[4];
+    const rotation = values[9];
     const previousLayout = previousValues[0];
     const previousPageSize = previousValues[1];
-    const previousGuides = previousValues[3];
-    const previousRotation = previousValues[8];
+    const previousGuides = previousValues[4];
+    const previousRotation = previousValues[9];
     renderScene();
     applyCamera(camera);
     if (shouldFitCameraAfterSceneChange(

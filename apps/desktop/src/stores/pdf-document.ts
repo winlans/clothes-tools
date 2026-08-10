@@ -26,6 +26,7 @@ export interface PreviewState {
   width: number;
   height: number;
   url: string;
+  format?: "raster" | "svg";
 }
 
 interface DetailPreviewState extends PreviewState {
@@ -35,9 +36,11 @@ interface DetailPreviewState extends PreviewState {
 type DocumentStatus = "idle" | "loading" | "ready" | "error";
 type ExportStatus = "idle" | "running" | "complete" | "cancelled" | "error";
 type DetectionStatus = "idle" | "running" | "cancelled" | "error";
+type LayoutSvgPreviewStatus = "idle" | "running" | "ready" | "error";
 
 export const MAX_PREVIEW_CACHE = 18;
 export const MAX_DETAIL_PREVIEW_CACHE = 4;
+export const MAX_VECTOR_PREVIEW_CACHE = 24;
 const MAX_DETAIL_PREVIEW_LONG_EDGE = 4096;
 
 export interface DesktopVectorExport {
@@ -95,8 +98,15 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
     sourceSha256: "",
     previews: {} as Record<number, PreviewState>,
     detailPreviews: {} as Record<number, DetailPreviewState>,
+    vectorPreviews: {} as Record<number, PreviewState>,
     detailPreviewOrder: [] as number[],
+    vectorPreviewOrder: [] as number[],
     pendingDetailPreviewEdges: {} as Record<number, number>,
+    pendingVectorPreviewPages: {} as Record<number, true>,
+    vectorPreviewFailures: {} as Record<number, true>,
+    layoutSvgPreview: undefined as PreviewState | undefined,
+    layoutSvgPreviewStatus: "idle" as LayoutSvgPreviewStatus,
+    layoutSvgPreviewError: "",
     previewOrder: [] as number[],
     visiblePreviewPages: [] as number[],
     previewCacheLimit: MAX_PREVIEW_CACHE,
@@ -112,10 +122,15 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
     worker: undefined as Worker | undefined,
     requestId: 0,
     regionRequestId: 0,
+    layoutPreviewRequestId: 0,
   }),
   getters: {
     previewList(state): PreviewState[] {
-      return Object.values({ ...state.previews, ...state.detailPreviews })
+      return Object.values({
+        ...state.previews,
+        ...state.detailPreviews,
+        ...state.vectorPreviews,
+      })
         .sort((a, b) => a.pageNumber - b.pageNumber);
     },
   },
@@ -200,6 +215,49 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
         };
         this.touchPreview(message.pageNumber);
         this.evictPreviewCache();
+        return;
+      }
+      if (message.type === "vector-preview") {
+        delete this.pendingVectorPreviewPages[message.pageNumber];
+        delete this.vectorPreviewFailures[message.pageNumber];
+        const previous = this.vectorPreviews[message.pageNumber];
+        const blob = new Blob([message.svg], { type: "image/svg+xml;charset=utf-8" });
+        if (previous) URL.revokeObjectURL(previous.url);
+        this.vectorPreviews[message.pageNumber] = {
+          pageNumber: message.pageNumber,
+          width: message.width,
+          height: message.height,
+          url: URL.createObjectURL(blob),
+          format: "svg",
+        };
+        this.touchVectorPreview(message.pageNumber);
+        this.evictVectorPreviewCache();
+        return;
+      }
+      if (message.type === "vector-preview-error") {
+        delete this.pendingVectorPreviewPages[message.pageNumber];
+        this.vectorPreviewFailures[message.pageNumber] = true;
+        return;
+      }
+      if (message.type === "layout-svg-preview") {
+        if (message.layoutPreviewRequestId !== this.layoutPreviewRequestId) return;
+        const blob = new Blob([message.svg], { type: "image/svg+xml;charset=utf-8" });
+        if (this.layoutSvgPreview) URL.revokeObjectURL(this.layoutSvgPreview.url);
+        this.layoutSvgPreview = {
+          pageNumber: 0,
+          width: message.width,
+          height: message.height,
+          url: URL.createObjectURL(blob),
+          format: "svg",
+        };
+        this.layoutSvgPreviewStatus = "ready";
+        this.layoutSvgPreviewError = "";
+        return;
+      }
+      if (message.type === "layout-svg-preview-error") {
+        if (message.layoutPreviewRequestId !== this.layoutPreviewRequestId) return;
+        this.layoutSvgPreviewStatus = "error";
+        this.layoutSvgPreviewError = message.message;
         return;
       }
       if (message.type === "detail-preview") {
@@ -326,6 +384,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
         if (message.task === "preview") {
           this.previewStatus = "cancelled";
           this.pendingDetailPreviewEdges = {};
+          this.pendingVectorPreviewPages = {};
           if (this.info) this.status = "ready";
         } else if (message.task === "detection") {
           this.detectionStatus = "cancelled";
@@ -371,6 +430,8 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       this.previewOrder = [];
       this.visiblePreviewPages = [];
       this.disposeDetailPreviews();
+      this.disposeVectorPreviews();
+      this.disposeLayoutSvgPreview();
     },
     disposeDetailPreviews() {
       for (const preview of Object.values(this.detailPreviews)) {
@@ -379,6 +440,21 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       this.detailPreviews = {};
       this.detailPreviewOrder = [];
       this.pendingDetailPreviewEdges = {};
+    },
+    disposeVectorPreviews() {
+      for (const preview of Object.values(this.vectorPreviews)) {
+        URL.revokeObjectURL(preview.url);
+      }
+      this.vectorPreviews = {};
+      this.vectorPreviewOrder = [];
+      this.pendingVectorPreviewPages = {};
+      this.vectorPreviewFailures = {};
+    },
+    disposeLayoutSvgPreview() {
+      if (this.layoutSvgPreview) URL.revokeObjectURL(this.layoutSvgPreview.url);
+      this.layoutSvgPreview = undefined;
+      this.layoutSvgPreviewStatus = "idle";
+      this.layoutSvgPreviewError = "";
     },
     touchPreview(pageNumber: number) {
       this.previewOrder = [
@@ -392,6 +468,12 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
         pageNumber,
       ];
     },
+    touchVectorPreview(pageNumber: number) {
+      this.vectorPreviewOrder = [
+        ...this.vectorPreviewOrder.filter((value) => value !== pageNumber),
+        pageNumber,
+      ];
+    },
     evictDetailPreviewCache() {
       while (Object.keys(this.detailPreviews).length > MAX_DETAIL_PREVIEW_CACHE) {
         const pageNumber = this.detailPreviewOrder.shift();
@@ -399,6 +481,15 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
         const preview = this.detailPreviews[pageNumber];
         if (preview) URL.revokeObjectURL(preview.url);
         delete this.detailPreviews[pageNumber];
+      }
+    },
+    evictVectorPreviewCache() {
+      while (Object.keys(this.vectorPreviews).length > MAX_VECTOR_PREVIEW_CACHE) {
+        const pageNumber = this.vectorPreviewOrder.shift();
+        if (!pageNumber) return;
+        const preview = this.vectorPreviews[pageNumber];
+        if (preview) URL.revokeObjectURL(preview.url);
+        delete this.vectorPreviews[pageNumber];
       }
     },
     evictPreviewCache() {
@@ -430,6 +521,8 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       this.previewRemoveGuides = removeGuides;
       this.previewGuideDetection = nextOptions;
       this.disposeDetailPreviews();
+      this.disposeVectorPreviews();
+      this.disposeLayoutSvgPreview();
       if (!this.worker || !this.info) return;
 
       const pageNumbers = [...new Set([
@@ -505,6 +598,59 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
         requestId: this.requestId,
         pageNumbers: missing,
         maxLongEdge: targetEdge,
+      } satisfies PdfWorkerRequest);
+    },
+    requestVectorPreviews(pageNumbers: number[]) {
+      if (!this.worker || !this.info) return;
+      const visible = [...new Set(pageNumbers)]
+        .filter((pageNumber) => pageNumber >= 1 && pageNumber <= this.info!.pageCount)
+        .slice(0, MAX_VECTOR_PREVIEW_CACHE);
+      const missing = visible.filter((pageNumber) => {
+        if (this.vectorPreviews[pageNumber]) {
+          this.touchVectorPreview(pageNumber);
+          return false;
+        }
+        if (
+          this.pendingVectorPreviewPages[pageNumber] ||
+          this.vectorPreviewFailures[pageNumber]
+        ) return false;
+        this.pendingVectorPreviewPages[pageNumber] = true;
+        return true;
+      });
+      this.evictVectorPreviewCache();
+      if (missing.length === 0) return;
+      this.worker.postMessage({
+        type: "request-vector-previews",
+        requestId: this.requestId,
+        pageNumbers: missing,
+      } satisfies PdfWorkerRequest);
+    },
+    requestCanvasPreviews(pageNumbers: number[], maxLongEdge?: number) {
+      this.requestVectorPreviews(pageNumbers);
+      if (!maxLongEdge) return;
+      const rasterFallbackPages = pageNumbers.filter(
+        (pageNumber) => this.vectorPreviewFailures[pageNumber],
+      );
+      if (rasterFallbackPages.length > 0) {
+        this.requestDetailPreviews(rasterFallbackPages, maxLongEdge);
+      }
+    },
+    requestLayoutSvgPreview(
+      layout: LayoutGrid,
+      guides: GuideCoordinates | undefined,
+    ) {
+      if (!this.worker || !this.info) return;
+      this.layoutPreviewRequestId += 1;
+      this.disposeLayoutSvgPreview();
+      this.layoutSvgPreviewStatus = "running";
+      this.worker.postMessage({
+        type: "request-layout-svg-preview",
+        requestId: this.requestId,
+        layoutPreviewRequestId: this.layoutPreviewRequestId,
+        layout,
+        guides,
+        removeGuides: this.previewRemoveGuides,
+        guideDetection: { ...this.previewGuideDetection },
       } satisfies PdfWorkerRequest);
     },
     renderRegion(

@@ -22,6 +22,16 @@ export type PdfWorkerRequest =
       previewGuideDetection: GuideDetectionOptions;
     }
   | { type: "request-previews"; requestId: number; pageNumbers: number[] }
+  | { type: "request-vector-previews"; requestId: number; pageNumbers: number[] }
+  | {
+      type: "request-layout-svg-preview";
+      requestId: number;
+      layoutPreviewRequestId: number;
+      layout: LayoutGrid;
+      guides: GuideCoordinates | undefined;
+      removeGuides: boolean;
+      guideDetection: GuideDetectionOptions;
+    }
   | {
       type: "request-detail-previews";
       requestId: number;
@@ -76,6 +86,36 @@ export type PdfWorkerResponse =
       width: number;
       height: number;
       bytes: Uint8Array<ArrayBuffer>;
+    }
+  | {
+      type: "vector-preview";
+      requestId: number;
+      pageNumber: number;
+      width: number;
+      height: number;
+      svg: string;
+    }
+  | {
+      type: "vector-preview-error";
+      requestId: number;
+      pageNumber: number;
+      code: string;
+      message: string;
+    }
+  | {
+      type: "layout-svg-preview";
+      requestId: number;
+      layoutPreviewRequestId: number;
+      width: number;
+      height: number;
+      svg: string;
+    }
+  | {
+      type: "layout-svg-preview-error";
+      requestId: number;
+      layoutPreviewRequestId: number;
+      code: string;
+      message: string;
     }
   | {
       type: "detail-preview";
