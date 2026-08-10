@@ -11,6 +11,7 @@ import {
 import { computed, reactive, ref, watch } from "vue";
 
 import { useResolvedSettings } from "../composables/use-resolved-settings";
+import { formatUiNumber, roundUiNumber } from "../numbers";
 import { detectedGuideCoordinates, guideSettingsFromLines } from "../project/guide-settings";
 import { useDocumentSession } from "../stores/document-session";
 
@@ -56,6 +57,10 @@ const displayedError = computed(() =>
   localError.value || documentStore.detectionErrorMessage || settings.validationError.value,
 );
 
+function draftNumber(value: string): number {
+  return roundUiNumber(Number(value));
+}
+
 function currentSettings(mode = projectStore.guideSettings.mode): ProjectGuideSettings {
   return {
     ...guideSettingsFromLines(projectStore.guideSettings, guideStore.lines),
@@ -66,11 +71,11 @@ function currentSettings(mode = projectStore.guideSettings.mode): ProjectGuideSe
 async function redetect() {
   try {
     const options = resolveGuideDetectionOptions({
-      dpi: Number(detectionDrafts.dpi),
-      redMin: Number(detectionDrafts.redMin),
-      otherMax: Number(detectionDrafts.otherMax),
-      redDelta: Number(detectionDrafts.redDelta),
-      minimumFraction: Number(detectionDrafts.minimumFraction),
+      dpi: draftNumber(detectionDrafts.dpi),
+      redMin: draftNumber(detectionDrafts.redMin),
+      otherMax: draftNumber(detectionDrafts.otherMax),
+      redDelta: draftNumber(detectionDrafts.redDelta),
+      minimumFraction: draftNumber(detectionDrafts.minimumFraction),
     });
     projectStore.setGuideSettings({
       ...currentSettings("auto"),
@@ -116,7 +121,7 @@ function setSeamCropping(event: Event) {
 }
 
 function applyManualGuide(direction: GuideDirection) {
-  if (guideStore.setManual(direction, Number(seamDrafts[direction]), props.pageSize)) {
+  if (guideStore.setManual(direction, draftNumber(seamDrafts[direction]), props.pageSize)) {
     projectStore.setGuideSettings(currentSettings("manual"));
     localError.value = "";
     session.markDirty();
@@ -126,10 +131,10 @@ function applyManualGuide(direction: GuideDirection) {
 function applyOuterBoundaries() {
   const candidate: ProjectGuideSettings = {
     ...currentSettings(),
-    outerLeft: Number(outerDrafts.left),
-    outerRight: Number(outerDrafts.right),
-    outerTop: Number(outerDrafts.top),
-    outerBottom: Number(outerDrafts.bottom),
+    outerLeft: draftNumber(outerDrafts.left),
+    outerRight: draftNumber(outerDrafts.right),
+    outerTop: draftNumber(outerDrafts.top),
+    outerBottom: draftNumber(outerDrafts.bottom),
   };
   try {
     const layout = layoutStore.layout;
@@ -154,12 +159,21 @@ function setOutputOption(key: keyof ProjectOutputSettings, event: Event) {
   session.markDirty();
 }
 
+function setRemoveGuides(event: Event) {
+  const removeGuides = (event.target as HTMLInputElement).checked;
+  projectStore.setOutputSettings({
+    ...projectStore.outputSettings,
+    keepGuides: !removeGuides,
+  });
+  session.markDirty();
+}
+
 watch(
   () => guideStore.lines,
   (lines) => {
     for (const direction of GUIDE_DIRECTIONS) {
       const line = lines[direction];
-      seamDrafts[direction] = line ? line.coordinatePt.toFixed(3) : "";
+      seamDrafts[direction] = line ? formatUiNumber(line.coordinatePt) : "";
     }
   },
   { deep: true, immediate: true },
@@ -168,15 +182,15 @@ watch(
 watch(
   () => projectStore.guideSettings,
   (value) => {
-    outerDrafts.left = String(value.outerLeft);
-    outerDrafts.right = String(value.outerRight ?? props.pageSize.width);
-    outerDrafts.top = String(value.outerTop);
-    outerDrafts.bottom = String(value.outerBottom ?? props.pageSize.height);
-    detectionDrafts.dpi = String(value.detection.dpi);
-    detectionDrafts.redMin = String(value.detection.redMin);
-    detectionDrafts.otherMax = String(value.detection.otherMax);
-    detectionDrafts.redDelta = String(value.detection.redDelta);
-    detectionDrafts.minimumFraction = String(value.detection.minimumFraction);
+    outerDrafts.left = formatUiNumber(value.outerLeft);
+    outerDrafts.right = formatUiNumber(value.outerRight ?? props.pageSize.width);
+    outerDrafts.top = formatUiNumber(value.outerTop);
+    outerDrafts.bottom = formatUiNumber(value.outerBottom ?? props.pageSize.height);
+    detectionDrafts.dpi = formatUiNumber(value.detection.dpi);
+    detectionDrafts.redMin = formatUiNumber(value.detection.redMin);
+    detectionDrafts.otherMax = formatUiNumber(value.detection.otherMax);
+    detectionDrafts.redDelta = formatUiNumber(value.detection.redDelta);
+    detectionDrafts.minimumFraction = formatUiNumber(value.detection.minimumFraction);
   },
   { deep: true, immediate: true },
 );
@@ -286,11 +300,11 @@ watch(
       <label class="check-row">
         <input
           type="checkbox"
-          aria-label="保留红色辅助线"
-          :checked="projectStore.outputSettings.keepGuides"
-          @change="setOutputOption('keepGuides', $event)"
+          aria-label="删除红色辅助线"
+          :checked="!projectStore.outputSettings.keepGuides"
+          @change="setRemoveGuides"
         />
-        保留红色辅助线
+        删除红色辅助线
       </label>
       <label class="check-row">
         <input

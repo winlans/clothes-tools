@@ -53,6 +53,10 @@ export function panCameraBy(camera: Camera, delta: Point): Camera {
   };
 }
 
+export function isCanvasPanGesture(button: number, spacePressed: boolean): boolean {
+  return button === 1 || button === 2 || (button === 0 && spacePressed);
+}
+
 export function fitCameraToContent(
   viewport: Size,
   content: ContentBounds,

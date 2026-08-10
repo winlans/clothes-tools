@@ -3,9 +3,11 @@
 import {
   buildCorelPlt,
   buildCombinedSvg,
+  DEFAULT_GUIDE_DETECTION_OPTIONS,
   flattenLayout,
   openMuPdfDocument,
   Pdf2PltError,
+  type GuideDetectionOptions,
   type OpenDocumentResult,
 } from "@pdf2plt/core";
 import mupdfWasmUrl from "@mupdf-wasm?url";
@@ -23,6 +25,10 @@ type TaskKind = "preview" | "detection" | "export";
 let currentDocument: OpenDocumentResult | undefined;
 let activeRequestId = 0;
 let previewLongEdge = 1600;
+let removePreviewGuides = true;
+let previewGuideDetection: GuideDetectionOptions = {
+  ...DEFAULT_GUIDE_DETECTION_OPTIONS,
+};
 let previewQueue: number[] = [];
 let previewCompleted = new Set<number>();
 let previewTargetCount = 0;
@@ -82,6 +88,8 @@ async function drainPreviewQueue(requestId: number, generation: number) {
       if (!pageNumber) continue;
       const preview = currentDocument.renderPreview(pageNumber, {
         maxLongEdge: previewLongEdge,
+        removeGuides: removePreviewGuides,
+        guideDetection: previewGuideDetection,
       });
       previewCompleted.add(pageNumber);
       respond(
@@ -227,6 +235,8 @@ worker.onmessage = async (event: MessageEvent<PdfWorkerRequest>) => {
     previewCompleted = new Set();
     previewTargetCount = 0;
     previewLongEdge = request.previewLongEdge;
+    removePreviewGuides = request.removePreviewGuides;
+    previewGuideDetection = { ...request.previewGuideDetection };
     cancelledTasks.clear();
 
     try {
@@ -284,6 +294,19 @@ worker.onmessage = async (event: MessageEvent<PdfWorkerRequest>) => {
   }
 
   if (request.type === "request-previews") {
+    cancelledTasks.delete("preview");
+    queuePreviews(request.pageNumbers, true);
+    void drainPreviewQueue(request.requestId, previewGeneration);
+    return;
+  }
+
+  if (request.type === "configure-preview-guides") {
+    previewGeneration += 1;
+    previewQueue = [];
+    previewCompleted = new Set();
+    previewTargetCount = 0;
+    removePreviewGuides = request.removeGuides;
+    previewGuideDetection = { ...request.options };
     cancelledTasks.delete("preview");
     queuePreviews(request.pageNumbers, true);
     void drainPreviewQueue(request.requestId, previewGeneration);

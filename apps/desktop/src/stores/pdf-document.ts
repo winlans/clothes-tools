@@ -1,4 +1,5 @@
 import {
+  DEFAULT_GUIDE_DETECTION_OPTIONS,
   DEFAULT_PLT_EXPORT_OPTIONS,
   DEFAULT_SVG_EXPORT_OPTIONS,
   type GuideCoordinates,
@@ -71,6 +72,8 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
     previewOrder: [] as number[],
     visiblePreviewPages: [] as number[],
     previewCacheLimit: MAX_PREVIEW_CACHE,
+    previewRemoveGuides: true,
+    previewGuideDetection: { ...DEFAULT_GUIDE_DETECTION_OPTIONS } as GuideDetectionOptions,
     previewStatus: "idle" as "idle" | "running" | "complete" | "cancelled",
     progress: { completed: 0, total: 0 },
     errorMessage: "",
@@ -141,6 +144,8 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
         bytes,
         previewLongEdge: 1600,
         previewPriority: [1, 2, 3],
+        removePreviewGuides: this.previewRemoveGuides,
+        previewGuideDetection: { ...this.previewGuideDetection },
       };
       this.worker?.postMessage(request, [bytes.buffer]);
     },
@@ -310,6 +315,44 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       this.previewCacheLimit = Math.max(1, Math.min(maximum, Math.floor(limit)));
       if (this.previewCacheLimit < MAX_PREVIEW_CACHE) this.visiblePreviewPages = [];
       this.evictPreviewCache();
+    },
+    setPreviewGuideRemoval(removeGuides: boolean, options: GuideDetectionOptions) {
+      const nextOptions = { ...options };
+      const optionsChanged = (
+        Object.keys(nextOptions) as Array<keyof GuideDetectionOptions>
+      ).some((key) => nextOptions[key] !== this.previewGuideDetection[key]);
+      if (removeGuides === this.previewRemoveGuides && !optionsChanged) return;
+
+      this.previewRemoveGuides = removeGuides;
+      this.previewGuideDetection = nextOptions;
+      if (!this.worker || !this.info) return;
+
+      const pageNumbers = [...new Set([
+        ...this.visiblePreviewPages,
+        ...this.previewOrder,
+      ])].slice(0, this.previewCacheLimit);
+      if (pageNumbers.length === 0) {
+        pageNumbers.push(
+          ...this.info.pages
+            .slice(0, Math.min(3, this.previewCacheLimit))
+            .map((page) => page.pageNumber),
+        );
+      }
+      for (const preview of Object.values(this.previews)) {
+        URL.revokeObjectURL(preview.url);
+      }
+      this.previews = {};
+      this.previewOrder = [];
+      this.visiblePreviewPages = pageNumbers;
+      this.previewStatus = "running";
+      this.progress = { completed: 0, total: pageNumbers.length };
+      this.worker.postMessage({
+        type: "configure-preview-guides",
+        requestId: this.requestId,
+        removeGuides,
+        options: nextOptions,
+        pageNumbers,
+      } satisfies PdfWorkerRequest);
     },
     prioritizePreviews(pageNumbers: number[]) {
       if (!this.worker || !this.info) return;

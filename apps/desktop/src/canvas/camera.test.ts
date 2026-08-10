@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   fitCameraToContent,
+  isCanvasPanGesture,
   MAX_CANVAS_ZOOM,
   MIN_CANVAS_ZOOM,
   panCameraBy,
@@ -62,5 +63,12 @@ describe("canvas camera", () => {
       y: 17,
       scale: 0.5,
     });
+  });
+
+  it("starts panning with right click, middle click, or space plus left click", () => {
+    expect(isCanvasPanGesture(2, false)).toBe(true);
+    expect(isCanvasPanGesture(1, false)).toBe(true);
+    expect(isCanvasPanGesture(0, true)).toBe(true);
+    expect(isCanvasPanGesture(0, false)).toBe(false);
   });
 });

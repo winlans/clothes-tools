@@ -7,6 +7,7 @@ import {
   detectRedGuides,
   inferColumnLayoutFromGuideSamples,
   inferPagesPerColumnFromGuideSamples,
+  removeRedGuidePixels,
   type GuidePixelPage,
   type GuideSample,
 } from "./detection";
@@ -38,6 +39,27 @@ function makePage(directions: Array<"left" | "right" | "top" | "bottom">): Guide
 }
 
 describe("red guide detection", () => {
+  it("removes solid and antialiased red guide pixels from previews", () => {
+    const pixels = new Uint8ClampedArray([
+      255, 0, 0,
+      255, 190, 190,
+      20, 20, 20,
+      255, 180, 40,
+    ]);
+    const removed = removeRedGuidePixels(
+      { pageNumber: 1, width: 4, height: 1, stride: 12, components: 3, pixels },
+      DEFAULT_GUIDE_DETECTION_OPTIONS,
+    );
+
+    expect(removed).toBe(2);
+    expect([...pixels]).toEqual([
+      255, 255, 255,
+      255, 255, 255,
+      20, 20, 20,
+      255, 180, 40,
+    ]);
+  });
+
   it("keeps the legacy CLI defaults", () => {
     expect(DEFAULT_GUIDE_DETECTION_OPTIONS).toEqual({
       dpi: 72,

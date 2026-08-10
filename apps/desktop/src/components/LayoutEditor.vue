@@ -4,10 +4,13 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import { useResolvedSettings } from "../composables/use-resolved-settings";
+import { formatUiNumber } from "../numbers";
 import { useDocumentSession } from "../stores/document-session";
 import type { PreviewState } from "../stores/pdf-document";
+import { usePreviewAppearanceStore } from "../stores/preview-appearance";
 import AdvancedInspector from "./AdvancedInspector.vue";
 import LayoutCanvas from "./LayoutCanvas.vue";
+import PreviewAppearanceControl from "./PreviewAppearanceControl.vue";
 import ZoomControl from "./ZoomControl.vue";
 
 const props = defineProps<{
@@ -17,6 +20,7 @@ const props = defineProps<{
 
 const session = useDocumentSession();
 const { documentStore, layoutStore, guideStore, projectStore } = session;
+const previewAppearance = usePreviewAppearanceStore();
 const canvas = ref<InstanceType<typeof LayoutCanvas>>();
 const fullscreenCanvas = ref<InstanceType<typeof LayoutCanvas>>();
 const draftPagesPerColumn = ref(String(layoutStore.pagesPerColumn));
@@ -64,7 +68,7 @@ function stepPagesPerColumn(delta: number) {
 }
 
 function displayZoom(scale: number): string {
-  return Number((scale * 100).toFixed(6)).toString();
+  return formatUiNumber(scale * 100);
 }
 
 function applyLayoutMutation(change: () => boolean) {
@@ -299,6 +303,8 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
+        <PreviewAppearanceControl />
+
         <LayoutCanvas
           v-if="layoutStore.layout"
           ref="canvas"
@@ -307,6 +313,9 @@ onBeforeUnmount(() => {
           :previews="props.previews"
           :guides="activeGuides"
           :show-grid="session.ui.showGrid"
+          :foreground-color="previewAppearance.foregroundColor"
+          :background-color="previewAppearance.backgroundColor"
+          :line-weight="previewAppearance.lineWeight"
           :initial-camera="initialCamera"
           @zoom-change="zoom = $event"
           @view-change="projectStore.setView"
@@ -320,7 +329,7 @@ onBeforeUnmount(() => {
           <span>缩放 {{ displayZoom(zoom) }}%</span>
           <span>
             {{ guideStore.previewMode === 'cropped' ? '成品裁切预览' : '完整页面预览' }} ·
-            拖动成员吸附重排 · 双击删除空白 · 滚轮缩放 · 空格键平移
+            拖动成员吸附重排 · 双击删除空白 · 滚轮缩放 · 右键/中键或空格键＋左键平移
           </span>
         </footer>
       </div>
@@ -391,6 +400,9 @@ onBeforeUnmount(() => {
         :previews="props.previews"
         :guides="activeGuides"
         :show-grid="session.ui.showGrid"
+        :foreground-color="previewAppearance.foregroundColor"
+        :background-color="previewAppearance.backgroundColor"
+        :line-weight="previewAppearance.lineWeight"
         :initial-camera="undefined"
         :editable="false"
         @zoom-change="fullscreenZoom = $event"
@@ -398,7 +410,7 @@ onBeforeUnmount(() => {
 
       <footer class="fullscreen-preview__status">
         <span>缩放 {{ displayZoom(fullscreenZoom) }}%</span>
-        <span>只读预览 · 滚轮缩放 · 空格键或鼠标中键平移 · Esc 退出</span>
+        <span>只读预览 · 滚轮缩放 · 右键/中键或空格键＋左键平移 · Esc 退出</span>
       </footer>
     </section>
   </section>

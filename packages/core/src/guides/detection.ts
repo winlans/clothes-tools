@@ -31,6 +31,63 @@ export interface GuidePixelPage {
   pixels: Uint8Array<ArrayBufferLike> | Uint8ClampedArray<ArrayBufferLike>;
 }
 
+function isStrongGuideRed(
+  red: number,
+  green: number,
+  blue: number,
+  options: GuideDetectionOptions,
+): boolean {
+  return red >= options.redMin &&
+    green <= options.otherMax &&
+    blue <= options.otherMax &&
+    red - Math.max(green, blue) >= options.redDelta;
+}
+
+function isAntialiasedGuideRed(
+  red: number,
+  green: number,
+  blue: number,
+  options: GuideDetectionOptions,
+): boolean {
+  const minimumDominance = Math.max(16, Math.floor(options.redDelta / 4));
+  return red >= options.redMin &&
+    Math.abs(green - blue) <= 12 &&
+    red - Math.max(green, blue) >= minimumDominance;
+}
+
+export function removeRedGuidePixels(
+  page: GuidePixelPage,
+  options: GuideDetectionOptions,
+): number {
+  if (page.width <= 0 || page.height <= 0 || page.components < 3) return 0;
+  if (page.stride < page.width * page.components) return 0;
+
+  let removed = 0;
+  for (let y = 0; y < page.height; y += 1) {
+    const rowOffset = y * page.stride;
+    for (let x = 0; x < page.width; x += 1) {
+      const offset = rowOffset + x * page.components;
+      const red = page.pixels[offset];
+      const green = page.pixels[offset + 1];
+      const blue = page.pixels[offset + 2];
+      if (
+        red === undefined ||
+        green === undefined ||
+        blue === undefined ||
+        (!isStrongGuideRed(red, green, blue, options) &&
+          !isAntialiasedGuideRed(red, green, blue, options))
+      ) {
+        continue;
+      }
+      page.pixels[offset] = 255;
+      page.pixels[offset + 1] = 255;
+      page.pixels[offset + 2] = 255;
+      removed += 1;
+    }
+  }
+  return removed;
+}
+
 export interface GuideSample {
   pageNumber: number;
   positionPt: number;
@@ -120,12 +177,7 @@ export function detectPageGuideSamples(
       if (red === undefined || green === undefined || blue === undefined) {
         throw new Pdf2PltError("invalid-guide-pixels", "红线检测像素缓冲区长度不足。");
       }
-      if (
-        red >= options.redMin &&
-        green <= options.otherMax &&
-        blue <= options.otherMax &&
-        red - Math.max(green, blue) >= options.redDelta
-      ) {
+      if (isStrongGuideRed(red, green, blue, options)) {
         xCounts[x] = (xCounts[x] ?? 0) + 1;
         yCounts[y] = (yCounts[y] ?? 0) + 1;
       }

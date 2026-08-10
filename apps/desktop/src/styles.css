@@ -1,4 +1,6 @@
 :root {
+  --app-top-chrome-height: 84px;
+
   color: #e8edf2;
   background: #101317;
   font-family: Inter, "Noto Sans SC", system-ui, sans-serif;
@@ -31,14 +33,23 @@ button {
   padding: 0 18px 18px;
 }
 
+.app-top-chrome {
+  position: sticky;
+  z-index: 60;
+  top: 0;
+  margin: 0 -18px;
+  background: #14181c;
+  box-shadow: 0 5px 14px rgb(0 0 0 / 18%);
+}
+
 .app-commandbar {
   position: relative;
-  z-index: 60;
+  z-index: 2;
   display: flex;
   min-height: 40px;
   align-items: center;
   gap: 6px;
-  margin: 0 -18px;
+  margin: 0;
   border-bottom: 1px solid #2a3238;
   padding: 0 14px;
   background: #171b1f;
@@ -221,8 +232,9 @@ h1 {
   min-width: 0;
   align-items: end;
   gap: 4px;
-  margin: 0 -18px;
+  margin: 0;
   overflow-x: auto;
+  overflow-y: hidden;
   border-bottom: 1px solid #2c3840;
   padding: 0 12px;
   background: #14181c;
@@ -231,7 +243,7 @@ h1 {
 .document-tab,
 .document-tabs__add {
   flex: none;
-  height: 43px;
+  height: 36px;
   border: 1px solid #303d45;
   border-bottom: 0;
   border-radius: 8px 8px 0 0;
@@ -245,7 +257,7 @@ h1 {
   width: min(220px, 30vw);
   align-items: center;
   gap: 7px;
-  padding: 7px 9px 6px 12px;
+  padding: 5px 8px 4px 11px;
 }
 
 .document-tab.active {
@@ -291,8 +303,48 @@ h1 {
 }
 
 .document-tabs__add {
-  padding: 0 12px;
+  padding: 0 10px;
   font-size: 17px;
+}
+
+.document-tabs,
+.page-sidebar,
+.advanced-inspector,
+.export-tab-list {
+  scrollbar-color: #566a75 #171d21;
+  scrollbar-width: thin;
+}
+
+.document-tabs::-webkit-scrollbar,
+.page-sidebar::-webkit-scrollbar,
+.advanced-inspector::-webkit-scrollbar,
+.export-tab-list::-webkit-scrollbar {
+  width: 8px;
+  height: 7px;
+}
+
+.document-tabs::-webkit-scrollbar-track,
+.page-sidebar::-webkit-scrollbar-track,
+.advanced-inspector::-webkit-scrollbar-track,
+.export-tab-list::-webkit-scrollbar-track {
+  border-radius: 999px;
+  background: #171d21;
+}
+
+.document-tabs::-webkit-scrollbar-thumb,
+.page-sidebar::-webkit-scrollbar-thumb,
+.advanced-inspector::-webkit-scrollbar-thumb,
+.export-tab-list::-webkit-scrollbar-thumb {
+  border: 2px solid #171d21;
+  border-radius: 999px;
+  background: #566a75;
+}
+
+.document-tabs::-webkit-scrollbar-thumb:hover,
+.page-sidebar::-webkit-scrollbar-thumb:hover,
+.advanced-inspector::-webkit-scrollbar-thumb:hover,
+.export-tab-list::-webkit-scrollbar-thumb:hover {
+  background: #78909c;
 }
 
 .import-notice {
@@ -623,11 +675,16 @@ h1 {
   margin-top: 14px;
 }
 
+.editor-workspace.editor-workspace--sidebar-collapsed {
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 12px;
+}
+
 .page-sidebar {
   position: sticky;
-  top: 20px;
+  top: calc(var(--app-top-chrome-height) + 20px);
   display: grid;
-  max-height: calc(100vh - 40px);
+  max-height: calc(100vh - var(--app-top-chrome-height) - 40px);
   align-self: start;
   gap: 12px;
   overflow-y: auto;
@@ -639,6 +696,42 @@ h1 {
 
 .page-sidebar .eyebrow {
   margin: 2px 4px 0;
+}
+
+.page-sidebar--collapsed {
+  min-height: 44px;
+  place-items: start center;
+  overflow: hidden;
+  padding: 7px 5px;
+}
+
+.page-sidebar__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.page-sidebar__toggle {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  place-items: center;
+  border: 1px solid #35434b;
+  border-radius: 6px;
+  padding: 0;
+  color: #a8bbc5;
+  background: #1c2429;
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.page-sidebar__toggle:hover {
+  border-color: #557180;
+  color: #eef6f9;
+  background: #27343b;
 }
 
 .spacer-tool {
@@ -1063,9 +1156,9 @@ h1 {
 
 .advanced-inspector {
   position: sticky;
-  top: 20px;
+  top: calc(var(--app-top-chrome-height) + 20px);
   display: grid;
-  max-height: calc(100vh - 40px);
+  max-height: calc(100vh - var(--app-top-chrome-height) - 40px);
   gap: 10px;
   overflow-y: auto;
   border: 1px solid #2b3841;
@@ -1140,20 +1233,89 @@ h1 {
   white-space: nowrap;
 }
 
+.preview-appearance-control {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  border: 1px solid #34434c;
+  border-radius: 8px;
+  padding: 7px 9px;
+  color: #9eb0ba;
+  background: #11181c;
+  font-size: 11px;
+}
+
+.preview-appearance-control__title {
+  color: #c6d3da;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.preview-color-control,
+.preview-line-weight-control {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.preview-color-control input[type="color"] {
+  width: 29px;
+  height: 24px;
+  overflow: hidden;
+  border: 1px solid #52616a;
+  border-radius: 5px;
+  padding: 2px;
+  background: #0d1316;
+  cursor: pointer;
+}
+
+.preview-color-control code {
+  color: #82949e;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.preview-line-weight-control {
+  flex: 1 1 180px;
+}
+
+.preview-line-weight-control input[type="range"] {
+  min-width: 90px;
+  flex: 1;
+  accent-color: #79abc2;
+}
+
+.preview-line-weight-control output {
+  width: 34px;
+  color: #c7d5dc;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.preview-appearance-control .compact-button {
+  margin-left: auto;
+  padding-block: 5px;
+}
+
 .layout-canvas {
   width: 100%;
   height: max(520px, calc(100vh - 245px));
   overflow: hidden;
-  border: 1px solid #2b3841;
+  border: 1px solid #756f66;
   border-radius: 10px;
   background:
-    linear-gradient(45deg, rgb(255 255 255 / 2%) 25%, transparent 25%),
-    linear-gradient(-45deg, rgb(255 255 255 / 2%) 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, rgb(255 255 255 / 2%) 75%),
-    linear-gradient(-45deg, transparent 75%, rgb(255 255 255 / 2%) 75%),
-    #11171b;
-  background-position: 0 0, 0 12px, 12px -12px, -12px 0;
-  background-size: 24px 24px;
+    linear-gradient(rgb(89 84 77 / 5%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(89 84 77 / 5%) 1px, transparent 1px),
+    #d7d2c9;
+  background-size: 28px 28px;
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 28%),
+    inset 0 12px 30px rgb(83 77 69 / 8%);
   outline: none;
 }
 

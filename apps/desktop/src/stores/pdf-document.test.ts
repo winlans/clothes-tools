@@ -254,6 +254,47 @@ describe("pdf document store", () => {
     });
   });
 
+  it("rebuilds cached previews when red-guide removal changes", () => {
+    const store = usePdfDocumentStore();
+    store.requestId = 22;
+    store.info = {
+      documentId: "preview-guides",
+      pageCount: 2,
+      pageSizePt: { width: 200, height: 300 },
+      pages: [
+        { pageNumber: 1, width: 200, height: 300 },
+        { pageNumber: 2, width: 200, height: 300 },
+      ],
+    };
+    store.previews = {
+      1: { pageNumber: 1, width: 100, height: 150, url: "blob:with-guides" },
+    };
+    store.previewOrder = [1];
+    store.visiblePreviewPages = [1, 2];
+    const postMessage = vi.fn();
+    store.worker = { postMessage } as unknown as Worker;
+    const options = {
+      dpi: 96,
+      redMin: 190,
+      otherMax: 110,
+      redDelta: 70,
+      minimumFraction: 0.04,
+    };
+
+    store.setPreviewGuideRemoval(false, options);
+
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:with-guides");
+    expect(store.previews).toEqual({});
+    expect(store.previewRemoveGuides).toBe(false);
+    expect(postMessage).toHaveBeenCalledWith({
+      type: "configure-preview-guides",
+      requestId: 22,
+      removeGuides: false,
+      options,
+      pageNumbers: [1, 2],
+    });
+  });
+
   it("prioritizes missing visible previews and cancels export cooperatively", async () => {
     const store = usePdfDocumentStore();
     store.requestId = 12;

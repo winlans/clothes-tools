@@ -18,7 +18,6 @@ function isPdfName(name: string): boolean {
 
 function resultMessage(result: BatchImportResult): string {
   const parts: string[] = [];
-  if (result.opened) parts.push(`已加入 ${result.opened} 个 PDF`);
   if (result.duplicates) parts.push(`${result.duplicates} 个已打开文件已定位`);
   if (result.skipped) parts.push(`跳过 ${result.skipped} 个非 PDF`);
   if (result.failed) parts.push(`${result.failed} 个文件无法读取`);

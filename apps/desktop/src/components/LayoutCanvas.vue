@@ -12,7 +12,12 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 
 import type { PreviewState } from "../stores/pdf-document";
 import {
+  previewColorTreatment,
+  previewInkLayerOpacities,
+} from "../stores/preview-appearance";
+import {
   fitCameraToContent,
+  isCanvasPanGesture,
   panCameraBy,
   setCameraZoomAtPoint,
   zoomCameraAtPoint,
@@ -28,9 +33,15 @@ const props = withDefaults(defineProps<{
   initialCamera: Camera | undefined;
   editable?: boolean;
   showGrid?: boolean;
+  foregroundColor?: string;
+  backgroundColor?: string;
+  lineWeight?: number;
 }>(), {
   editable: true,
   showGrid: true,
+  foregroundColor: "#000000",
+  backgroundColor: "#ffffff",
+  lineWeight: 2,
 });
 
 const emit = defineEmits<{
@@ -312,21 +323,69 @@ function createPageGroup(
     new Konva.Rect({
       width: frame.width,
       height: frame.height,
-      fill: "#ffffff",
+      fill: preview ? "#ffffff" : props.backgroundColor,
     }),
   );
 
   if (preview) {
-    const previewNode = new Konva.Image({
-      image: imageCache.get(preview.url)?.image ?? new window.Image(),
+    const colorTreatment = previewColorTreatment(
+      props.foregroundColor,
+      props.backgroundColor,
+    );
+    const cachedImage = imageCache.get(preview.url)?.image ?? new window.Image();
+    const imagePosition = {
       x: -frame.sourceX,
       y: -frame.sourceY,
       width: props.pageSize.width,
       height: props.pageSize.height,
-      listening: false,
-    });
-    loadPreview(preview.url, previewNode);
-    group.add(previewNode);
+    };
+    for (const opacity of previewInkLayerOpacities(props.lineWeight)) {
+      const previewNode = new Konva.Image({
+        ...imagePosition,
+        image: cachedImage,
+        globalCompositeOperation: "multiply",
+        opacity,
+        listening: false,
+      });
+      loadPreview(preview.url, previewNode);
+      group.add(previewNode);
+    }
+    group.add(
+      new Konva.Rect({
+        width: frame.width,
+        height: frame.height,
+        fill: "#808080",
+        globalCompositeOperation: "color",
+        listening: false,
+      }),
+      ...(colorTreatment.mode === "dark-background"
+        ? [
+            new Konva.Rect({
+              width: frame.width,
+              height: frame.height,
+              fill: "#ffffff",
+              globalCompositeOperation: "difference",
+              listening: false,
+            }),
+          ]
+        : []),
+      new Konva.Rect({
+        width: frame.width,
+        height: frame.height,
+        fill: colorTreatment.compositeForegroundColor,
+        globalCompositeOperation:
+          colorTreatment.mode === "dark-background" ? "multiply" : "screen",
+        listening: false,
+      }),
+      new Konva.Rect({
+        width: frame.width,
+        height: frame.height,
+        fill: props.backgroundColor,
+        globalCompositeOperation:
+          colorTreatment.mode === "dark-background" ? "screen" : "multiply",
+        listening: false,
+      }),
+    );
   }
 
   if (props.showGrid) {
@@ -334,8 +393,8 @@ function createPageGroup(
       new Konva.Rect({
         width: frame.width,
         height: frame.height,
-        stroke: "#314a59",
-        strokeWidth: 1.5,
+        stroke: "#69655e",
+        strokeWidth: 1.25,
         strokeScaleEnabled: false,
         listening: false,
       }),
@@ -344,15 +403,15 @@ function createPageGroup(
       new Konva.Label({ x: 18, y: 18, listening: false })
         .add(
           new Konva.Tag({
-            fill: "#10212b",
-            opacity: 0.9,
+            fill: "#315f64",
+            opacity: 0.94,
             cornerRadius: 8,
           }),
         )
         .add(
           new Konva.Text({
             text: `${pageNumber}`,
-            fill: "#e8f4fa",
+            fill: "#fffdf8",
             fontSize: 30,
             fontStyle: "bold",
             padding: 11,
@@ -380,10 +439,10 @@ function createSpacerGroup(spacerId: string, source: GridPosition): Konva.Group 
     new Konva.Rect({
       width: frame.width,
       height: frame.height,
-      fill: "#ffffff",
+      fill: props.backgroundColor,
       strokeScaleEnabled: false,
       ...(props.showGrid
-        ? { stroke: "#9fb2bc", strokeWidth: 2, dash: [18, 12] }
+        ? { stroke: "#8d867c", strokeWidth: 2, dash: [18, 12] }
         : { strokeWidth: 0 }),
     }),
   );
@@ -395,7 +454,7 @@ function createSpacerGroup(spacerId: string, source: GridPosition): Konva.Group 
         text: "空白占位",
         align: "center",
         verticalAlign: "middle",
-        fill: "#4d626d",
+        fill: "#625d55",
         fontSize: 42,
         listening: false,
       }),
@@ -484,11 +543,19 @@ function renderScene() {
           y: frame.y,
           width: frame.width,
           height: frame.height,
-          fill: cell ? "#ffffff" : "#182026",
+          fill: cell ? props.backgroundColor : "#d7d2c9",
+          ...(cell
+            ? {
+                shadowColor: "#5d574f",
+                shadowBlur: 7,
+                shadowOpacity: 0.16,
+                shadowOffset: { x: 0, y: 2 },
+              }
+            : {}),
           strokeScaleEnabled: false,
           ...(props.showGrid
             ? {
-                stroke: cell ? "#557080" : "#35434c",
+                stroke: cell ? "#777168" : "#b7b0a5",
                 strokeWidth: 1,
                 ...(cell ? {} : { dash: [10, 8] }),
               }
@@ -513,9 +580,9 @@ function renderScene() {
   dropHighlight = new Konva.Rect({
     width: geometry.value.columns[0]?.size ?? props.pageSize.width,
     height: geometry.value.rows[0]?.size ?? props.pageSize.height,
-    fill: "#63b9df",
+    fill: "#4e8b90",
     opacity: 0.22,
-    stroke: "#8fdcff",
+    stroke: "#2f6f75",
     strokeWidth: 3,
     strokeScaleEnabled: false,
     listening: false,
@@ -594,10 +661,13 @@ onMounted(() => {
   stage.on("mousedown", (event) => {
     host.value?.focus();
     const button = event.evt.button;
-    if (button === 1 || (button === 0 && spacePressed)) {
+    if (isCanvasPanGesture(button, spacePressed)) {
       event.evt.preventDefault();
       startPan(stage?.getPointerPosition() ?? null);
     }
+  });
+  stage.on("contextmenu", (event) => {
+    event.evt.preventDefault();
   });
   stage.on("mousemove", () => {
     const pointer = stage?.getPointerPosition();
@@ -627,7 +697,16 @@ onMounted(() => {
 });
 
 watch(
-  () => [props.layout, props.pageSize, props.previews, props.guides, props.showGrid] as const,
+  () => [
+    props.layout,
+    props.pageSize,
+    props.previews,
+    props.guides,
+    props.showGrid,
+    props.foregroundColor,
+    props.backgroundColor,
+    props.lineWeight,
+  ] as const,
   async ([layout, , , guides], [previousLayout, , , previousGuides]) => {
     renderScene();
     if (

@@ -9,6 +9,7 @@ import { Pdf2PltError } from "./errors";
 import {
   buildGuideDetectionResult,
   detectPageGuideSamples,
+  removeRedGuidePixels,
   resolveGuideDetectionOptions,
   type GuideDetectionOptions,
 } from "../guides/detection";
@@ -98,6 +99,19 @@ export async function openMuPdfDocument(
         true,
       );
       try {
+        if (options.removeGuides !== false) {
+          removeRedGuidePixels(
+            {
+              pageNumber,
+              width: pixmap.getWidth(),
+              height: pixmap.getHeight(),
+              stride: pixmap.getStride(),
+              components: pixmap.getNumberOfComponents(),
+              pixels: pixmap.getPixels(),
+            },
+            resolveGuideDetectionOptions(options.guideDetection),
+          );
+        }
         const source = pixmap.asPNG();
         const png = new Uint8Array(source.byteLength);
         png.set(source);

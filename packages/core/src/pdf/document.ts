@@ -22,6 +22,8 @@ export interface PdfDocumentInfo {
 
 export interface PreviewOptions {
   maxLongEdge: number;
+  removeGuides?: boolean;
+  guideDetection?: Partial<GuideDetectionOptions>;
 }
 
 export interface PreviewImage {

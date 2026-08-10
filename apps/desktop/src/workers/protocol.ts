@@ -17,8 +17,17 @@ export type PdfWorkerRequest =
       bytes: Uint8Array<ArrayBuffer>;
       previewLongEdge: number;
       previewPriority: number[];
+      removePreviewGuides: boolean;
+      previewGuideDetection: GuideDetectionOptions;
     }
   | { type: "request-previews"; requestId: number; pageNumbers: number[] }
+  | {
+      type: "configure-preview-guides";
+      requestId: number;
+      removeGuides: boolean;
+      options: GuideDetectionOptions;
+      pageNumbers: number[];
+    }
   | {
       type: "cancel-task";
       requestId: number;

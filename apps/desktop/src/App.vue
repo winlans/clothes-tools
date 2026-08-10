@@ -352,7 +352,8 @@ onBeforeUnmount(() => {
     @dragleave="pdfImport.handleBrowserDragLeave"
     @drop="pdfImport.handleBrowserDrop"
   >
-    <header class="app-commandbar" @pointerdown.stop>
+    <div class="app-top-chrome">
+      <header class="app-commandbar" @pointerdown.stop>
       <strong class="app-commandbar__brand">pdf2plt</strong>
       <span class="app-commandbar__separator" />
       <nav class="app-commandbar__commands" aria-label="应用命令">
@@ -488,32 +489,33 @@ onBeforeUnmount(() => {
         multiple
         @change="handleBrowserFiles"
       />
-    </header>
+      </header>
 
-    <nav v-if="workspace.tabs.length" class="document-tabs" aria-label="打开的 PDF">
-      <button
-        v-for="tab in workspace.tabs"
-        :key="tab.id"
-        type="button"
-        class="document-tab"
-        :class="{ active: tab.id === workspace.activeTabId }"
-        :title="tab.source.fileName"
-        @click="workspace.activate(tab.id)"
-      >
-        <span class="document-tab__title">{{ tab.source.fileName }}</span>
-        <span v-if="tab.ui.dirty" class="document-tab__dirty" aria-label="已修改">●</span>
-        <span v-if="tabStatus(tab)" class="document-tab__status">{{ tabStatus(tab) }}</span>
-        <span
-          class="document-tab__close"
-          role="button"
-          :aria-label="'关闭 ' + tab.source.fileName"
-          @click.stop="requestCloseTab(tab)"
-        >×</span>
-      </button>
-      <button type="button" class="document-tabs__add" aria-label="打开更多 PDF" @click="choosePdf">
-        ＋
-      </button>
-    </nav>
+      <nav v-if="workspace.tabs.length" class="document-tabs" aria-label="打开的 PDF">
+        <button
+          v-for="tab in workspace.tabs"
+          :key="tab.id"
+          type="button"
+          class="document-tab"
+          :class="{ active: tab.id === workspace.activeTabId }"
+          :title="tab.source.fileName"
+          @click="workspace.activate(tab.id)"
+        >
+          <span class="document-tab__title">{{ tab.source.fileName }}</span>
+          <span v-if="tab.ui.dirty" class="document-tab__dirty" aria-label="已修改">●</span>
+          <span v-if="tabStatus(tab)" class="document-tab__status">{{ tabStatus(tab) }}</span>
+          <span
+            class="document-tab__close"
+            role="button"
+            :aria-label="'关闭 ' + tab.source.fileName"
+            @click.stop="requestCloseTab(tab)"
+          >×</span>
+        </button>
+        <button type="button" class="document-tabs__add" aria-label="打开更多 PDF" @click="choosePdf">
+          ＋
+        </button>
+      </nav>
+    </div>
 
     <p v-if="pdfImport.importNotice.value" class="import-notice" role="status">
       {{ pdfImport.importNotice.value }}

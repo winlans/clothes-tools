@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 
 import type { DocumentSession } from "../stores/document-session";
 import { provideDocumentSession } from "../stores/document-session";
@@ -10,7 +10,8 @@ const props = defineProps<{ session: DocumentSession }>();
 const emit = defineEmits<{ retry: [] }>();
 provideDocumentSession(props.session);
 
-const { documentStore } = props.session;
+const { documentStore, projectStore } = props.session;
+const sidebarExpanded = ref(false);
 const progressPercent = computed(() => {
   if (documentStore.progress.total === 0) return 0;
   return Math.round(
@@ -23,6 +24,17 @@ const exportPercent = computed(() =>
       Math.max(1, documentStore.exportProgress.total)) *
       100,
   ),
+);
+
+watch(
+  () => [
+    projectStore.outputSettings.keepGuides,
+    projectStore.guideSettings.detection,
+  ] as const,
+  ([keepGuides, detection]) => {
+    documentStore.setPreviewGuideRemoval(!keepGuides, detection);
+  },
+  { deep: true, immediate: true },
 );
 
 function startSpacerDrag(event: DragEvent) {
@@ -100,10 +112,16 @@ function startSpacerDrag(event: DragEvent) {
       {{ warning }}
     </p>
 
-    <div v-if="documentStore.info" class="editor-workspace">
+    <div
+      v-if="documentStore.info"
+      class="editor-workspace"
+      :class="{ 'editor-workspace--sidebar-collapsed': !sidebarExpanded }"
+    >
       <PageSidebar
+        :collapsed="!sidebarExpanded"
         :pages="documentStore.info.pages"
         :previews="documentStore.previews"
+        @toggle="sidebarExpanded = !sidebarExpanded"
         @spacer-drag-start="startSpacerDrag"
         @visible-pages="documentStore.prioritizePreviews"
       />
