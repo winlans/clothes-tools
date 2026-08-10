@@ -371,57 +371,6 @@ describe("pdf document store", () => {
     });
   });
 
-  it("requests and atomically stores the combined SVG used by fullscreen preview", () => {
-    const store = usePdfDocumentStore();
-    store.requestId = 25;
-    store.info = {
-      documentId: "layout-svg-preview",
-      pageCount: 1,
-      pageSizePt: { width: 200, height: 300 },
-      pages: [{ pageNumber: 1, width: 200, height: 300 }],
-    };
-    const postMessage = vi.fn();
-    store.worker = { postMessage } as unknown as Worker;
-    const layout = {
-      rows: 1,
-      columns: 1,
-      traversal: "column-major" as const,
-      cells: [[{ kind: "page" as const, pageNumber: 1 }]],
-    };
-
-    store.requestLayoutSvgPreview(
-      layout,
-      { left: 20, right: 180, top: 30, bottom: 270 },
-    );
-    expect(store.layoutSvgPreviewStatus).toBe("running");
-    expect(postMessage).toHaveBeenCalledWith({
-      type: "request-layout-svg-preview",
-      requestId: 25,
-      layoutPreviewRequestId: 1,
-      layout,
-      guides: { left: 20, right: 180, top: 30, bottom: 270 },
-      removeGuides: true,
-      guideDetection: store.previewGuideDetection,
-    });
-
-    store.handleWorkerMessage({
-      type: "layout-svg-preview",
-      requestId: 25,
-      layoutPreviewRequestId: 1,
-      width: 160,
-      height: 240,
-      svg: '<svg xmlns="http://www.w3.org/2000/svg"/>',
-    });
-    expect(store.layoutSvgPreviewStatus).toBe("ready");
-    expect(store.layoutSvgPreview).toMatchObject({
-      pageNumber: 0,
-      width: 160,
-      height: 240,
-      url: "blob:preview-1",
-      format: "svg",
-    });
-  });
-
   it("renders magnifier regions from the PDF source at the requested resolution", async () => {
     const store = usePdfDocumentStore();
     store.requestId = 22;

@@ -36,7 +36,6 @@ interface DetailPreviewState extends PreviewState {
 type DocumentStatus = "idle" | "loading" | "ready" | "error";
 type ExportStatus = "idle" | "running" | "complete" | "cancelled" | "error";
 type DetectionStatus = "idle" | "running" | "cancelled" | "error";
-type LayoutSvgPreviewStatus = "idle" | "running" | "ready" | "error";
 
 export const MAX_PREVIEW_CACHE = 18;
 export const MAX_DETAIL_PREVIEW_CACHE = 4;
@@ -104,9 +103,6 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
     pendingDetailPreviewEdges: {} as Record<number, number>,
     pendingVectorPreviewPages: {} as Record<number, true>,
     vectorPreviewFailures: {} as Record<number, true>,
-    layoutSvgPreview: undefined as PreviewState | undefined,
-    layoutSvgPreviewStatus: "idle" as LayoutSvgPreviewStatus,
-    layoutSvgPreviewError: "",
     previewOrder: [] as number[],
     visiblePreviewPages: [] as number[],
     previewCacheLimit: MAX_PREVIEW_CACHE,
@@ -122,7 +118,6 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
     worker: undefined as Worker | undefined,
     requestId: 0,
     regionRequestId: 0,
-    layoutPreviewRequestId: 0,
   }),
   getters: {
     previewList(state): PreviewState[] {
@@ -237,27 +232,6 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       if (message.type === "vector-preview-error") {
         delete this.pendingVectorPreviewPages[message.pageNumber];
         this.vectorPreviewFailures[message.pageNumber] = true;
-        return;
-      }
-      if (message.type === "layout-svg-preview") {
-        if (message.layoutPreviewRequestId !== this.layoutPreviewRequestId) return;
-        const blob = new Blob([message.svg], { type: "image/svg+xml;charset=utf-8" });
-        if (this.layoutSvgPreview) URL.revokeObjectURL(this.layoutSvgPreview.url);
-        this.layoutSvgPreview = {
-          pageNumber: 0,
-          width: message.width,
-          height: message.height,
-          url: URL.createObjectURL(blob),
-          format: "svg",
-        };
-        this.layoutSvgPreviewStatus = "ready";
-        this.layoutSvgPreviewError = "";
-        return;
-      }
-      if (message.type === "layout-svg-preview-error") {
-        if (message.layoutPreviewRequestId !== this.layoutPreviewRequestId) return;
-        this.layoutSvgPreviewStatus = "error";
-        this.layoutSvgPreviewError = message.message;
         return;
       }
       if (message.type === "detail-preview") {
@@ -431,7 +405,6 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       this.visiblePreviewPages = [];
       this.disposeDetailPreviews();
       this.disposeVectorPreviews();
-      this.disposeLayoutSvgPreview();
     },
     disposeDetailPreviews() {
       for (const preview of Object.values(this.detailPreviews)) {
@@ -449,12 +422,6 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       this.vectorPreviewOrder = [];
       this.pendingVectorPreviewPages = {};
       this.vectorPreviewFailures = {};
-    },
-    disposeLayoutSvgPreview() {
-      if (this.layoutSvgPreview) URL.revokeObjectURL(this.layoutSvgPreview.url);
-      this.layoutSvgPreview = undefined;
-      this.layoutSvgPreviewStatus = "idle";
-      this.layoutSvgPreviewError = "";
     },
     touchPreview(pageNumber: number) {
       this.previewOrder = [
@@ -522,7 +489,6 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       this.previewGuideDetection = nextOptions;
       this.disposeDetailPreviews();
       this.disposeVectorPreviews();
-      this.disposeLayoutSvgPreview();
       if (!this.worker || !this.info) return;
 
       const pageNumbers = [...new Set([
@@ -634,24 +600,6 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       if (rasterFallbackPages.length > 0) {
         this.requestDetailPreviews(rasterFallbackPages, maxLongEdge);
       }
-    },
-    requestLayoutSvgPreview(
-      layout: LayoutGrid,
-      guides: GuideCoordinates | undefined,
-    ) {
-      if (!this.worker || !this.info) return;
-      this.layoutPreviewRequestId += 1;
-      this.disposeLayoutSvgPreview();
-      this.layoutSvgPreviewStatus = "running";
-      this.worker.postMessage({
-        type: "request-layout-svg-preview",
-        requestId: this.requestId,
-        layoutPreviewRequestId: this.layoutPreviewRequestId,
-        layout,
-        guides,
-        removeGuides: this.previewRemoveGuides,
-        guideDetection: { ...this.previewGuideDetection },
-      } satisfies PdfWorkerRequest);
     },
     renderRegion(
       pageNumber: number,

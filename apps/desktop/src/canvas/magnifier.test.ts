@@ -5,12 +5,25 @@ import {
   calculateMagnifierFrame,
   calculateMagnifierTiles,
   magnifierRenderDelay,
+  MAGNIFIER_HEIGHT,
+  MAGNIFIER_WIDTH,
   MAX_MAGNIFIER_SCALE,
   MIN_MAGNIFIER_SCALE,
   shouldRenderMagnifierAt,
 } from "./magnifier";
 
 describe("canvas magnifier", () => {
+  it("uses a larger default detail window", () => {
+    const frame = calculateMagnifierFrame(
+      { x: 500, y: 350 },
+      { width: 1000, height: 700 },
+    );
+    expect(frame.lens).toMatchObject({
+      width: MAGNIFIER_WIDTH,
+      height: MAGNIFIER_HEIGHT,
+    });
+  });
+
   it("centres a rectangular lens over a magnified source region", () => {
     expect(calculateMagnifierFrame(
       { x: 500, y: 350 },

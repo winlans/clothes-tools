@@ -149,21 +149,6 @@ watch(
   { deep: true, immediate: true },
 );
 
-watch(
-  [
-    fullscreenPreviewOpen,
-    () => layoutStore.layout,
-    activeGuides,
-    () => documentStore.previewRemoveGuides,
-    () => documentStore.previewGuideDetection,
-  ],
-  ([open, layout]) => {
-    if (!open || !layout) return;
-    documentStore.requestLayoutSvgPreview(layout, activeGuides.value);
-  },
-  { deep: true },
-);
-
 onMounted(() => {
   window.addEventListener("keydown", handlePreviewKeyDown);
 });
@@ -493,7 +478,6 @@ onBeforeUnmount(() => {
         :layout="layoutStore.layout"
         :page-size="props.pageSize"
         :previews="props.previews"
-        :composition-preview="documentStore.layoutSvgPreview"
         :guides="activeGuides"
         :show-grid="session.ui.showGrid"
         :foreground-color="previewAppearance.foregroundColor"

@@ -16,7 +16,7 @@ describe("global preview appearance", () => {
     expect(store.$state).toEqual({
       foregroundColor: "#000000",
       backgroundColor: "#ffffff",
-      lineWeight: 2,
+      lineWeight: 5,
     });
     store.setForegroundColor("#123456");
     store.setBackgroundColor("#fedcba");

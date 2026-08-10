@@ -12,7 +12,7 @@ export interface PreviewAppearance {
 export const DEFAULT_PREVIEW_APPEARANCE: Readonly<PreviewAppearance> = Object.freeze({
   foregroundColor: "#000000",
   backgroundColor: "#ffffff",
-  lineWeight: 2,
+  lineWeight: 5,
 });
 
 function normalizeColor(value: string, fallback: string): string {

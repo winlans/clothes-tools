@@ -1,8 +1,8 @@
 import type { QuarterTurn } from "@pdf2plt/core";
 import type { Camera, Point, Size } from "./camera";
 
-export const MAGNIFIER_WIDTH = 320;
-export const MAGNIFIER_HEIGHT = 220;
+export const MAGNIFIER_WIDTH = 420;
+export const MAGNIFIER_HEIGHT = 300;
 export const MAGNIFIER_SCALE = 2.5;
 export const MAGNIFIER_PADDING = 8;
 export const MIN_MAGNIFIER_SCALE = 1.5;
