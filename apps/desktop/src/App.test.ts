@@ -13,13 +13,19 @@ describe("App", () => {
     setActivePinia(createPinia());
     const wrapper = mount(App, { global: { plugins: [createPinia()] } });
     expect(wrapper.findAll("button").map((button) => button.text())).toEqual([
-      "关于与许可证",
       "打开 PDF",
+      "导出 SVG",
+      "关闭标签",
+      "更多 ⌄",
     ]);
     expect(wrapper.text()).not.toContain("打开工程");
     expect(wrapper.text()).not.toContain("保存工程");
     expect(wrapper.text()).toContain("不会上传到网络");
-    await wrapper.findAll("button")[0]?.trigger("click");
+    await wrapper.findAll("button")[3]?.trigger("click");
+    const about = wrapper.findAll("button").find((button) =>
+      button.text().includes("关于与许可证"),
+    );
+    await about?.trigger("click");
     expect(wrapper.get('[role="dialog"]').text()).toContain("AGPL-3.0-or-later");
     expect(wrapper.get('[role="dialog"]').text()).toContain("本软件不提供任何担保");
   });
@@ -72,6 +78,59 @@ describe("App", () => {
 
     expect(layoutStore.pagesPerColumn).toBe(4);
     expect(layoutStore.layout).toMatchObject({ rows: 4, columns: 2 });
+    wrapper.unmount();
+  });
+
+  it("lets users select and rename tabs for a multi-document SVG export", async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const wrapper = mount(App, { global: { plugins: [pinia] } });
+    const workspace = useWorkspaceStore(pinia);
+    const sessions = ["sample.pdf", "sample.PDF"].map((fileName, index) => {
+      const session = createDocumentSession(`export-tab-${index}`, {
+        fileName,
+        sourceKey: `path:/tmp/${index}-${fileName}`,
+        sourcePath: `/tmp/${fileName}`,
+        load: () => Promise.reject(new Error("not used")),
+      });
+      session.ui.loadStatus = "error";
+      session.documentStore.info = {
+        documentId: `export-pdf-${index}`,
+        pageCount: 1,
+        pageSizePt: { width: 842, height: 1190 },
+        pages: [{ pageNumber: 1, width: 842, height: 1190 }],
+      };
+      session.projectStore.setGuideSettings({
+        ...session.projectStore.guideSettings,
+        mode: "none",
+      });
+      return session;
+    });
+    workspace.tabs = sessions;
+    workspace.activate(sessions[0]!.id);
+    await nextTick();
+
+    const exportButton = wrapper.findAll("button").find((button) =>
+      button.text().includes("导出 SVG"),
+    );
+    expect(exportButton?.attributes("disabled")).toBeUndefined();
+    await exportButton?.trigger("click");
+
+    const dialog = wrapper.get(".export-dialog");
+    expect(dialog.text()).toContain("选择要导出的标签");
+    const checkboxes = dialog.findAll<HTMLInputElement>('.export-tab-row__checkbox');
+    expect(checkboxes).toHaveLength(2);
+    expect(checkboxes.every((checkbox) => checkbox.element.checked)).toBe(true);
+    const fileNames = dialog.findAll<HTMLInputElement>('.export-tab-row__filename input');
+    expect(fileNames.map((input) => input.element.value)).toEqual([
+      "sample.svg",
+      "sample-2.svg",
+    ]);
+
+    await fileNames[0]?.setValue("客户版");
+    await fileNames[0]?.trigger("blur");
+    expect(fileNames[0]?.element.value).toBe("客户版.svg");
+    expect(dialog.get(".primary-button").text()).toContain("导出（2）");
     wrapper.unmount();
   });
 });

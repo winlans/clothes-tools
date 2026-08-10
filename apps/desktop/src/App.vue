@@ -5,13 +5,29 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import DocumentWorkspace from "./components/DocumentWorkspace.vue";
 import { usePdfImport } from "./composables/use-pdf-import";
 import { useResolvedSettings } from "./composables/use-resolved-settings";
-import { useSvgExport } from "./composables/use-svg-export";
+import {
+  defaultSvgName,
+  normalizeSvgName,
+  useSvgExport,
+  validateSessionExport,
+} from "./composables/use-svg-export";
 import type { DocumentSession } from "./stores/document-session";
 import { useWorkspaceStore } from "./stores/workspace";
 
 const fileInput = ref<HTMLInputElement>();
 const showLegalNotice = ref(false);
+const openCommandMenu = ref<"more" | undefined>();
 const closeRequest = ref<{ kind: "tab"; id: string } | { kind: "application" }>();
+const exportDialogOpen = ref(false);
+const batchExporting = ref(false);
+const exportDialogError = ref("");
+const exportRows = ref<Array<{
+  sessionId: string;
+  title: string;
+  selected: boolean;
+  fileName: string;
+  validationError: string;
+}>>([]);
 const workspace = useWorkspaceStore();
 const pdfImport = usePdfImport();
 const activeSession = computed(() => workspace.activeSession);
@@ -23,6 +39,12 @@ const svgExport = useSvgExport(() => activeSession.value);
 let unlistenCloseRequested: (() => void) | undefined;
 
 const activeDocument = computed(() => activeSession.value?.documentStore);
+const canExportAnySession = computed(() =>
+  workspace.tabs.some((session) => !validateSessionExport(session)),
+);
+const selectedExportCount = computed(
+  () => exportRows.value.filter((row) => row.selected && !row.validationError).length,
+);
 const closeMessage = computed(() => {
   if (closeRequest.value?.kind === "application") {
     const count = workspace.tabs.filter(
@@ -46,6 +68,7 @@ function hasUnsafeTabs() {
 }
 
 async function choosePdf() {
+  openCommandMenu.value = undefined;
   if (pdfImport.isDesktop) {
     await pdfImport.choosePdfs();
   } else {
@@ -60,6 +83,7 @@ async function handleBrowserFiles(event: Event) {
 }
 
 function requestCloseTab(session: DocumentSession) {
+  openCommandMenu.value = undefined;
   if (session.ui.dirty || session.documentStore.exportStatus === "running") {
     closeRequest.value = { kind: "tab", id: session.id };
     return;
@@ -80,6 +104,7 @@ async function confirmClose() {
 }
 
 async function handleExportAction() {
+  openCommandMenu.value = undefined;
   const documentStore = activeDocument.value;
   if (!documentStore) return;
   if (documentStore.exportStatus === "running") {
@@ -87,6 +112,174 @@ async function handleExportAction() {
     return;
   }
   await svgExport.exportCurrentSvg();
+}
+
+function uniqueDefaultSvgNames(sessions: DocumentSession[]) {
+  const used = new Set<string>();
+  return sessions.map((session) => {
+    const defaultName = defaultSvgName(session.source.fileName);
+    const base = defaultName.replace(/\.svg$/i, "");
+    let candidate = defaultName;
+    let suffix = 2;
+    while (used.has(candidate.toLocaleLowerCase())) {
+      candidate = `${base}-${suffix}.svg`;
+      suffix += 1;
+    }
+    used.add(candidate.toLocaleLowerCase());
+    return candidate;
+  });
+}
+
+function openBatchExportDialog() {
+  const defaults = uniqueDefaultSvgNames(workspace.tabs);
+  exportRows.value = workspace.tabs.map((session, index) => {
+    const validationError = validateSessionExport(session);
+    return {
+      sessionId: session.id,
+      title: session.source.fileName,
+      selected: !validationError,
+      fileName: defaults[index] ?? defaultSvgName(session.source.fileName),
+      validationError,
+    };
+  });
+  exportDialogError.value = "";
+  exportDialogOpen.value = true;
+}
+
+async function handleExportCommand() {
+  openCommandMenu.value = undefined;
+  if (activeDocument.value?.exportStatus === "running") {
+    activeDocument.value.cancelExport();
+    return;
+  }
+  if (workspace.tabs.length > 1) {
+    openBatchExportDialog();
+    return;
+  }
+  await handleExportAction();
+}
+
+function closeExportDialog() {
+  if (batchExporting.value) return;
+  exportDialogOpen.value = false;
+  exportDialogError.value = "";
+}
+
+function normalizeExportRow(row: (typeof exportRows.value)[number]) {
+  row.fileName = normalizeSvgName(row.fileName, row.title);
+}
+
+function validateExportRows(): string {
+  const selected = exportRows.value.filter((row) => row.selected && !row.validationError);
+  if (selected.length === 0) return "请至少选择一个可导出的标签。";
+  const names = selected.map((row) => normalizeSvgName(row.fileName, row.title));
+  const uniqueNames = new Set(names.map((name) => name.toLocaleLowerCase()));
+  if (uniqueNames.size !== names.length) return "导出文件名不能重复。";
+  return "";
+}
+
+async function confirmBatchExport() {
+  const validationError = validateExportRows();
+  if (validationError) {
+    exportDialogError.value = validationError;
+    return;
+  }
+  const entries = exportRows.value.flatMap((row) => {
+    if (!row.selected || row.validationError) return [];
+    const session = workspace.tabs.find((tab) => tab.id === row.sessionId);
+    if (!session) return [];
+    row.fileName = normalizeSvgName(row.fileName, row.title);
+    return [{ session, fileName: row.fileName }];
+  });
+  batchExporting.value = true;
+  exportDialogError.value = "";
+  try {
+    const result = await svgExport.exportSelectedSvgs(entries);
+    if (result.cancelled) return;
+    if (result.errors.length > 0) {
+      const exportedNames = new Set(
+        result.exported.map((fileName) => fileName.toLocaleLowerCase()),
+      );
+      for (const row of exportRows.value) {
+        if (
+          row.selected &&
+          exportedNames.has(normalizeSvgName(row.fileName, row.title).toLocaleLowerCase())
+        ) {
+          row.selected = false;
+        }
+      }
+      exportDialogError.value = [
+        result.exported.length > 0
+          ? `已成功导出 ${result.exported.length} 个文件；请处理其余项目后重试。`
+          : "",
+        ...result.errors,
+      ].filter(Boolean).join("\n");
+      return;
+    }
+    exportDialogOpen.value = false;
+    pdfImport.importNotice.value = `已导出 ${result.exported.length} 个 SVG：${result.exported.join("、")}`;
+  } finally {
+    batchExporting.value = false;
+  }
+}
+
+function closeActiveTab() {
+  if (activeSession.value) requestCloseTab(activeSession.value);
+}
+
+function toggleGrid() {
+  const session = activeSession.value;
+  if (!session) return;
+  session.ui.showGrid = !session.ui.showGrid;
+}
+
+function selectPreviewMode(mode: "cropped" | "full") {
+  const session = activeSession.value;
+  if (!session) return;
+  session.guideStore.setPreviewModeValidated(
+    mode,
+    mode === "full" || Boolean(resolvedSettings.resolved.value.value),
+  );
+  openCommandMenu.value = undefined;
+}
+
+function openAbout() {
+  openCommandMenu.value = undefined;
+  showLegalNotice.value = true;
+}
+
+function handleApplicationKeyDown(event: KeyboardEvent) {
+  if (event.code === "Escape" && exportDialogOpen.value) {
+    event.preventDefault();
+    closeExportDialog();
+    return;
+  }
+  if (exportDialogOpen.value) {
+    if (
+      (event.ctrlKey || event.metaKey) &&
+      ["o", "w"].includes(event.key.toLocaleLowerCase())
+    ) {
+      event.preventDefault();
+    }
+    return;
+  }
+  if (event.code === "Escape" && openCommandMenu.value) {
+    event.preventDefault();
+    openCommandMenu.value = undefined;
+    return;
+  }
+  if (!(event.ctrlKey || event.metaKey)) return;
+  if (event.key.toLowerCase() === "o") {
+    event.preventDefault();
+    void choosePdf();
+  } else if (event.key.toLowerCase() === "w" && activeSession.value) {
+    event.preventDefault();
+    closeActiveTab();
+  }
+}
+
+function closeCommandMenus() {
+  openCommandMenu.value = undefined;
 }
 
 function handleBeforeUnload(event: BeforeUnloadEvent) {
@@ -105,6 +298,8 @@ function tabStatus(session: DocumentSession) {
 onMounted(async () => {
   await pdfImport.startNativeDragDrop();
   window.addEventListener("beforeunload", handleBeforeUnload);
+  window.addEventListener("keydown", handleApplicationKeyDown);
+  window.addEventListener("pointerdown", closeCommandMenus);
   if (pdfImport.isDesktop) {
     unlistenCloseRequested = await getCurrentWindow().onCloseRequested((event) => {
       if (!hasUnsafeTabs()) return;
@@ -118,6 +313,8 @@ onBeforeUnmount(() => {
   pdfImport.stopNativeDragDrop();
   unlistenCloseRequested?.();
   window.removeEventListener("beforeunload", handleBeforeUnload);
+  window.removeEventListener("keydown", handleApplicationKeyDown);
+  window.removeEventListener("pointerdown", closeCommandMenus);
   workspace.disposeAll();
 });
 </script>
@@ -129,11 +326,100 @@ onBeforeUnmount(() => {
     @dragleave="pdfImport.handleBrowserDragLeave"
     @drop="pdfImport.handleBrowserDrop"
   >
-    <header class="topbar">
-      <div class="topbar__brand">
-        <span class="eyebrow">服装版图工具</span>
-        <h1>pdf2plt</h1>
-      </div>
+    <header class="app-commandbar" @pointerdown.stop>
+      <strong class="app-commandbar__brand">pdf2plt</strong>
+      <span class="app-commandbar__separator" />
+      <nav class="app-commandbar__commands" aria-label="应用命令">
+        <button type="button" class="app-command" title="打开 PDF（Ctrl+O）" @click="choosePdf">
+          <svg class="app-command__icon" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M2.25 4.25h4l1.2 1.5h6.3v7.5H2.25z" />
+          </svg>
+          打开 PDF
+        </button>
+        <button
+          type="button"
+          class="app-command"
+          :disabled="
+            batchExporting ||
+            (activeDocument?.exportStatus !== 'running' &&
+              (workspace.tabs.length > 1
+                ? !canExportAnySession
+                : !activeDocument?.info || !resolvedSettings.canExport.value))
+          "
+          :title="
+            workspace.tabs.length > 1
+              ? '选择标签并导出 SVG'
+              : resolvedSettings.validationError.value || '导出 SVG'
+          "
+          @click="handleExportCommand"
+        >
+          <svg class="app-command__icon" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M8 2.25v7.5m-3-3 3 3 3-3M2.5 12.75h11" />
+          </svg>
+          {{ activeDocument?.exportStatus === 'running' ? '取消导出' : '导出 SVG' }}
+        </button>
+        <button
+          type="button"
+          class="app-command"
+          :disabled="!activeSession"
+          title="关闭当前标签（Ctrl+W）"
+          @click="closeActiveTab"
+        >
+          <svg class="app-command__icon" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="m4 4 8 8m0-8-8 8" />
+          </svg>
+          关闭标签
+        </button>
+        <div class="app-command-menu">
+          <button
+            type="button"
+            class="app-command"
+            :class="{ active: openCommandMenu === 'more' }"
+            aria-haspopup="menu"
+            :aria-expanded="openCommandMenu === 'more'"
+            @click="openCommandMenu = openCommandMenu === 'more' ? undefined : 'more'"
+          >
+            更多 <span aria-hidden="true">⌄</span>
+          </button>
+          <div v-if="openCommandMenu === 'more'" class="app-command-menu__panel" role="menu">
+            <button
+              type="button"
+              class="app-command-menu__item"
+              role="menuitemcheckbox"
+              :aria-checked="activeSession?.ui.showGrid ?? false"
+              :disabled="!activeSession"
+              @click="toggleGrid"
+            >
+              <span class="app-command-menu__mark">{{ activeSession?.ui.showGrid ? '✓' : '' }}</span>
+              显示栅格
+            </button>
+            <div class="app-command-menu__separator" />
+            <button
+              type="button"
+              class="app-command-menu__item"
+              :disabled="!activeSession || !resolvedSettings.resolved.value.value"
+              @click="selectPreviewMode('cropped')"
+            >
+              <span class="app-command-menu__mark">{{ activeSession?.guideStore.previewMode === 'cropped' ? '●' : '' }}</span>
+              成品裁切
+            </button>
+            <button
+              type="button"
+              class="app-command-menu__item"
+              :disabled="!activeSession"
+              @click="selectPreviewMode('full')"
+            >
+              <span class="app-command-menu__mark">{{ activeSession?.guideStore.previewMode === 'full' ? '●' : '' }}</span>
+              完整页面
+            </button>
+            <div class="app-command-menu__separator" />
+            <button type="button" class="app-command-menu__item" @click="openAbout">
+              <span class="app-command-menu__mark">ⓘ</span>
+              关于与许可证
+            </button>
+          </div>
+        </div>
+      </nav>
       <div v-if="activeDocument?.info" class="topbar__document">
         <strong :title="activeDocument.fileName">{{ activeDocument.fileName }}</strong>
         <span>
@@ -142,42 +428,14 @@ onBeforeUnmount(() => {
           {{ activeDocument.info.pageSizePt.height.toFixed(3) }} pt
         </span>
       </div>
-      <div class="topbar__actions">
-        <button type="button" class="ghost-button" @click="showLegalNotice = true">
-          关于与许可证
-        </button>
-        <button
-          v-if="activeDocument?.info"
-          type="button"
-          class="primary-button"
-          :disabled="
-            activeDocument.exportStatus !== 'running' && !resolvedSettings.canExport.value
-          "
-          :title="resolvedSettings.validationError.value || '导出合并后的矢量 SVG'"
-          @click="handleExportAction"
-        >
-          {{ activeDocument.exportStatus === 'running' ? '取消导出' : '导出 SVG' }}
-        </button>
-        <button
-          v-if="activeSession"
-          type="button"
-          class="ghost-button"
-          @click="requestCloseTab(activeSession)"
-        >
-          关闭
-        </button>
-        <button type="button" class="primary-button" @click="choosePdf">
-          打开 PDF
-        </button>
-        <input
-          ref="fileInput"
-          class="visually-hidden"
-          type="file"
-          accept="application/pdf,.pdf"
-          multiple
-          @change="handleBrowserFiles"
-        />
-      </div>
+      <input
+        ref="fileInput"
+        class="visually-hidden"
+        type="file"
+        accept="application/pdf,.pdf"
+        multiple
+        @change="handleBrowserFiles"
+      />
     </header>
 
     <nav v-if="workspace.tabs.length" class="document-tabs" aria-label="打开的 PDF">
@@ -244,6 +502,90 @@ onBeforeUnmount(() => {
           <button type="button" class="ghost-button" @click="closeRequest = undefined">取消</button>
           <button type="button" class="danger-button" @click="confirmClose">
             {{ closeRequest.kind === 'application' ? '放弃并退出' : '放弃并关闭' }}
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <div
+      v-if="exportDialogOpen"
+      class="legal-backdrop"
+      @click.self="closeExportDialog"
+    >
+      <section
+        class="export-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="export-dialog-title"
+      >
+        <header class="export-dialog__header">
+          <div>
+            <span class="eyebrow">批量导出</span>
+            <h2 id="export-dialog-title">选择要导出的标签</h2>
+          </div>
+          <button
+            type="button"
+            class="export-dialog__close"
+            aria-label="关闭批量导出"
+            :disabled="batchExporting"
+            @click="closeExportDialog"
+          >×</button>
+        </header>
+        <p class="export-dialog__description">
+          默认选择所有可导出的标签。你可以取消选择或修改文件名，确认后再选择输出目录。
+        </p>
+
+        <div class="export-tab-list">
+          <div
+            v-for="row in exportRows"
+            :key="row.sessionId"
+            class="export-tab-row"
+            :class="{ 'export-tab-row--disabled': row.validationError }"
+          >
+            <input
+              v-model="row.selected"
+              class="export-tab-row__checkbox"
+              type="checkbox"
+              :aria-label="`导出 ${row.title}`"
+              :disabled="Boolean(row.validationError) || batchExporting"
+              @change="exportDialogError = ''"
+            />
+            <div class="export-tab-row__meta">
+              <strong :title="row.title">{{ row.title }}</strong>
+              <small v-if="row.validationError">{{ row.validationError }}</small>
+              <small v-else>可导出</small>
+            </div>
+            <label class="export-tab-row__filename">
+              <span>文件名</span>
+              <input
+                v-model="row.fileName"
+                type="text"
+                spellcheck="false"
+                :disabled="!row.selected || Boolean(row.validationError) || batchExporting"
+                @input="exportDialogError = ''"
+                @blur="normalizeExportRow(row)"
+              />
+            </label>
+          </div>
+        </div>
+
+        <p v-if="exportDialogError" class="inline-error export-dialog__error" role="alert">
+          {{ exportDialogError }}
+        </p>
+        <div class="dialog-actions">
+          <button
+            type="button"
+            class="ghost-button"
+            :disabled="batchExporting"
+            @click="closeExportDialog"
+          >取消</button>
+          <button
+            type="button"
+            class="primary-button"
+            :disabled="selectedExportCount === 0 || batchExporting"
+            @click="confirmBatchExport"
+          >
+            {{ batchExporting ? '正在导出…' : `选择目录并导出（${selectedExportCount}）` }}
           </button>
         </div>
       </section>
