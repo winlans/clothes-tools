@@ -12,17 +12,12 @@ import { computed, reactive, ref, watch } from "vue";
 
 import { useResolvedSettings } from "../composables/use-resolved-settings";
 import { detectedGuideCoordinates, guideSettingsFromLines } from "../project/guide-settings";
-import { useGuideStore } from "../stores/guides";
-import { useLayoutStore } from "../stores/layout";
-import { usePdfDocumentStore } from "../stores/pdf-document";
-import { useProjectStore } from "../stores/project";
+import { useDocumentSession } from "../stores/document-session";
 
 const props = defineProps<{ pageSize: PageSizePt }>();
-const documentStore = usePdfDocumentStore();
-const layoutStore = useLayoutStore();
-const guideStore = useGuideStore();
-const projectStore = useProjectStore();
-const settings = useResolvedSettings(() => props.pageSize);
+const session = useDocumentSession();
+const { documentStore, layoutStore, guideStore, projectStore } = session;
+const settings = useResolvedSettings(() => props.pageSize, () => session);
 const localError = ref("");
 
 const guideLabels: Record<GuideDirection, string> = {
@@ -89,6 +84,7 @@ async function redetect() {
     });
     localError.value = "";
     guideStore.setPreviewModeValidated("cropped", Boolean(settings.resolved.value.value));
+    session.markDirty();
   } catch (error) {
     localError.value = documentStore.detectionStatus === "cancelled"
       ? ""
@@ -116,12 +112,14 @@ function setSeamCropping(event: Event) {
     : "none";
   projectStore.setGuideSettings(currentSettings(mode));
   guideStore.setPreviewModeValidated("cropped", Boolean(settings.resolved.value.value));
+  session.markDirty();
 }
 
 function applyManualGuide(direction: GuideDirection) {
   if (guideStore.setManual(direction, Number(seamDrafts[direction]), props.pageSize)) {
     projectStore.setGuideSettings(currentSettings("manual"));
     localError.value = "";
+    session.markDirty();
   }
 }
 
@@ -144,6 +142,7 @@ function applyOuterBoundaries() {
     );
     projectStore.setGuideSettings(candidate);
     localError.value = "";
+    session.markDirty();
   } catch (error) {
     localError.value = error instanceof Error ? error.message : "外边界无效。";
   }
@@ -152,6 +151,7 @@ function applyOuterBoundaries() {
 function setOutputOption(key: keyof ProjectOutputSettings, event: Event) {
   const checked = (event.target as HTMLInputElement).checked;
   projectStore.setOutputSettings({ ...projectStore.outputSettings, [key]: checked });
+  session.markDirty();
 }
 
 watch(

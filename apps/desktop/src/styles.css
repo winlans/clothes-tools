@@ -113,6 +113,103 @@ h1 {
   gap: 10px;
 }
 
+.document-tabs {
+  display: flex;
+  min-width: 0;
+  align-items: end;
+  gap: 4px;
+  margin-top: 18px;
+  overflow-x: auto;
+  border-bottom: 1px solid #2c3840;
+  padding: 0 2px;
+}
+
+.document-tab,
+.document-tabs__add {
+  flex: none;
+  border: 1px solid #303d45;
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  color: #93a5af;
+  background: #141a1e;
+  cursor: pointer;
+}
+
+.document-tab {
+  display: flex;
+  width: min(220px, 30vw);
+  align-items: center;
+  gap: 7px;
+  padding: 8px 9px 7px 12px;
+}
+
+.document-tab.active {
+  border-color: #466475;
+  color: #e7f1f5;
+  background: #1d2a31;
+}
+
+.document-tab__title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  font-size: 12px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.document-tab__dirty {
+  color: #e6ad6e;
+  font-size: 9px;
+}
+
+.document-tab__status {
+  color: #75a8bf;
+  font-size: 10px;
+}
+
+.document-tab__close {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border-radius: 5px;
+  color: #80939e;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.document-tab__close:hover {
+  color: #f0d4d7;
+  background: #563038;
+}
+
+.document-tabs__add {
+  padding: 7px 12px;
+  font-size: 17px;
+}
+
+.import-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 10px;
+  border-left: 3px solid #5a91aa;
+  padding: 7px 10px;
+  color: #a9c6d4;
+  background: #142028;
+  font-size: 12px;
+}
+
+.import-notice button {
+  border: 0;
+  color: #8da4af;
+  background: transparent;
+  cursor: pointer;
+}
+
 .legal-backdrop {
   position: fixed;
   z-index: 100;
@@ -147,6 +244,45 @@ h1 {
   justify-self: end;
 }
 
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.danger-button {
+  border: 1px solid #a45e66;
+  border-radius: 9px;
+  padding: 10px 16px;
+  color: #fae8ea;
+  background: #743b43;
+  cursor: pointer;
+}
+
+.file-drop-overlay {
+  position: fixed;
+  z-index: 1200;
+  inset: 16px;
+  display: grid;
+  place-items: center;
+  border: 2px dashed #8fc5df;
+  border-radius: 18px;
+  background: rgb(8 18 24 / 88%);
+  pointer-events: none;
+}
+
+.file-drop-overlay > div {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  color: #9eb4c0;
+}
+
+.file-drop-overlay strong {
+  color: #e2f3fa;
+  font-size: 22px;
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -164,6 +300,10 @@ h1 {
   min-height: calc(100vh - 120px);
   gap: 12px;
   color: #aab8c2;
+}
+
+.session-waiting {
+  min-height: calc(100vh - 190px);
 }
 
 .empty-state h2 {
@@ -741,6 +881,14 @@ h1 {
   gap: 7px;
   color: #aabcc5;
   font-size: 12px;
+}
+
+.grid-visibility-toggle {
+  border: 1px solid #344650;
+  border-radius: 7px;
+  padding: 5px 9px;
+  background: #10171b;
+  white-space: nowrap;
 }
 
 .layout-canvas {

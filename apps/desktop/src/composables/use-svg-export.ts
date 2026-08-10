@@ -1,8 +1,10 @@
 import { isTauri } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeFile } from "@tauri-apps/plugin-fs";
+import { toValue, type MaybeRefOrGetter } from "vue";
 
 import { useResolvedSettings } from "./use-resolved-settings";
+import type { DocumentSession } from "../stores/document-session";
 import { useLayoutStore } from "../stores/layout";
 import { usePdfDocumentStore } from "../stores/pdf-document";
 import { useProjectStore } from "../stores/project";
@@ -11,13 +13,27 @@ function outputName(fileName: string): string {
   return fileName.replace(/\.pdf$/i, "") + ".svg";
 }
 
-export function useSvgExport() {
-  const documentStore = usePdfDocumentStore();
-  const layoutStore = useLayoutStore();
-  const projectStore = useProjectStore();
-  const settings = useResolvedSettings(() => documentStore.info?.pageSizePt);
+export function useSvgExport(sessionSource?: MaybeRefOrGetter<DocumentSession | undefined>) {
+  const fallback = sessionSource
+    ? undefined
+    : {
+        documentStore: usePdfDocumentStore(),
+        layoutStore: useLayoutStore(),
+        guideStore: undefined,
+        projectStore: useProjectStore(),
+      };
+  const session = () => toValue(sessionSource);
+  const settings = useResolvedSettings(
+    () => session()?.documentStore.info?.pageSizePt ?? fallback?.documentStore.info?.pageSizePt,
+    sessionSource,
+  );
 
   async function exportCurrentSvg() {
+    const current = session();
+    const documentStore = current?.documentStore ?? fallback?.documentStore;
+    const layoutStore = current?.layoutStore ?? fallback?.layoutStore;
+    const projectStore = current?.projectStore ?? fallback?.projectStore;
+    if (!documentStore || !layoutStore || !projectStore) return;
     const layout = layoutStore.layout;
     if (!layout) return;
     const resolved = settings.resolved.value.value;

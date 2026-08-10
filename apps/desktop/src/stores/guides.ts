@@ -16,7 +16,7 @@ export const useGuideStore = defineStore("guides", {
     documentId: "",
     lines: {} as Partial<Record<GuideDirection, GuideLine>>,
     missing: [...GUIDE_DIRECTIONS] as GuideDirection[],
-    previewMode: "full" as GuidePreviewMode,
+    previewMode: "cropped" as GuidePreviewMode,
     errorMessage: "",
   }),
   getters: {
@@ -45,14 +45,14 @@ export const useGuideStore = defineStore("guides", {
       this.documentId = documentId;
       this.lines = {};
       this.missing = [...GUIDE_DIRECTIONS];
-      this.previewMode = "full";
+      this.previewMode = "cropped";
       this.errorMessage = "";
     },
     applyDetection(documentId: string, result: GuideDetectionResult) {
       if (this.documentId !== documentId) this.initialize(documentId);
       this.lines = { ...result.lines };
       this.missing = [...result.missing];
-      this.previewMode = "full";
+      this.previewMode = "cropped";
       this.errorMessage = "";
     },
     restore(documentId: string, settings: ProjectGuideSettings) {
@@ -119,7 +119,7 @@ export const useGuideStore = defineStore("guides", {
       this.documentId = "";
       this.lines = {};
       this.missing = [...GUIDE_DIRECTIONS];
-      this.previewMode = "full";
+      this.previewMode = "cropped";
       this.errorMessage = "";
     },
   },

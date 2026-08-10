@@ -25,7 +25,7 @@ describe("guide store", () => {
     });
 
     expect(store.canPreviewCropped).toBe(true);
-    expect(store.previewMode).toBe("full");
+    expect(store.previewMode).toBe("cropped");
     expect(store.coordinates).toEqual({ left: 20, right: 820, top: 22, bottom: 1167 });
   });
 

@@ -27,8 +27,10 @@ const props = withDefaults(defineProps<{
   guides: GuideCoordinates | undefined;
   initialCamera: Camera | undefined;
   editable?: boolean;
+  showGrid?: boolean;
 }>(), {
   editable: true,
+  showGrid: true,
 });
 
 const emit = defineEmits<{
@@ -309,35 +311,37 @@ function createPageGroup(
     group.add(previewNode);
   }
 
-  group.add(
-    new Konva.Rect({
-      width: frame.width,
-      height: frame.height,
-      stroke: "#314a59",
-      strokeWidth: 1.5,
-      strokeScaleEnabled: false,
-      listening: false,
-    }),
-  );
-  group.add(
-    new Konva.Label({ x: 18, y: 18, listening: false })
-      .add(
-        new Konva.Tag({
-          fill: "#10212b",
-          opacity: 0.9,
-          cornerRadius: 8,
-        }),
-      )
-      .add(
-        new Konva.Text({
-          text: `${pageNumber}`,
-          fill: "#e8f4fa",
-          fontSize: 30,
-          fontStyle: "bold",
-          padding: 11,
-        }),
-      ),
-  );
+  if (props.showGrid) {
+    group.add(
+      new Konva.Rect({
+        width: frame.width,
+        height: frame.height,
+        stroke: "#314a59",
+        strokeWidth: 1.5,
+        strokeScaleEnabled: false,
+        listening: false,
+      }),
+    );
+    group.add(
+      new Konva.Label({ x: 18, y: 18, listening: false })
+        .add(
+          new Konva.Tag({
+            fill: "#10212b",
+            opacity: 0.9,
+            cornerRadius: 8,
+          }),
+        )
+        .add(
+          new Konva.Text({
+            text: `${pageNumber}`,
+            fill: "#e8f4fa",
+            fontSize: 30,
+            fontStyle: "bold",
+            padding: 11,
+          }),
+        ),
+    );
+  }
 
   if (props.editable) bindCellDrag(group, { kind: "page", pageNumber }, source);
 
@@ -359,24 +363,26 @@ function createSpacerGroup(spacerId: string, source: GridPosition): Konva.Group 
       width: frame.width,
       height: frame.height,
       fill: "#ffffff",
-      stroke: "#9fb2bc",
-      strokeWidth: 2,
       strokeScaleEnabled: false,
-      dash: [18, 12],
+      ...(props.showGrid
+        ? { stroke: "#9fb2bc", strokeWidth: 2, dash: [18, 12] }
+        : { strokeWidth: 0 }),
     }),
   );
-  group.add(
-    new Konva.Text({
-      width: frame.width,
-      height: frame.height,
-      text: "空白占位",
-      align: "center",
-      verticalAlign: "middle",
-      fill: "#4d626d",
-      fontSize: 42,
-      listening: false,
-    }),
-  );
+  if (props.showGrid) {
+    group.add(
+      new Konva.Text({
+        width: frame.width,
+        height: frame.height,
+        text: "空白占位",
+        align: "center",
+        verticalAlign: "middle",
+        fill: "#4d626d",
+        fontSize: 42,
+        listening: false,
+      }),
+    );
+  }
   if (props.editable) {
     group.on("dblclick dbltap", () => emit("deleteSpacer", spacerId));
     bindCellDrag(group, { kind: "spacer", spacerId }, source);
@@ -444,6 +450,7 @@ function renderScene() {
     host.value.dataset.layoutColumns = String(props.layout.columns);
     host.value.dataset.previewMode = props.guides ? "cropped" : "full";
     host.value.dataset.editable = String(props.editable);
+    host.value.dataset.showGrid = String(props.showGrid);
     host.value.dataset.contentWidth = String(geometry.value.width);
     host.value.dataset.contentHeight = String(geometry.value.height);
   }
@@ -460,10 +467,14 @@ function renderScene() {
           width: frame.width,
           height: frame.height,
           fill: cell ? "#ffffff" : "#182026",
-          stroke: cell ? "#557080" : "#35434c",
-          strokeWidth: 1,
           strokeScaleEnabled: false,
-          ...(cell ? {} : { dash: [10, 8] }),
+          ...(props.showGrid
+            ? {
+                stroke: cell ? "#557080" : "#35434c",
+                strokeWidth: 1,
+                ...(cell ? {} : { dash: [10, 8] }),
+              }
+            : { strokeWidth: 0 }),
         }),
       );
 
@@ -598,7 +609,7 @@ onMounted(() => {
 });
 
 watch(
-  () => [props.layout, props.pageSize, props.previews, props.guides] as const,
+  () => [props.layout, props.pageSize, props.previews, props.guides, props.showGrid] as const,
   async ([layout, , , guides], [previousLayout, , , previousGuides]) => {
     renderScene();
     if (

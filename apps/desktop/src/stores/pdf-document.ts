@@ -34,12 +34,14 @@ export interface DesktopSvgExport {
   visibleObjects: number;
 }
 
-let pendingExport:
-  | { resolve(value: DesktopSvgExport): void; reject(reason: Error): void }
-  | undefined;
-let pendingDetection:
-  | { resolve(value: GuideDetectionResult): void; reject(reason: Error): void }
-  | undefined;
+type PendingExport = { resolve(value: DesktopSvgExport): void; reject(reason: Error): void };
+type PendingDetection = {
+  resolve(value: GuideDetectionResult): void;
+  reject(reason: Error): void;
+};
+
+const pendingExports = new WeakMap<object, PendingExport>();
+const pendingDetections = new WeakMap<object, PendingDetection>();
 
 export const usePdfDocumentStore = defineStore("pdf-document", {
   state: () => ({
@@ -55,6 +57,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
     previews: {} as Record<number, PreviewState>,
     previewOrder: [] as number[],
     visiblePreviewPages: [] as number[],
+    previewCacheLimit: MAX_PREVIEW_CACHE,
     previewStatus: "idle" as "idle" | "running" | "complete" | "cancelled",
     progress: { completed: 0, total: 0 },
     errorMessage: "",
@@ -85,15 +88,15 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
         if (this.exportStatus === "running") {
           this.exportStatus = "error";
           this.exportErrorMessage = event.message || "SVG 导出 Worker 发生错误。";
-          pendingExport?.reject(new Error(this.exportErrorMessage));
-          pendingExport = undefined;
+          pendingExports.get(this)?.reject(new Error(this.exportErrorMessage));
+          pendingExports.delete(this);
           return;
         }
         if (this.detectionStatus === "running") {
           this.detectionStatus = "error";
           this.detectionErrorMessage = event.message || "红线检测 Worker 发生错误。";
-          pendingDetection?.reject(new Error(this.detectionErrorMessage));
-          pendingDetection = undefined;
+          pendingDetections.get(this)?.reject(new Error(this.detectionErrorMessage));
+          pendingDetections.delete(this);
           return;
         }
         this.status = "error";
@@ -101,8 +104,8 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       };
     },
     async open(bytes: Uint8Array<ArrayBuffer>, fileName: string, sourcePath?: string) {
-      pendingDetection?.reject(new Error("红线检测已取消。"));
-      pendingDetection = undefined;
+      pendingDetections.get(this)?.reject(new Error("红线检测已取消。"));
+      pendingDetections.delete(this);
       this.disposePreviews();
       this.ensureWorker();
       this.requestId += 1;
@@ -132,7 +135,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       if (message.requestId !== this.requestId) return;
       if (message.type === "document") {
         this.info = message.info;
-        this.progress = { completed: 0, total: message.info.pageCount };
+        this.progress = { completed: 0, total: Math.min(3, message.info.pageCount) };
         return;
       }
       if (message.type === "preview") {
@@ -157,15 +160,15 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
           total: this.info?.pageCount ?? 0,
         };
         this.detectionErrorMessage = "";
-        pendingDetection?.resolve(message.result);
-        pendingDetection = undefined;
+        pendingDetections.get(this)?.resolve(message.result);
+        pendingDetections.delete(this);
         return;
       }
       if (message.type === "guides-error") {
         this.detectionStatus = "error";
         this.detectionErrorMessage = message.message;
-        pendingDetection?.reject(new Error(message.message));
-        pendingDetection = undefined;
+        pendingDetections.get(this)?.reject(new Error(message.message));
+        pendingDetections.delete(this);
         return;
       }
       if (message.type === "detection-progress") {
@@ -195,15 +198,15 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
           pageInstances: result.pageInstances,
           visibleObjects: result.visibleObjects,
         };
-        pendingExport?.resolve(result);
-        pendingExport = undefined;
+        pendingExports.get(this)?.resolve(result);
+        pendingExports.delete(this);
         return;
       }
       if (message.type === "export-error") {
         this.exportStatus = "error";
         this.exportErrorMessage = message.message;
-        pendingExport?.reject(new Error(message.message));
-        pendingExport = undefined;
+        pendingExports.get(this)?.reject(new Error(message.message));
+        pendingExports.delete(this);
         return;
       }
       if (message.type === "complete") {
@@ -219,12 +222,12 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
           if (this.info) this.status = "ready";
         } else if (message.task === "detection") {
           this.detectionStatus = "cancelled";
-          pendingDetection?.reject(new Error("红线检测已取消。"));
-          pendingDetection = undefined;
+          pendingDetections.get(this)?.reject(new Error("红线检测已取消。"));
+          pendingDetections.delete(this);
         } else {
           this.exportStatus = "cancelled";
-          pendingExport?.reject(new Error("SVG 导出已取消。"));
-          pendingExport = undefined;
+          pendingExports.get(this)?.reject(new Error("SVG 导出已取消。"));
+          pendingExports.delete(this);
         }
         return;
       }
@@ -232,8 +235,8 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       this.errorMessage = message.message;
     },
     close() {
-      pendingDetection?.reject(new Error("红线检测已取消。"));
-      pendingDetection = undefined;
+      pendingDetections.get(this)?.reject(new Error("红线检测已取消。"));
+      pendingDetections.delete(this);
       this.requestId += 1;
       const request: PdfWorkerRequest = { type: "close", requestId: this.requestId };
       this.worker?.postMessage(request);
@@ -267,7 +270,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       ];
     },
     evictPreviewCache() {
-      while (Object.keys(this.previews).length > MAX_PREVIEW_CACHE) {
+      while (Object.keys(this.previews).length > this.previewCacheLimit) {
         const candidateIndex = this.previewOrder.findIndex(
           (pageNumber) => !this.visiblePreviewPages.includes(pageNumber),
         );
@@ -279,11 +282,16 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
         delete this.previews[pageNumber];
       }
     },
+    setPreviewCacheLimit(limit: number) {
+      this.previewCacheLimit = Math.max(1, Math.min(MAX_PREVIEW_CACHE, Math.floor(limit)));
+      if (this.previewCacheLimit < MAX_PREVIEW_CACHE) this.visiblePreviewPages = [];
+      this.evictPreviewCache();
+    },
     prioritizePreviews(pageNumbers: number[]) {
       if (!this.worker || !this.info) return;
       const visible = [...new Set(pageNumbers)]
         .filter((pageNumber) => pageNumber >= 1 && pageNumber <= this.info!.pageCount)
-        .slice(0, MAX_PREVIEW_CACHE);
+        .slice(0, this.previewCacheLimit);
       this.visiblePreviewPages = visible;
       for (const pageNumber of visible) {
         if (this.previews[pageNumber]) this.touchPreview(pageNumber);
@@ -312,7 +320,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       overrides: Partial<SvgExportOptions> = {},
     ): Promise<DesktopSvgExport> {
       if (!this.worker || !this.info) return Promise.reject(new Error("请先打开 PDF。"));
-      if (pendingExport) return Promise.reject(new Error("已有 SVG 导出任务正在进行。"));
+      if (pendingExports.has(this)) return Promise.reject(new Error("已有 SVG 导出任务正在进行。"));
       this.exportStatus = "running";
       this.exportProgress = { completed: 0, total: this.info.pageCount };
       this.exportSummary = undefined;
@@ -325,13 +333,13 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
         options: { ...DEFAULT_SVG_EXPORT_OPTIONS, ...overrides },
       };
       return new Promise<DesktopSvgExport>((resolve, reject) => {
-        pendingExport = { resolve, reject };
+        pendingExports.set(this, { resolve, reject });
         this.worker?.postMessage(request);
       });
     },
     detectGuides(options: GuideDetectionOptions): Promise<GuideDetectionResult> {
       if (!this.worker || !this.info) return Promise.reject(new Error("请先打开 PDF。"));
-      if (pendingDetection) return Promise.reject(new Error("红线检测已在进行中。"));
+      if (pendingDetections.has(this)) return Promise.reject(new Error("红线检测已在进行中。"));
       this.detectionStatus = "running";
       this.detectionErrorMessage = "";
       this.detectionProgress = { completed: 0, total: this.info.pageCount };
@@ -341,7 +349,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
         options: { ...options },
       };
       return new Promise<GuideDetectionResult>((resolve, reject) => {
-        pendingDetection = { resolve, reject };
+        pendingDetections.set(this, { resolve, reject });
         this.worker?.postMessage(request);
       });
     },
@@ -362,8 +370,8 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       } satisfies PdfWorkerRequest);
     },
     resetExport() {
-      pendingExport?.reject(new Error("SVG 导出已取消。"));
-      pendingExport = undefined;
+      pendingExports.get(this)?.reject(new Error("SVG 导出已取消。"));
+      pendingExports.delete(this);
       this.exportStatus = "idle";
       this.exportProgress = { completed: 0, total: 0 };
       this.exportSummary = undefined;
@@ -373,6 +381,8 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       this.close();
       this.worker?.terminate();
       this.worker = undefined;
+      pendingExports.delete(this);
+      pendingDetections.delete(this);
     },
   },
 });

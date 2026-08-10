@@ -5,8 +5,8 @@ import { nextTick } from "vue";
 import { describe, expect, it } from "vitest";
 
 import App from "./App.vue";
-import { useLayoutStore } from "./stores/layout";
-import { usePdfDocumentStore } from "./stores/pdf-document";
+import { createDocumentSession } from "./stores/document-session";
+import { useWorkspaceStore } from "./stores/workspace";
 
 describe("App", () => {
   it("offers local import and the required legal notice", async () => {
@@ -28,8 +28,17 @@ describe("App", () => {
     const pinia = createPinia();
     setActivePinia(pinia);
     const wrapper = mount(App, { global: { plugins: [pinia] } });
-    const documentStore = usePdfDocumentStore();
-    const layoutStore = useLayoutStore();
+    const workspace = useWorkspaceStore(pinia);
+    const session = createDocumentSession("test-tab", {
+      fileName: "sample.pdf",
+      sourceKey: "path:/tmp/sample.pdf",
+      sourcePath: "/tmp/sample.pdf",
+      load: () => Promise.reject(new Error("not used")),
+    });
+    session.ui.loadStatus = "error";
+    workspace.tabs = [session];
+    workspace.activate(session.id);
+    const { documentStore, layoutStore } = session;
     documentStore.info = {
       documentId: "pdf-8",
       pageCount: 8,

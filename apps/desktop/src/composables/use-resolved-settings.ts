@@ -6,6 +6,7 @@ import {
 import { computed, toValue, type MaybeRefOrGetter } from "vue";
 
 import { detectedGuideCoordinates, guideSettingsFromLines } from "../project/guide-settings";
+import type { DocumentSession } from "../stores/document-session";
 import { useGuideStore } from "../stores/guides";
 import { useLayoutStore } from "../stores/layout";
 import { usePdfDocumentStore } from "../stores/pdf-document";
@@ -13,24 +14,38 @@ import { useProjectStore } from "../stores/project";
 
 export function useResolvedSettings(
   pageSizeSource: MaybeRefOrGetter<PageSizePt | undefined>,
+  sessionSource?: MaybeRefOrGetter<DocumentSession | undefined>,
 ) {
-  const documentStore = usePdfDocumentStore();
-  const layoutStore = useLayoutStore();
-  const guideStore = useGuideStore();
-  const projectStore = useProjectStore();
+  const fallback = sessionSource
+    ? undefined
+    : {
+        documentStore: usePdfDocumentStore(),
+        layoutStore: useLayoutStore(),
+        guideStore: useGuideStore(),
+        projectStore: useProjectStore(),
+      };
+  const stores = () => toValue(sessionSource) ?? fallback;
 
   const effectiveGuideSettings = computed(() =>
-    guideSettingsFromLines(projectStore.guideSettings, guideStore.lines),
+    stores()
+      ? guideSettingsFromLines(
+          stores()!.projectStore.guideSettings,
+          stores()!.guideStore.lines,
+        )
+      : undefined,
   );
   const resolved = computed(() => {
     const pageSize = toValue(pageSizeSource);
-    const layout = layoutStore.layout;
-    if (!pageSize || !layout) return { value: undefined, error: "请先打开 PDF。" };
+    const current = stores();
+    const layout = current?.layoutStore.layout;
+    if (!pageSize || !layout || !current || !effectiveGuideSettings.value) {
+      return { value: undefined, error: "请先打开 PDF。" };
+    }
     try {
       return {
         value: resolveGuideGeometry(
           effectiveGuideSettings.value,
-          detectedGuideCoordinates(documentStore.guideDetection),
+          detectedGuideCoordinates(current.documentStore.guideDetection),
           pageSize,
           layout,
         ),
@@ -44,12 +59,13 @@ export function useResolvedSettings(
     }
   });
   const unusedPages = computed(() => {
-    const layout = layoutStore.layout;
-    const pageCount = documentStore.info?.pageCount ?? layoutStore.pageCount;
+    const current = stores();
+    const layout = current?.layoutStore.layout;
+    const pageCount = current?.documentStore.info?.pageCount ?? current?.layoutStore.pageCount;
     return layout && pageCount ? getUnusedLayoutPages(layout, pageCount) : [];
   });
   const unusedPagesError = computed(() =>
-    unusedPages.value.length > 0 && !projectStore.outputSettings.allowUnusedPages
+    unusedPages.value.length > 0 && !stores()?.projectStore.outputSettings.allowUnusedPages
       ? `布局仍有未使用页：${unusedPages.value.join("、")}。`
       : "",
   );

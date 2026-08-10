@@ -24,6 +24,7 @@ let activeRequestId = 0;
 let previewLongEdge = 1600;
 let previewQueue: number[] = [];
 let previewCompleted = new Set<number>();
+let previewTargetCount = 0;
 let previewGeneration = 0;
 let previewRunningGeneration: number | undefined;
 const cancelledTasks = new Set<TaskKind>();
@@ -62,6 +63,7 @@ function queuePreviews(pageNumbers: readonly number[], priority: boolean) {
   const incoming = [...new Set(valid)];
   const remaining = previewQueue.filter((pageNumber) => !incoming.includes(pageNumber));
   previewQueue = priority ? [...incoming, ...remaining] : [...remaining, ...incoming];
+  previewTargetCount = new Set([...previewCompleted, ...previewQueue]).size;
 }
 
 async function drainPreviewQueue(requestId: number, generation: number) {
@@ -96,7 +98,7 @@ async function drainPreviewQueue(requestId: number, generation: number) {
         type: "progress",
         requestId,
         completed: previewCompleted.size,
-        total: currentDocument.info.pageCount,
+        total: previewTargetCount,
       });
       await yieldControl();
     }
@@ -214,6 +216,7 @@ worker.onmessage = async (event: MessageEvent<PdfWorkerRequest>) => {
     currentDocument = undefined;
     previewQueue = [];
     previewCompleted = new Set();
+    previewTargetCount = 0;
     previewLongEdge = request.previewLongEdge;
     cancelledTasks.clear();
 
@@ -223,11 +226,6 @@ worker.onmessage = async (event: MessageEvent<PdfWorkerRequest>) => {
       currentDocument = await openMuPdfDocument(imported.default, request.bytes);
       respond({ type: "document", requestId: request.requestId, info: currentDocument.info });
 
-      const allPages = Array.from(
-        { length: currentDocument.info.pageCount },
-        (_, index) => index + 1,
-      );
-      queuePreviews(allPages, false);
       queuePreviews(request.previewPriority, true);
       void drainPreviewQueue(request.requestId, previewGeneration);
 
@@ -257,6 +255,7 @@ worker.onmessage = async (event: MessageEvent<PdfWorkerRequest>) => {
     activeRequestId = request.requestId;
     previewGeneration += 1;
     previewQueue = [];
+    previewTargetCount = 0;
     cancelledTasks.add("preview");
     cancelledTasks.add("detection");
     cancelledTasks.add("export");

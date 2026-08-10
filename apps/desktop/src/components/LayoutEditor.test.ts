@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { enableAutoUnmount, mount } from "@vue/test-utils";
+import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { defineComponent, h, nextTick } from "vue";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,18 +9,29 @@ import { useGuideStore } from "../stores/guides";
 import { useProjectStore } from "../stores/project";
 import LayoutEditor from "./LayoutEditor.vue";
 
+const { setWindowFullscreen } = vi.hoisted(() => ({
+  setWindowFullscreen: vi.fn(() => Promise.resolve()),
+}));
+
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({ setFullscreen: setWindowFullscreen }),
+}));
+
 const fitContent = vi.fn();
 const setZoom = vi.fn();
+const requestElementFullscreen = vi.fn(() => Promise.resolve());
 const LayoutCanvasStub = defineComponent({
   name: "LayoutCanvas",
   props: {
     editable: { type: Boolean, default: true },
+    showGrid: { type: Boolean, default: true },
   },
   setup(props, { expose }) {
     expose({ fitContent, setZoom });
     return () => h("div", {
       "data-testid": "layout-canvas",
       "data-editable": String(props.editable),
+      "data-show-grid": String(props.showGrid),
     });
   },
 });
@@ -28,10 +39,19 @@ const LayoutCanvasStub = defineComponent({
 enableAutoUnmount(afterEach);
 
 describe("LayoutEditor", () => {
+  let pinia: ReturnType<typeof createPinia>;
+
   beforeEach(() => {
-    setActivePinia(createPinia());
+    pinia = createPinia();
+    setActivePinia(pinia);
     fitContent.mockClear();
     setZoom.mockClear();
+    setWindowFullscreen.mockClear();
+    requestElementFullscreen.mockClear();
+    Object.defineProperty(HTMLElement.prototype, "requestFullscreen", {
+      configurable: true,
+      value: requestElementFullscreen,
+    });
   });
 
   function mountEditor() {
@@ -42,7 +62,7 @@ describe("LayoutEditor", () => {
         pageSize: { width: 841.89, height: 1190.551 },
         previews: [],
       },
-      global: { stubs: { LayoutCanvas: LayoutCanvasStub } },
+      global: { plugins: [pinia], stubs: { LayoutCanvas: LayoutCanvasStub } },
     });
     return { store, wrapper };
   }
@@ -109,19 +129,21 @@ describe("LayoutEditor", () => {
     expect(setZoom).toHaveBeenLastCalledWith(0.37225);
   });
 
-  it("opens a full-screen read-only preview with independent precise zoom", async () => {
+  it("opens a full-screen read-only preview without WebKit element fullscreen", async () => {
     const { wrapper } = mountEditor();
     const fullscreenButton = wrapper.findAll("button").find(
       (button) => button.text() === "全屏预览",
     );
 
     await fullscreenButton?.trigger("click");
-    await nextTick();
+    await flushPromises();
 
     const preview = wrapper.get('.fullscreen-preview[role="dialog"]');
     expect(document.body.classList.contains("fullscreen-preview-open")).toBe(true);
     expect(preview.get('[data-testid="layout-canvas"]').attributes("data-editable"))
       .toBe("false");
+    expect(requestElementFullscreen).not.toHaveBeenCalled();
+    expect(setWindowFullscreen).toHaveBeenCalledWith(true);
 
     const zoomInput = preview.get('input[aria-label="缩放百分比"]');
     await zoomInput.setValue("62.375");
@@ -129,9 +151,31 @@ describe("LayoutEditor", () => {
     expect(setZoom).toHaveBeenLastCalledWith(0.62375);
 
     await preview.get(".fullscreen-preview__close").trigger("click");
-    await nextTick();
+    await flushPromises();
     expect(wrapper.find(".fullscreen-preview").exists()).toBe(false);
     expect(document.body.classList.contains("fullscreen-preview-open")).toBe(false);
+    expect(setWindowFullscreen).toHaveBeenLastCalledWith(false);
+  });
+
+  it("shares the clean-preview grid switch with fullscreen", async () => {
+    const { wrapper } = mountEditor();
+    const gridToggle = wrapper.get('.canvas-preview-actions input[type="checkbox"]');
+    expect(wrapper.get('[data-testid="layout-canvas"]').attributes("data-show-grid"))
+      .toBe("false");
+
+    await gridToggle.setValue(true);
+    expect(wrapper.get('[data-testid="layout-canvas"]').attributes("data-show-grid"))
+      .toBe("true");
+
+    const fullscreenButton = wrapper.findAll("button").find(
+      (button) => button.text() === "全屏预览",
+    );
+    await fullscreenButton?.trigger("click");
+    await flushPromises();
+    expect(wrapper.get('.fullscreen-preview [data-testid="layout-canvas"]')
+      .attributes("data-show-grid")).toBe("true");
+    expect((wrapper.get('.fullscreen-preview .grid-visibility-toggle input')
+      .element as HTMLInputElement).checked).toBe(true);
   });
 
   it("lets users repair missing guides with point coordinates", async () => {

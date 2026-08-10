@@ -1,56 +1,87 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 
-import LayoutEditor from "./components/LayoutEditor.vue";
-import PageSidebar from "./components/PageSidebar.vue";
+import DocumentWorkspace from "./components/DocumentWorkspace.vue";
 import { usePdfImport } from "./composables/use-pdf-import";
-import { useSvgExport } from "./composables/use-svg-export";
 import { useResolvedSettings } from "./composables/use-resolved-settings";
-import { usePdfDocumentStore } from "./stores/pdf-document";
-import { useLayoutStore } from "./stores/layout";
-import { useGuideStore } from "./stores/guides";
+import { useSvgExport } from "./composables/use-svg-export";
+import type { DocumentSession } from "./stores/document-session";
+import { useWorkspaceStore } from "./stores/workspace";
 
 const fileInput = ref<HTMLInputElement>();
 const showLegalNotice = ref(false);
-const documentStore = usePdfDocumentStore();
-const layoutStore = useLayoutStore();
-const guideStore = useGuideStore();
+const closeRequest = ref<{ kind: "tab"; id: string } | { kind: "application" }>();
+const workspace = useWorkspaceStore();
 const pdfImport = usePdfImport();
-const svgExport = useSvgExport();
-const resolvedSettings = useResolvedSettings(() => documentStore.info?.pageSizePt);
+const activeSession = computed(() => workspace.activeSession);
+const resolvedSettings = useResolvedSettings(
+  () => activeSession.value?.documentStore.info?.pageSizePt,
+  () => activeSession.value,
+);
+const svgExport = useSvgExport(() => activeSession.value);
+let unlistenCloseRequested: (() => void) | undefined;
 
-const progressPercent = computed(() => {
-  if (documentStore.progress.total === 0) return 0;
-  return Math.round(
-    (documentStore.progress.completed / documentStore.progress.total) * 100,
-  );
+const activeDocument = computed(() => activeSession.value?.documentStore);
+const closeMessage = computed(() => {
+  if (closeRequest.value?.kind === "application") {
+    const count = workspace.tabs.filter(
+      (tab) => tab.ui.dirty || tab.documentStore.exportStatus === "running",
+    ).length;
+    return `仍有 ${count} 个标签包含未保存修改或正在导出，退出后这些状态将丢失。`;
+  }
+  const request = closeRequest.value;
+  const session = request?.kind === "tab"
+    ? workspace.tabs.find((tab) => tab.id === request.id)
+    : undefined;
+  return session?.documentStore.exportStatus === "running"
+    ? "该标签正在导出 SVG，关闭会取消导出并丢失当前调整。"
+    : "该标签包含尚未保存的排版或导出设置，关闭后无法恢复。";
 });
+
+function hasUnsafeTabs() {
+  return workspace.tabs.some(
+    (tab) => tab.ui.dirty || tab.documentStore.exportStatus === "running",
+  );
+}
 
 async function choosePdf() {
   if (pdfImport.isDesktop) {
-    await pdfImport.openTauriPdf();
+    await pdfImport.choosePdfs();
   } else {
     fileInput.value?.click();
   }
 }
 
-async function handleBrowserFile(event: Event) {
+async function handleBrowserFiles(event: Event) {
   const target = event.target as HTMLInputElement;
-  const file = target.files?.[0];
-  if (file) await pdfImport.openBrowserPdf(file);
+  if (target.files) await pdfImport.openBrowserPdfs([...target.files]);
   target.value = "";
 }
 
-function startSpacerDrag(event: DragEvent) {
-  event.dataTransfer?.setData("application/x-pdf2plt-spacer", "new");
-  if (event.dataTransfer) event.dataTransfer.effectAllowed = "copy";
+function requestCloseTab(session: DocumentSession) {
+  if (session.ui.dirty || session.documentStore.exportStatus === "running") {
+    closeRequest.value = { kind: "tab", id: session.id };
+    return;
+  }
+  workspace.remove(session.id);
 }
 
-function closeDocument() {
-  documentStore.close();
+async function confirmClose() {
+  const request = closeRequest.value;
+  closeRequest.value = undefined;
+  if (!request) return;
+  if (request.kind === "tab") {
+    workspace.remove(request.id);
+    return;
+  }
+  workspace.disposeAll();
+  if (pdfImport.isDesktop) await getCurrentWindow().destroy();
 }
 
 async function handleExportAction() {
+  const documentStore = activeDocument.value;
+  if (!documentStore) return;
   if (documentStore.exportStatus === "running") {
     documentStore.cancelExport();
     return;
@@ -58,54 +89,57 @@ async function handleExportAction() {
   await svgExport.exportCurrentSvg();
 }
 
-watch(
-  () => documentStore.info,
-  (info) => {
-    if (info) {
-      layoutStore.initialize(info.documentId, info.pageCount);
-      guideStore.initialize(info.documentId);
-    } else {
-      layoutStore.clear();
-      guideStore.clear();
-    }
-  },
-  { immediate: true },
-);
+function handleBeforeUnload(event: BeforeUnloadEvent) {
+  if (!hasUnsafeTabs()) return;
+  event.preventDefault();
+}
 
-watch(
-  () => [documentStore.info?.documentId, documentStore.guideDetection] as const,
-  ([documentId, detection]) => {
-    if (documentId && detection) {
-      guideStore.applyDetection(documentId, detection);
-      if (detection.inferredLayout) {
-        layoutStore.applyDetectedColumnLayout(detection.inferredLayout);
-      } else if (detection.inferredPagesPerColumn !== undefined) {
-        layoutStore.applyDetectedPagesPerColumn(detection.inferredPagesPerColumn);
-      }
-    }
-  },
-);
+function tabStatus(session: DocumentSession) {
+  if (session.ui.loadStatus === "queued") return "排队";
+  if (session.ui.loadStatus === "loading") return "加载";
+  if (session.ui.loadStatus === "error") return "错误";
+  if (session.documentStore.exportStatus === "running") return "导出";
+  return "";
+}
+
+onMounted(async () => {
+  await pdfImport.startNativeDragDrop();
+  window.addEventListener("beforeunload", handleBeforeUnload);
+  if (pdfImport.isDesktop) {
+    unlistenCloseRequested = await getCurrentWindow().onCloseRequested((event) => {
+      if (!hasUnsafeTabs()) return;
+      event.preventDefault();
+      closeRequest.value = { kind: "application" };
+    });
+  }
+});
 
 onBeforeUnmount(() => {
-  documentStore.dispose();
-  layoutStore.clear();
-  guideStore.clear();
+  pdfImport.stopNativeDragDrop();
+  unlistenCloseRequested?.();
+  window.removeEventListener("beforeunload", handleBeforeUnload);
+  workspace.disposeAll();
 });
 </script>
 
 <template>
-  <main class="app-shell">
+  <main
+    class="app-shell"
+    @dragover="pdfImport.handleBrowserDragOver"
+    @dragleave="pdfImport.handleBrowserDragLeave"
+    @drop="pdfImport.handleBrowserDrop"
+  >
     <header class="topbar">
       <div class="topbar__brand">
         <span class="eyebrow">服装版图工具</span>
         <h1>pdf2plt</h1>
       </div>
-      <div v-if="documentStore.info" class="topbar__document">
-        <strong :title="documentStore.fileName">{{ documentStore.fileName }}</strong>
+      <div v-if="activeDocument?.info" class="topbar__document">
+        <strong :title="activeDocument.fileName">{{ activeDocument.fileName }}</strong>
         <span>
-          {{ documentStore.info.pageCount }} 页 ·
-          {{ documentStore.info.pageSizePt.width.toFixed(3) }} ×
-          {{ documentStore.info.pageSizePt.height.toFixed(3) }} pt
+          {{ activeDocument.info.pageCount }} 页 ·
+          {{ activeDocument.info.pageSizePt.width.toFixed(3) }} ×
+          {{ activeDocument.info.pageSizePt.height.toFixed(3) }} pt
         </span>
       </div>
       <div class="topbar__actions">
@@ -113,49 +147,75 @@ onBeforeUnmount(() => {
           关于与许可证
         </button>
         <button
-          v-if="documentStore.info"
+          v-if="activeDocument?.info"
           type="button"
           class="primary-button"
           :disabled="
-            documentStore.exportStatus !== 'running' && !resolvedSettings.canExport.value
+            activeDocument.exportStatus !== 'running' && !resolvedSettings.canExport.value
           "
           :title="resolvedSettings.validationError.value || '导出合并后的矢量 SVG'"
           @click="handleExportAction"
         >
-          {{ documentStore.exportStatus === 'running' ? '取消导出' : '导出 SVG' }}
+          {{ activeDocument.exportStatus === 'running' ? '取消导出' : '导出 SVG' }}
         </button>
         <button
-          v-if="documentStore.info"
+          v-if="activeSession"
           type="button"
           class="ghost-button"
-          @click="closeDocument"
+          @click="requestCloseTab(activeSession)"
         >
           关闭
         </button>
         <button type="button" class="primary-button" @click="choosePdf">
-          {{ documentStore.info ? "更换 PDF" : "打开 PDF" }}
+          打开 PDF
         </button>
         <input
           ref="fileInput"
           class="visually-hidden"
           type="file"
           accept="application/pdf,.pdf"
-          @change="handleBrowserFile"
+          multiple
+          @change="handleBrowserFiles"
         />
       </div>
     </header>
+
+    <nav v-if="workspace.tabs.length" class="document-tabs" aria-label="打开的 PDF">
+      <button
+        v-for="tab in workspace.tabs"
+        :key="tab.id"
+        type="button"
+        class="document-tab"
+        :class="{ active: tab.id === workspace.activeTabId }"
+        :title="tab.source.fileName"
+        @click="workspace.activate(tab.id)"
+      >
+        <span class="document-tab__title">{{ tab.source.fileName }}</span>
+        <span v-if="tab.ui.dirty" class="document-tab__dirty" aria-label="已修改">●</span>
+        <span v-if="tabStatus(tab)" class="document-tab__status">{{ tabStatus(tab) }}</span>
+        <span
+          class="document-tab__close"
+          role="button"
+          :aria-label="'关闭 ' + tab.source.fileName"
+          @click.stop="requestCloseTab(tab)"
+        >×</span>
+      </button>
+      <button type="button" class="document-tabs__add" aria-label="打开更多 PDF" @click="choosePdf">
+        ＋
+      </button>
+    </nav>
+
+    <p v-if="pdfImport.importNotice.value" class="import-notice" role="status">
+      {{ pdfImport.importNotice.value }}
+      <button type="button" aria-label="关闭导入提示" @click="pdfImport.importNotice.value = ''">×</button>
+    </p>
 
     <div
       v-if="showLegalNotice"
       class="legal-backdrop"
       @click.self="showLegalNotice = false"
     >
-      <section
-        class="legal-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="legal-title"
-      >
+      <section class="legal-dialog" role="dialog" aria-modal="true" aria-labelledby="legal-title">
         <span class="eyebrow">pdf2plt 0.1.0</span>
         <h2 id="legal-title">关于与许可证</h2>
         <p>
@@ -171,85 +231,45 @@ onBeforeUnmount(() => {
           完整条款、第三方声明与对应源码说明随安装包提供在 LICENSE、
           THIRD_PARTY_NOTICES.md 和 SOURCE_OFFER.md 中。
         </p>
-        <button type="button" class="primary-button" @click="showLegalNotice = false">
-          关闭
-        </button>
+        <button type="button" class="primary-button" @click="showLegalNotice = false">关闭</button>
       </section>
     </div>
 
-    <section v-if="documentStore.status === 'idle'" class="empty-state">
+    <div v-if="closeRequest" class="legal-backdrop" @click.self="closeRequest = undefined">
+      <section class="legal-dialog close-dialog" role="alertdialog" aria-modal="true">
+        <span class="eyebrow">确认关闭</span>
+        <h2>{{ closeRequest.kind === 'application' ? '退出 pdf2plt？' : '关闭标签？' }}</h2>
+        <p>{{ closeMessage }}</p>
+        <div class="dialog-actions">
+          <button type="button" class="ghost-button" @click="closeRequest = undefined">取消</button>
+          <button type="button" class="danger-button" @click="confirmClose">
+            {{ closeRequest.kind === 'application' ? '放弃并退出' : '放弃并关闭' }}
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <section v-if="!activeSession" class="empty-state">
       <div class="empty-state__mark">PDF</div>
       <h2>导入分块版图</h2>
-      <p>页面预览会在本机解析，不会上传到网络。</p>
+      <p>可选择或一次拖入多个 PDF；页面只在本机解析，不会上传到网络。</p>
     </section>
 
-    <section v-else-if="documentStore.status === 'error'" class="error-state">
-      <strong>无法打开 PDF</strong>
-      <p>{{ documentStore.errorMessage }}</p>
-      <button type="button" class="primary-button" @click="choosePdf">重新选择</button>
-    </section>
+    <DocumentWorkspace
+      v-else
+      :key="activeSession.id"
+      :session="activeSession"
+      @retry="workspace.retry(activeSession.id)"
+    />
 
-    <section v-else class="document-view">
-      <div v-if="documentStore.status === 'loading'" class="progress-row">
-        <div class="progress-track">
-          <span :style="{ width: `${progressPercent}%` }" />
-        </div>
-        <span>
-          正在生成预览 {{ documentStore.progress.completed }}/{{ documentStore.progress.total || '…' }}
+    <div v-if="pdfImport.dropActive.value" class="file-drop-overlay" role="status">
+      <div>
+        <strong>释放以打开 PDF</strong>
+        <span v-if="pdfImport.dropCount.value">
+          检测到 {{ pdfImport.dropCount.value }} 个文件
         </span>
-        <button type="button" class="compact-button" @click="documentStore.cancelPreview()">
-          取消预览
-        </button>
+        <span v-else>非 PDF 文件会自动跳过</span>
       </div>
-
-      <div v-if="documentStore.exportStatus === 'running'" class="progress-row export-progress">
-        <div class="progress-track">
-          <span
-            :style="{
-              width: `${Math.round(
-                (documentStore.exportProgress.completed /
-                  Math.max(1, documentStore.exportProgress.total)) *
-                  100,
-              )}%`,
-            }"
-          />
-        </div>
-        <span>
-          正在导出矢量页面 {{ documentStore.exportProgress.completed }}/{{
-            documentStore.exportProgress.total
-          }}
-        </span>
-      </div>
-      <p v-if="documentStore.exportErrorMessage" class="inline-error" role="alert">
-        {{ documentStore.exportErrorMessage }}
-      </p>
-      <p v-if="documentStore.exportStatus === 'cancelled'" class="guide-warning" role="status">
-        SVG 导出已取消，未写入输出文件。
-      </p>
-      <p
-        v-if="documentStore.exportStatus === 'complete' && documentStore.exportSummary"
-        class="export-summary"
-        role="status"
-      >
-        SVG 已生成：{{ documentStore.exportSummary.pageInstances }} 个页面实例，
-        {{ ((documentStore.exportSummary.widthPt * 25.4) / 72).toFixed(2) }} ×
-        {{ ((documentStore.exportSummary.heightPt * 25.4) / 72).toFixed(2) }} mm，
-        {{ documentStore.exportSummary.visibleObjects }} 个矢量/图像对象。
-      </p>
-
-      <div v-if="documentStore.info" class="editor-workspace">
-        <PageSidebar
-          :pages="documentStore.info.pages"
-          :previews="documentStore.previews"
-          @spacer-drag-start="startSpacerDrag"
-          @visible-pages="documentStore.prioritizePreviews"
-        />
-
-        <LayoutEditor
-          :page-size="documentStore.info.pageSizePt"
-          :previews="documentStore.previewList"
-        />
-      </div>
-    </section>
+    </div>
   </main>
 </template>

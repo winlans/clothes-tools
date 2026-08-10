@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import type { PageSizePt } from "@pdf2plt/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import { useResolvedSettings } from "../composables/use-resolved-settings";
+import { useDocumentSession } from "../stores/document-session";
 import type { PreviewState } from "../stores/pdf-document";
-import { useLayoutStore } from "../stores/layout";
-import { useGuideStore } from "../stores/guides";
-import { useProjectStore } from "../stores/project";
 import AdvancedInspector from "./AdvancedInspector.vue";
 import LayoutCanvas from "./LayoutCanvas.vue";
 import ZoomControl from "./ZoomControl.vue";
@@ -16,18 +15,17 @@ const props = defineProps<{
   previews: PreviewState[];
 }>();
 
-const layoutStore = useLayoutStore();
-const guideStore = useGuideStore();
-const projectStore = useProjectStore();
+const session = useDocumentSession();
+const { layoutStore, guideStore, projectStore } = session;
 const canvas = ref<InstanceType<typeof LayoutCanvas>>();
 const fullscreenCanvas = ref<InstanceType<typeof LayoutCanvas>>();
-const fullscreenHost = ref<HTMLElement>();
 const draftPagesPerColumn = ref(String(layoutStore.pagesPerColumn));
 const zoom = ref(1);
 const fullscreenZoom = ref(1);
 const fullscreenPreviewOpen = ref(false);
-let nativeFullscreenActive = false;
-const resolvedSettings = useResolvedSettings(() => props.pageSize);
+let nativeWindowFullscreenActive = false;
+let fullscreenTransition = 0;
+const resolvedSettings = useResolvedSettings(() => props.pageSize, () => session);
 
 const layoutSummary = computed(() => {
   const layout = layoutStore.layout;
@@ -52,6 +50,7 @@ function applyAutomaticLayout() {
   const value = Number(draftPagesPerColumn.value);
   if (layoutStore.setPagesPerColumn(value)) {
     draftPagesPerColumn.value = String(layoutStore.pagesPerColumn);
+    session.markDirty();
   }
 }
 
@@ -68,40 +67,42 @@ function displayZoom(scale: number): string {
   return Number((scale * 100).toFixed(6)).toString();
 }
 
+function applyLayoutMutation(change: () => boolean) {
+  if (change()) session.markDirty();
+}
+
 async function openFullscreenPreview() {
+  const transition = ++fullscreenTransition;
   fullscreenPreviewOpen.value = true;
   document.body.classList.add("fullscreen-preview-open");
   await nextTick();
   fullscreenCanvas.value?.fitContent();
 
-  const host = fullscreenHost.value;
-  if (!host?.requestFullscreen) return;
-  nativeFullscreenActive = true;
   try {
-    await host.requestFullscreen();
+    await getCurrentWindow().setFullscreen(true);
+    if (transition !== fullscreenTransition || !fullscreenPreviewOpen.value) {
+      await getCurrentWindow().setFullscreen(false).catch(() => undefined);
+      return;
+    }
+    nativeWindowFullscreenActive = true;
     await nextTick();
     fullscreenCanvas.value?.fitContent();
   } catch {
-    nativeFullscreenActive = false;
+    nativeWindowFullscreenActive = false;
   }
 }
 
 async function closeFullscreenPreview() {
-  nativeFullscreenActive = false;
-  if (document.fullscreenElement === fullscreenHost.value && document.exitFullscreen) {
+  fullscreenTransition += 1;
+  const shouldExitNativeFullscreen = nativeWindowFullscreenActive;
+  nativeWindowFullscreenActive = false;
+  if (shouldExitNativeFullscreen) {
     try {
-      await document.exitFullscreen();
+      await getCurrentWindow().setFullscreen(false);
     } catch {
-      // The fixed overlay remains a complete fallback when native fullscreen exits itself.
+      // The fixed overlay can still be closed if the window manager already left fullscreen.
     }
   }
-  fullscreenPreviewOpen.value = false;
-  document.body.classList.remove("fullscreen-preview-open");
-}
-
-function handleFullscreenChange() {
-  if (!nativeFullscreenActive || document.fullscreenElement === fullscreenHost.value) return;
-  nativeFullscreenActive = false;
   fullscreenPreviewOpen.value = false;
   document.body.classList.remove("fullscreen-preview-open");
 }
@@ -120,16 +121,16 @@ watch(
 );
 
 onMounted(() => {
-  document.addEventListener("fullscreenchange", handleFullscreenChange);
   window.addEventListener("keydown", handlePreviewKeyDown);
 });
 
 onBeforeUnmount(() => {
-  document.removeEventListener("fullscreenchange", handleFullscreenChange);
   window.removeEventListener("keydown", handlePreviewKeyDown);
   document.body.classList.remove("fullscreen-preview-open");
-  if (document.fullscreenElement === fullscreenHost.value && document.exitFullscreen) {
-    void document.exitFullscreen().catch(() => undefined);
+  fullscreenTransition += 1;
+  if (nativeWindowFullscreenActive) {
+    nativeWindowFullscreenActive = false;
+    void getCurrentWindow().setFullscreen(false).catch(() => undefined);
   }
 });
 </script>
@@ -185,7 +186,7 @@ onBeforeUnmount(() => {
         type="button"
         class="compact-button"
         :disabled="!layoutStore.canUndo"
-        @click="layoutStore.undo()"
+        @click="applyLayoutMutation(() => layoutStore.undo())"
       >
         撤销
       </button>
@@ -193,7 +194,7 @@ onBeforeUnmount(() => {
         type="button"
         class="compact-button"
         :disabled="!layoutStore.canRedo"
-        @click="layoutStore.redo()"
+        @click="applyLayoutMutation(() => layoutStore.redo())"
       >
         重做
       </button>
@@ -202,7 +203,7 @@ onBeforeUnmount(() => {
         type="button"
         class="compact-button"
         aria-label="增加一行"
-        @click="layoutStore.addRow()"
+        @click="applyLayoutMutation(() => layoutStore.addRow())"
       >
         + 行
       </button>
@@ -210,7 +211,7 @@ onBeforeUnmount(() => {
         type="button"
         class="compact-button"
         aria-label="删除最后一行"
-        @click="layoutStore.removeLastRow()"
+        @click="applyLayoutMutation(() => layoutStore.removeLastRow())"
       >
         − 行
       </button>
@@ -218,7 +219,7 @@ onBeforeUnmount(() => {
         type="button"
         class="compact-button"
         aria-label="增加一列"
-        @click="layoutStore.addColumn()"
+        @click="applyLayoutMutation(() => layoutStore.addColumn())"
       >
         + 列
       </button>
@@ -226,7 +227,7 @@ onBeforeUnmount(() => {
         type="button"
         class="compact-button"
         aria-label="删除最后一列"
-        @click="layoutStore.removeLastColumn()"
+        @click="applyLayoutMutation(() => layoutStore.removeLastColumn())"
       >
         − 列
       </button>
@@ -252,20 +253,24 @@ onBeforeUnmount(() => {
             <div class="mode-switch" role="group" aria-label="预览模式">
               <button
                 type="button"
-                :class="{ active: guideStore.previewMode === 'full' }"
-                @click="guideStore.setPreviewModeValidated('full', true)"
-              >
-                完整页面
-              </button>
-              <button
-                type="button"
                 :class="{ active: guideStore.previewMode === 'cropped' }"
                 :disabled="!resolvedSettings.resolved.value.value"
                 @click="guideStore.setPreviewModeValidated('cropped', Boolean(resolvedSettings.resolved.value.value))"
               >
                 成品裁切
               </button>
+              <button
+                type="button"
+                :class="{ active: guideStore.previewMode === 'full' }"
+                @click="guideStore.setPreviewModeValidated('full', true)"
+              >
+                完整页面
+              </button>
             </div>
+            <label class="check-row grid-visibility-toggle">
+              <input v-model="session.ui.showGrid" type="checkbox" />
+              显示栅格
+            </label>
             <ZoomControl :scale="zoom" @set-zoom="canvas?.setZoom($event)" />
             <button
               type="button"
@@ -284,13 +289,14 @@ onBeforeUnmount(() => {
           :page-size="props.pageSize"
           :previews="props.previews"
           :guides="activeGuides"
+          :show-grid="session.ui.showGrid"
           :initial-camera="initialCamera"
           @zoom-change="zoom = $event"
           @view-change="projectStore.setView"
-          @move-page="layoutStore.movePageTo"
-          @insert-spacer="layoutStore.insertSpacer"
-          @move-spacer="layoutStore.moveSpacerTo"
-          @delete-spacer="layoutStore.deleteSpacer"
+          @move-page="(pageNumber, target) => applyLayoutMutation(() => layoutStore.movePageTo(pageNumber, target))"
+          @insert-spacer="(target) => applyLayoutMutation(() => layoutStore.insertSpacer(target))"
+          @move-spacer="(spacerId, target) => applyLayoutMutation(() => layoutStore.moveSpacerTo(spacerId, target))"
+          @delete-spacer="(spacerId) => applyLayoutMutation(() => layoutStore.deleteSpacer(spacerId))"
         />
 
         <footer class="canvas-status">
@@ -307,7 +313,6 @@ onBeforeUnmount(() => {
 
     <section
       v-if="fullscreenPreviewOpen && layoutStore.layout"
-      ref="fullscreenHost"
       class="fullscreen-preview"
       role="dialog"
       aria-modal="true"
@@ -322,20 +327,24 @@ onBeforeUnmount(() => {
           <div class="mode-switch" role="group" aria-label="全屏预览模式">
             <button
               type="button"
-              :class="{ active: guideStore.previewMode === 'full' }"
-              @click="guideStore.setPreviewModeValidated('full', true)"
-            >
-              完整页面
-            </button>
-            <button
-              type="button"
               :class="{ active: guideStore.previewMode === 'cropped' }"
               :disabled="!resolvedSettings.resolved.value.value"
               @click="guideStore.setPreviewModeValidated('cropped', Boolean(resolvedSettings.resolved.value.value))"
             >
               成品裁切
             </button>
+            <button
+              type="button"
+              :class="{ active: guideStore.previewMode === 'full' }"
+              @click="guideStore.setPreviewModeValidated('full', true)"
+            >
+              完整页面
+            </button>
           </div>
+          <label class="check-row grid-visibility-toggle">
+            <input v-model="session.ui.showGrid" type="checkbox" />
+            显示栅格
+          </label>
           <ZoomControl
             :scale="fullscreenZoom"
             @set-zoom="fullscreenCanvas?.setZoom($event)"
@@ -364,6 +373,7 @@ onBeforeUnmount(() => {
         :page-size="props.pageSize"
         :previews="props.previews"
         :guides="activeGuides"
+        :show-grid="session.ui.showGrid"
         :initial-camera="undefined"
         :editable="false"
         @zoom-change="fullscreenZoom = $event"
