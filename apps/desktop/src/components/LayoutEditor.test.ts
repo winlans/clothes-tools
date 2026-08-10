@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useLayoutStore } from "../stores/layout";
 import { useGuideStore } from "../stores/guides";
+import { usePdfDocumentStore } from "../stores/pdf-document";
 import { useProjectStore } from "../stores/project";
 import LayoutEditor from "./LayoutEditor.vue";
 
@@ -75,6 +76,40 @@ describe("LayoutEditor", () => {
     );
     expect(wrapper.text()).toContain("5 列 × 3 行");
     expect(wrapper.find('[data-testid="layout-canvas"]').exists()).toBe(true);
+  });
+
+  it("requests previews for every page shown on the layout canvas", async () => {
+    const documentStore = usePdfDocumentStore();
+    documentStore.requestId = 31;
+    documentStore.info = {
+      documentId: "pdf-1",
+      pageCount: 24,
+      pageSizePt: { width: 841.89, height: 1190.551 },
+      pages: Array.from({ length: 24 }, (_, index) => ({
+        pageNumber: index + 1,
+        width: 841.89,
+        height: 1190.551,
+      })),
+    };
+    const postMessage = vi.fn();
+    documentStore.worker = { postMessage } as unknown as Worker;
+    const layoutStore = useLayoutStore();
+    layoutStore.initialize("pdf-1", 24);
+
+    mount(LayoutEditor, {
+      props: {
+        pageSize: { width: 841.89, height: 1190.551 },
+        previews: [],
+      },
+      global: { plugins: [pinia], stubs: { LayoutCanvas: LayoutCanvasStub } },
+    });
+    await nextTick();
+
+    expect(postMessage).toHaveBeenCalledWith({
+      type: "request-previews",
+      requestId: 31,
+      pageNumbers: Array.from({ length: 24 }, (_, index) => index + 1),
+    });
   });
 
   it("reflows the layout and reports invalid row counts", async () => {

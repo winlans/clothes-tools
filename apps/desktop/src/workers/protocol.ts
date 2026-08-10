@@ -4,8 +4,11 @@ import type {
   GuideDetectionResult,
   LayoutGrid,
   PdfDocumentInfo,
+  PltExportOptions,
   SvgExportOptions,
 } from "@pdf2plt/core";
+
+export type VectorExportFormat = "svg" | "plt";
 
 export type PdfWorkerRequest =
   | {
@@ -27,11 +30,13 @@ export type PdfWorkerRequest =
       options: GuideDetectionOptions;
     }
   | {
-      type: "export-svg";
+      type: "export-vector";
       requestId: number;
+      format: VectorExportFormat;
       layout: LayoutGrid;
       guides: GuideCoordinates | undefined;
-      options: SvgExportOptions;
+      svgOptions: SvgExportOptions;
+      pltOptions: PltExportOptions;
     }
   | { type: "close"; requestId: number };
 
@@ -77,13 +82,18 @@ export type PdfWorkerResponse =
       total: number;
     }
   | {
-      type: "svg-export";
+      type: "vector-export";
       requestId: number;
+      format: VectorExportFormat;
       bytes: Uint8Array<ArrayBuffer>;
       widthPt: number;
       heightPt: number;
       pageInstances: number;
       visibleObjects: number;
+      paths: number;
+      segments: number;
+      omittedImages: number;
+      warnings: string[];
     }
   | {
       type: "export-error";

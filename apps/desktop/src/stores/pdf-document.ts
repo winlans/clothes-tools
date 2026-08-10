@@ -1,16 +1,22 @@
 import {
+  DEFAULT_PLT_EXPORT_OPTIONS,
   DEFAULT_SVG_EXPORT_OPTIONS,
   type GuideCoordinates,
   type GuideDetectionOptions,
   type GuideDetectionResult,
   type LayoutGrid,
   type PdfDocumentInfo,
+  type PltExportOptions,
   type SvgExportOptions,
 } from "@pdf2plt/core";
 import { defineStore } from "pinia";
 import { markRaw } from "vue";
 
-import type { PdfWorkerRequest, PdfWorkerResponse } from "../workers/protocol";
+import type {
+  PdfWorkerRequest,
+  PdfWorkerResponse,
+  VectorExportFormat,
+} from "../workers/protocol";
 import { sha256Hex } from "../project/fingerprint";
 
 export interface PreviewState {
@@ -26,15 +32,22 @@ type DetectionStatus = "idle" | "running" | "cancelled" | "error";
 
 export const MAX_PREVIEW_CACHE = 18;
 
-export interface DesktopSvgExport {
+export interface DesktopVectorExport {
+  format: VectorExportFormat;
   bytes: Uint8Array<ArrayBuffer>;
   widthPt: number;
   heightPt: number;
   pageInstances: number;
   visibleObjects: number;
+  paths: number;
+  segments: number;
+  omittedImages: number;
+  warnings: string[];
 }
 
-type PendingExport = { resolve(value: DesktopSvgExport): void; reject(reason: Error): void };
+export type DesktopSvgExport = DesktopVectorExport;
+
+type PendingExport = { resolve(value: DesktopVectorExport): void; reject(reason: Error): void };
 type PendingDetection = {
   resolve(value: GuideDetectionResult): void;
   reject(reason: Error): void;
@@ -63,7 +76,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
     errorMessage: "",
     exportStatus: "idle" as ExportStatus,
     exportProgress: { completed: 0, total: 0 },
-    exportSummary: undefined as Omit<DesktopSvgExport, "bytes"> | undefined,
+    exportSummary: undefined as Omit<DesktopVectorExport, "bytes"> | undefined,
     exportErrorMessage: "",
     worker: undefined as Worker | undefined,
     requestId: 0,
@@ -87,7 +100,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       this.worker.onerror = (event) => {
         if (this.exportStatus === "running") {
           this.exportStatus = "error";
-          this.exportErrorMessage = event.message || "SVG 导出 Worker 发生错误。";
+          this.exportErrorMessage = event.message || "矢量导出 Worker 发生错误。";
           pendingExports.get(this)?.reject(new Error(this.exportErrorMessage));
           pendingExports.delete(this);
           return;
@@ -183,20 +196,30 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
         this.exportProgress = { completed: message.completed, total: message.total };
         return;
       }
-      if (message.type === "svg-export") {
-        const result: DesktopSvgExport = {
+      if (message.type === "vector-export") {
+        const result: DesktopVectorExport = {
+          format: message.format,
           bytes: message.bytes,
           widthPt: message.widthPt,
           heightPt: message.heightPt,
           pageInstances: message.pageInstances,
           visibleObjects: message.visibleObjects,
+          paths: message.paths,
+          segments: message.segments,
+          omittedImages: message.omittedImages,
+          warnings: message.warnings,
         };
         this.exportStatus = "complete";
         this.exportSummary = {
+          format: result.format,
           widthPt: result.widthPt,
           heightPt: result.heightPt,
           pageInstances: result.pageInstances,
           visibleObjects: result.visibleObjects,
+          paths: result.paths,
+          segments: result.segments,
+          omittedImages: result.omittedImages,
+          warnings: result.warnings,
         };
         pendingExports.get(this)?.resolve(result);
         pendingExports.delete(this);
@@ -226,7 +249,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
           pendingDetections.delete(this);
         } else {
           this.exportStatus = "cancelled";
-          pendingExports.get(this)?.reject(new Error("SVG 导出已取消。"));
+          pendingExports.get(this)?.reject(new Error("矢量导出已取消。"));
           pendingExports.delete(this);
         }
         return;
@@ -283,7 +306,8 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       }
     },
     setPreviewCacheLimit(limit: number) {
-      this.previewCacheLimit = Math.max(1, Math.min(MAX_PREVIEW_CACHE, Math.floor(limit)));
+      const maximum = Math.max(MAX_PREVIEW_CACHE, this.info?.pageCount ?? MAX_PREVIEW_CACHE);
+      this.previewCacheLimit = Math.max(1, Math.min(maximum, Math.floor(limit)));
       if (this.previewCacheLimit < MAX_PREVIEW_CACHE) this.visiblePreviewPages = [];
       this.evictPreviewCache();
     },
@@ -314,28 +338,39 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
         task: "preview",
       } satisfies PdfWorkerRequest);
     },
-    exportSvg(
+    exportVector(
+      format: VectorExportFormat,
       layout: LayoutGrid,
       guides: GuideCoordinates | undefined,
-      overrides: Partial<SvgExportOptions> = {},
-    ): Promise<DesktopSvgExport> {
+      svgOverrides: Partial<SvgExportOptions> = {},
+      pltOverrides: Partial<PltExportOptions> = {},
+    ): Promise<DesktopVectorExport> {
       if (!this.worker || !this.info) return Promise.reject(new Error("请先打开 PDF。"));
-      if (pendingExports.has(this)) return Promise.reject(new Error("已有 SVG 导出任务正在进行。"));
+      if (pendingExports.has(this)) return Promise.reject(new Error("已有矢量导出任务正在进行。"));
       this.exportStatus = "running";
       this.exportProgress = { completed: 0, total: this.info.pageCount };
       this.exportSummary = undefined;
       this.exportErrorMessage = "";
       const request: PdfWorkerRequest = {
-        type: "export-svg",
+        type: "export-vector",
         requestId: this.requestId,
+        format,
         layout: JSON.parse(JSON.stringify(layout)) as LayoutGrid,
         guides: guides ? { ...guides } : undefined,
-        options: { ...DEFAULT_SVG_EXPORT_OPTIONS, ...overrides },
+        svgOptions: { ...DEFAULT_SVG_EXPORT_OPTIONS, ...svgOverrides },
+        pltOptions: { ...DEFAULT_PLT_EXPORT_OPTIONS, ...pltOverrides },
       };
-      return new Promise<DesktopSvgExport>((resolve, reject) => {
+      return new Promise<DesktopVectorExport>((resolve, reject) => {
         pendingExports.set(this, { resolve, reject });
         this.worker?.postMessage(request);
       });
+    },
+    exportSvg(
+      layout: LayoutGrid,
+      guides: GuideCoordinates | undefined,
+      overrides: Partial<SvgExportOptions> = {},
+    ): Promise<DesktopVectorExport> {
+      return this.exportVector("svg", layout, guides, overrides);
     },
     detectGuides(options: GuideDetectionOptions): Promise<GuideDetectionResult> {
       if (!this.worker || !this.info) return Promise.reject(new Error("请先打开 PDF。"));
@@ -370,7 +405,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       } satisfies PdfWorkerRequest);
     },
     resetExport() {
-      pendingExports.get(this)?.reject(new Error("SVG 导出已取消。"));
+      pendingExports.get(this)?.reject(new Error("矢量导出已取消。"));
       pendingExports.delete(this);
       this.exportStatus = "idle";
       this.exportProgress = { completed: 0, total: 0 };

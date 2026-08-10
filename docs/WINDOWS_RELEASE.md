@@ -75,7 +75,8 @@ Windows CI 会执行以下检查：
 
 1. 在 Windows 10 x64 和 Windows 11 x64 至少各测试一次安装、启动和卸载。
 2. 导入真实多页 PDF，确认缩略图、自动红线识别、拖拽与白色空白块正常。
-3. 导出 SVG，在 CorelDRAW 中核对毫米尺寸与矢量可编辑性。
+3. 分别导出 SVG 和 PLT，在 CorelDRAW 2021–2024 中核对毫米尺寸、文字轮廓与
+   矢量可编辑性。
 4. 无 WebView2 的测试机验证在线 bootstrapper；离线发行则验证离线安装模式。
 5. 配置签名后用 `Get-AuthenticodeSignature` 确认 `.exe` 和 `.msi` 签名有效。
 

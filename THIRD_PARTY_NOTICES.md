@@ -25,6 +25,8 @@ instructions are in `SOURCE_OFFER.md`.
 - Vue 3 — MIT
 - Pinia 3 — MIT
 - Konva 10 — MIT
+- saxes 6 — ISC
+- svgpath 2 — MIT
 - serde and serde_json — Apache-2.0 OR MIT
 
 ## CLI runtime

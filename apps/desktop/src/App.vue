@@ -6,21 +6,24 @@ import DocumentWorkspace from "./components/DocumentWorkspace.vue";
 import { usePdfImport } from "./composables/use-pdf-import";
 import { useResolvedSettings } from "./composables/use-resolved-settings";
 import {
-  defaultSvgName,
-  normalizeSvgName,
-  useSvgExport,
+  defaultExportName,
+  exportFormatLabel,
+  normalizeExportName,
+  useVectorExport,
   validateSessionExport,
+  type VectorExportFormat,
 } from "./composables/use-svg-export";
 import type { DocumentSession } from "./stores/document-session";
 import { useWorkspaceStore } from "./stores/workspace";
 
 const fileInput = ref<HTMLInputElement>();
 const showLegalNotice = ref(false);
-const openCommandMenu = ref<"more" | undefined>();
+const openCommandMenu = ref<"export" | "more" | undefined>();
 const closeRequest = ref<{ kind: "tab"; id: string } | { kind: "application" }>();
 const exportDialogOpen = ref(false);
 const batchExporting = ref(false);
 const exportDialogError = ref("");
+const exportFormat = ref<VectorExportFormat>("svg");
 const exportRows = ref<Array<{
   sessionId: string;
   title: string;
@@ -35,7 +38,7 @@ const resolvedSettings = useResolvedSettings(
   () => activeSession.value?.documentStore.info?.pageSizePt,
   () => activeSession.value,
 );
-const svgExport = useSvgExport(() => activeSession.value);
+const vectorExport = useVectorExport(() => activeSession.value);
 let unlistenCloseRequested: (() => void) | undefined;
 
 const activeDocument = computed(() => activeSession.value?.documentStore);
@@ -57,7 +60,7 @@ const closeMessage = computed(() => {
     ? workspace.tabs.find((tab) => tab.id === request.id)
     : undefined;
   return session?.documentStore.exportStatus === "running"
-    ? "该标签正在导出 SVG，关闭会取消导出并丢失当前调整。"
+    ? "该标签正在导出矢量文件，关闭会取消导出并丢失当前调整。"
     : "该标签包含尚未保存的排版或导出设置，关闭后无法恢复。";
 });
 
@@ -103,7 +106,7 @@ async function confirmClose() {
   if (pdfImport.isDesktop) await getCurrentWindow().destroy();
 }
 
-async function handleExportAction() {
+async function handleExportAction(format: VectorExportFormat) {
   openCommandMenu.value = undefined;
   const documentStore = activeDocument.value;
   if (!documentStore) return;
@@ -111,18 +114,22 @@ async function handleExportAction() {
     documentStore.cancelExport();
     return;
   }
-  await svgExport.exportCurrentSvg();
+  await vectorExport.exportCurrent(format);
 }
 
-function uniqueDefaultSvgNames(sessions: DocumentSession[]) {
+function uniqueDefaultExportNames(
+  sessions: DocumentSession[],
+  format: VectorExportFormat,
+) {
   const used = new Set<string>();
   return sessions.map((session) => {
-    const defaultName = defaultSvgName(session.source.fileName);
-    const base = defaultName.replace(/\.svg$/i, "");
+    const defaultName = defaultExportName(session.source.fileName, format);
+    const extension = format === "svg" ? "svg" : "plt";
+    const base = defaultName.replace(new RegExp(`\\.${extension}$`, "i"), "");
     let candidate = defaultName;
     let suffix = 2;
     while (used.has(candidate.toLocaleLowerCase())) {
-      candidate = `${base}-${suffix}.svg`;
+      candidate = `${base}-${suffix}.${extension}`;
       suffix += 1;
     }
     used.add(candidate.toLocaleLowerCase());
@@ -130,15 +137,16 @@ function uniqueDefaultSvgNames(sessions: DocumentSession[]) {
   });
 }
 
-function openBatchExportDialog() {
-  const defaults = uniqueDefaultSvgNames(workspace.tabs);
+function openBatchExportDialog(format: VectorExportFormat) {
+  exportFormat.value = format;
+  const defaults = uniqueDefaultExportNames(workspace.tabs, format);
   exportRows.value = workspace.tabs.map((session, index) => {
     const validationError = validateSessionExport(session);
     return {
       sessionId: session.id,
       title: session.source.fileName,
       selected: !validationError,
-      fileName: defaults[index] ?? defaultSvgName(session.source.fileName),
+      fileName: defaults[index] ?? defaultExportName(session.source.fileName, format),
       validationError,
     };
   });
@@ -146,17 +154,26 @@ function openBatchExportDialog() {
   exportDialogOpen.value = true;
 }
 
-async function handleExportCommand() {
+async function handleExportCommand(format: VectorExportFormat) {
   openCommandMenu.value = undefined;
   if (activeDocument.value?.exportStatus === "running") {
     activeDocument.value.cancelExport();
     return;
   }
   if (workspace.tabs.length > 1) {
-    openBatchExportDialog();
+    openBatchExportDialog(format);
     return;
   }
-  await handleExportAction();
+  await handleExportAction(format);
+}
+
+function toggleExportMenu() {
+  if (activeDocument.value?.exportStatus === "running") {
+    activeDocument.value.cancelExport();
+    openCommandMenu.value = undefined;
+    return;
+  }
+  openCommandMenu.value = openCommandMenu.value === "export" ? undefined : "export";
 }
 
 function closeExportDialog() {
@@ -166,13 +183,15 @@ function closeExportDialog() {
 }
 
 function normalizeExportRow(row: (typeof exportRows.value)[number]) {
-  row.fileName = normalizeSvgName(row.fileName, row.title);
+  row.fileName = normalizeExportName(row.fileName, row.title, exportFormat.value);
 }
 
 function validateExportRows(): string {
   const selected = exportRows.value.filter((row) => row.selected && !row.validationError);
   if (selected.length === 0) return "请至少选择一个可导出的标签。";
-  const names = selected.map((row) => normalizeSvgName(row.fileName, row.title));
+  const names = selected.map((row) =>
+    normalizeExportName(row.fileName, row.title, exportFormat.value),
+  );
   const uniqueNames = new Set(names.map((name) => name.toLocaleLowerCase()));
   if (uniqueNames.size !== names.length) return "导出文件名不能重复。";
   return "";
@@ -188,13 +207,13 @@ async function confirmBatchExport() {
     if (!row.selected || row.validationError) return [];
     const session = workspace.tabs.find((tab) => tab.id === row.sessionId);
     if (!session) return [];
-    row.fileName = normalizeSvgName(row.fileName, row.title);
+    row.fileName = normalizeExportName(row.fileName, row.title, exportFormat.value);
     return [{ session, fileName: row.fileName }];
   });
   batchExporting.value = true;
   exportDialogError.value = "";
   try {
-    const result = await svgExport.exportSelectedSvgs(entries);
+    const result = await vectorExport.exportSelected(exportFormat.value, entries);
     if (result.cancelled) return;
     if (result.errors.length > 0) {
       const exportedNames = new Set(
@@ -203,7 +222,10 @@ async function confirmBatchExport() {
       for (const row of exportRows.value) {
         if (
           row.selected &&
-          exportedNames.has(normalizeSvgName(row.fileName, row.title).toLocaleLowerCase())
+          exportedNames.has(
+            normalizeExportName(row.fileName, row.title, exportFormat.value)
+              .toLocaleLowerCase(),
+          )
         ) {
           row.selected = false;
         }
@@ -217,7 +239,11 @@ async function confirmBatchExport() {
       return;
     }
     exportDialogOpen.value = false;
-    pdfImport.importNotice.value = `已导出 ${result.exported.length} 个 SVG：${result.exported.join("、")}`;
+    const warning = result.warnings.length > 0
+      ? `；${result.warnings.join("；")}`
+      : "";
+    pdfImport.importNotice.value =
+      `已导出 ${result.exported.length} 个 ${exportFormatLabel(exportFormat.value)}：${result.exported.join("、")}${warning}`;
   } finally {
     batchExporting.value = false;
   }
@@ -336,28 +362,54 @@ onBeforeUnmount(() => {
           </svg>
           打开 PDF
         </button>
-        <button
-          type="button"
-          class="app-command"
-          :disabled="
-            batchExporting ||
-            (activeDocument?.exportStatus !== 'running' &&
-              (workspace.tabs.length > 1
-                ? !canExportAnySession
-                : !activeDocument?.info || !resolvedSettings.canExport.value))
-          "
-          :title="
-            workspace.tabs.length > 1
-              ? '选择标签并导出 SVG'
-              : resolvedSettings.validationError.value || '导出 SVG'
-          "
-          @click="handleExportCommand"
-        >
-          <svg class="app-command__icon" viewBox="0 0 16 16" aria-hidden="true">
-            <path d="M8 2.25v7.5m-3-3 3 3 3-3M2.5 12.75h11" />
-          </svg>
-          {{ activeDocument?.exportStatus === 'running' ? '取消导出' : '导出 SVG' }}
-        </button>
+        <div class="app-command-menu">
+          <button
+            type="button"
+            class="app-command"
+            :class="{ active: openCommandMenu === 'export' }"
+            :disabled="
+              batchExporting ||
+              (activeDocument?.exportStatus !== 'running' &&
+                (workspace.tabs.length > 1
+                  ? !canExportAnySession
+                  : !activeDocument?.info || !resolvedSettings.canExport.value))
+            "
+            :title="
+              workspace.tabs.length > 1
+                ? '选择标签并导出矢量文件'
+                : resolvedSettings.validationError.value || '导出矢量文件'
+            "
+            aria-haspopup="menu"
+            :aria-expanded="openCommandMenu === 'export'"
+            @click="toggleExportMenu"
+          >
+            <svg class="app-command__icon" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M8 2.25v7.5m-3-3 3 3 3-3M2.5 12.75h11" />
+            </svg>
+            {{ activeDocument?.exportStatus === 'running' ? '取消导出' : '导出' }}
+            <span v-if="activeDocument?.exportStatus !== 'running'" aria-hidden="true">⌄</span>
+          </button>
+          <div v-if="openCommandMenu === 'export'" class="app-command-menu__panel" role="menu">
+            <button
+              type="button"
+              class="app-command-menu__item"
+              role="menuitem"
+              @click="handleExportCommand('svg')"
+            >
+              <span class="app-command-menu__mark">◇</span>
+              导出 SVG
+            </button>
+            <button
+              type="button"
+              class="app-command-menu__item"
+              role="menuitem"
+              @click="handleExportCommand('plt')"
+            >
+              <span class="app-command-menu__mark">⌁</span>
+              导出 PLT（CorelDRAW）
+            </button>
+          </div>
+        </div>
         <button
           type="button"
           class="app-command"
@@ -521,7 +573,9 @@ onBeforeUnmount(() => {
         <header class="export-dialog__header">
           <div>
             <span class="eyebrow">批量导出</span>
-            <h2 id="export-dialog-title">选择要导出的标签</h2>
+            <h2 id="export-dialog-title">
+              选择要导出的标签 · {{ exportFormatLabel(exportFormat) }}
+            </h2>
           </div>
           <button
             type="button"
@@ -532,7 +586,8 @@ onBeforeUnmount(() => {
           >×</button>
         </header>
         <p class="export-dialog__description">
-          默认选择所有可导出的标签。你可以取消选择或修改文件名，确认后再选择输出目录。
+          默认选择所有可导出的标签。你可以取消选择或修改文件名，确认后再选择
+          {{ exportFormatLabel(exportFormat) }} 输出目录。
         </p>
 
         <div class="export-tab-list">

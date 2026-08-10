@@ -72,17 +72,32 @@ function startSpacerDrag(event: DragEvent) {
       {{ documentStore.exportErrorMessage }}
     </p>
     <p v-if="documentStore.exportStatus === 'cancelled'" class="guide-warning" role="status">
-      SVG 导出已取消，未写入输出文件。
+      矢量导出已取消，未写入输出文件。
     </p>
     <p
       v-if="documentStore.exportStatus === 'complete' && documentStore.exportSummary"
       class="export-summary"
       role="status"
     >
-      SVG 已生成：{{ documentStore.exportSummary.pageInstances }} 个页面实例，
+      {{ documentStore.exportSummary.format.toUpperCase() }} 已生成：
+      {{ documentStore.exportSummary.pageInstances }} 个页面实例，
       {{ ((documentStore.exportSummary.widthPt * 25.4) / 72).toFixed(2) }} ×
       {{ ((documentStore.exportSummary.heightPt * 25.4) / 72).toFixed(2) }} mm，
-      {{ documentStore.exportSummary.visibleObjects }} 个矢量/图像对象。
+      <template v-if="documentStore.exportSummary.format === 'plt'">
+        {{ documentStore.exportSummary.paths }} 条刀路、
+        {{ documentStore.exportSummary.segments }} 条线段。
+      </template>
+      <template v-else>
+        {{ documentStore.exportSummary.visibleObjects }} 个矢量/图像对象。
+      </template>
+    </p>
+    <p
+      v-for="warning in documentStore.exportSummary?.warnings ?? []"
+      :key="warning"
+      class="guide-warning"
+      role="status"
+    >
+      {{ warning }}
     </p>
 
     <div v-if="documentStore.info" class="editor-workspace">

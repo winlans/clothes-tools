@@ -129,19 +129,26 @@ describe("pdf document store", () => {
 
     expect(postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: "export-svg",
+        type: "export-vector",
+        format: "svg",
         requestId: 3,
-        options: { removeGuides: true, removeBackground: true },
+        svgOptions: { removeGuides: true, removeBackground: true },
+        pltOptions: { curveToleranceMm: 0.05 },
       }),
     );
     store.handleWorkerMessage({
-      type: "svg-export",
+      type: "vector-export",
       requestId: 3,
+      format: "svg",
       bytes: new TextEncoder().encode("<svg/>") as Uint8Array<ArrayBuffer>,
       widthPt: 200,
       heightPt: 300,
       pageInstances: 1,
       visibleObjects: 4,
+      paths: 0,
+      segments: 0,
+      omittedImages: 0,
+      warnings: [],
     });
 
     await expect(exported).resolves.toMatchObject({ widthPt: 200, pageInstances: 1 });
@@ -216,6 +223,35 @@ describe("pdf document store", () => {
     expect(store.previews[2]).toBeUndefined();
     expect(store.previews[3]).toBeUndefined();
     expect(revokeObjectURL).toHaveBeenCalledTimes(2);
+  });
+
+  it("can retain and request every page required by the active layout", () => {
+    const store = usePdfDocumentStore();
+    store.requestId = 21;
+    store.info = {
+      documentId: "large-layout",
+      pageCount: 24,
+      pageSizePt: { width: 200, height: 300 },
+      pages: Array.from({ length: 24 }, (_, index) => ({
+        pageNumber: index + 1,
+        width: 200,
+        height: 300,
+      })),
+    };
+    const postMessage = vi.fn();
+    store.worker = { postMessage } as unknown as Worker;
+    const layoutPages = Array.from({ length: 24 }, (_, index) => index + 1);
+
+    store.setPreviewCacheLimit(layoutPages.length);
+    store.prioritizePreviews(layoutPages);
+
+    expect(store.previewCacheLimit).toBe(24);
+    expect(store.visiblePreviewPages).toEqual(layoutPages);
+    expect(postMessage).toHaveBeenCalledWith({
+      type: "request-previews",
+      requestId: 21,
+      pageNumbers: layoutPages,
+    });
   });
 
   it("prioritizes missing visible previews and cancels export cooperatively", async () => {

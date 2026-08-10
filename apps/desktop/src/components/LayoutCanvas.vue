@@ -64,7 +64,13 @@ let panning = false;
 let lastPointer: Point | undefined;
 let activeDrag: ActiveDrag | undefined;
 let dropHighlight: Konva.Rect | undefined;
-const imageCache = new Map<string, HTMLImageElement>();
+interface PreviewImageEntry {
+  image: HTMLImageElement;
+  loaded: boolean;
+  nodes: Set<Konva.Image>;
+}
+
+const imageCache = new Map<string, PreviewImageEntry>();
 const geometry = computed(() =>
   createLayoutCropGeometry(props.layout, props.pageSize, props.guides),
 );
@@ -113,18 +119,30 @@ function setZoom(scale: number) {
 function loadPreview(url: string, node: Konva.Image) {
   const cached = imageCache.get(url);
   if (cached) {
-    node.image(cached);
+    cached.nodes.add(node);
+    node.image(cached.image);
+    if (cached.loaded) node.getLayer()?.batchDraw();
     return;
   }
 
   const image = new window.Image();
   image.decoding = "async";
+  const entry: PreviewImageEntry = { image, loaded: false, nodes: new Set([node]) };
+  imageCache.set(url, entry);
+  node.image(image);
   image.onload = () => {
-    imageCache.set(url, image);
-    if (node.getLayer()) {
-      node.image(image);
-      node.getLayer()?.batchDraw();
+    entry.loaded = true;
+    for (const waitingNode of entry.nodes) {
+      if (waitingNode.getLayer()) {
+        waitingNode.image(image);
+        waitingNode.getLayer()?.batchDraw();
+      } else {
+        entry.nodes.delete(waitingNode);
+      }
     }
+  };
+  image.onerror = () => {
+    if (imageCache.get(url) === entry) imageCache.delete(url);
   };
   image.src = url;
 }
@@ -300,7 +318,7 @@ function createPageGroup(
 
   if (preview) {
     const previewNode = new Konva.Image({
-      image: imageCache.get(preview.url) ?? new window.Image(),
+      image: imageCache.get(preview.url)?.image ?? new window.Image(),
       x: -frame.sourceX,
       y: -frame.sourceY,
       width: props.pageSize.width,

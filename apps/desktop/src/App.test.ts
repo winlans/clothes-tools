@@ -14,7 +14,7 @@ describe("App", () => {
     const wrapper = mount(App, { global: { plugins: [createPinia()] } });
     expect(wrapper.findAll("button").map((button) => button.text())).toEqual([
       "打开 PDF",
-      "导出 SVG",
+      "导出 ⌄",
       "关闭标签",
       "更多 ⌄",
     ]);
@@ -81,7 +81,7 @@ describe("App", () => {
     wrapper.unmount();
   });
 
-  it("lets users select and rename tabs for a multi-document SVG export", async () => {
+  it("lets users select and rename tabs for multi-document SVG and PLT exports", async () => {
     const pinia = createPinia();
     setActivePinia(pinia);
     const wrapper = mount(App, { global: { plugins: [pinia] } });
@@ -111,10 +111,14 @@ describe("App", () => {
     await nextTick();
 
     const exportButton = wrapper.findAll("button").find((button) =>
-      button.text().includes("导出 SVG"),
+      button.text().trim() === "导出 ⌄",
     );
     expect(exportButton?.attributes("disabled")).toBeUndefined();
     await exportButton?.trigger("click");
+    const exportSvg = wrapper.findAll("button").find((button) =>
+      button.text().includes("导出 SVG"),
+    );
+    await exportSvg?.trigger("click");
 
     const dialog = wrapper.get(".export-dialog");
     expect(dialog.text()).toContain("选择要导出的标签");
@@ -131,6 +135,17 @@ describe("App", () => {
     await fileNames[0]?.trigger("blur");
     expect(fileNames[0]?.element.value).toBe("客户版.svg");
     expect(dialog.get(".primary-button").text()).toContain("导出（2）");
+
+    await dialog.get('.export-dialog__close').trigger("click");
+    await exportButton?.trigger("click");
+    const exportPlt = wrapper.findAll("button").find((button) =>
+      button.text().includes("导出 PLT"),
+    );
+    await exportPlt?.trigger("click");
+    const pltDialog = wrapper.get(".export-dialog");
+    expect(pltDialog.text()).toContain("PLT");
+    expect(pltDialog.findAll<HTMLInputElement>('.export-tab-row__filename input')
+      .map((input) => input.element.value)).toEqual(["sample.plt", "sample-2.plt"]);
     wrapper.unmount();
   });
 });

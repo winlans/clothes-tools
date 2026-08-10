@@ -1,7 +1,7 @@
 # pdf2plt
 
 基于 Tauri 2、Vue 3、TypeScript 和 MuPDF WASM 的服装版图 PDF 可视化
-排版与矢量 SVG 导出工具。
+排版与 SVG / CorelDRAW 兼容 PLT 导出工具。
 
 当前正在按纵向任务切片开发：
 
@@ -38,7 +38,8 @@ pnpm smoke:pdf /path/to/input.pdf
 
 ## 命令行转换
 
-CLI 与桌面应用复用相同的 MuPDF、红线检测和单根 SVG 导出核心：
+CLI 与桌面应用复用相同的 MuPDF、红线检测和单根 SVG 导出核心；桌面应用还可
+把同一矢量结果转换为 CorelDRAW 可导入的基础 HP-GL `.plt`：
 
 ```bash
 # 自动按每列 3 页排列，默认输出 input.svg

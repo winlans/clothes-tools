@@ -126,7 +126,7 @@ export async function openMuPdfDocument(
     }
     const page = document.loadPage(pageNumber - 1);
     const buffer = new mupdf.Buffer();
-    const writer = new mupdf.DocumentWriter(buffer, "svg", "");
+    const writer = new mupdf.DocumentWriter(buffer, "svg", "text=path");
     let device: InstanceType<MuPdfModule["Device"]> | undefined;
     let closed = false;
     try {

@@ -11,30 +11,60 @@ import type { DocumentSession } from "../stores/document-session";
 import { useLayoutStore } from "../stores/layout";
 import { usePdfDocumentStore } from "../stores/pdf-document";
 import { useProjectStore } from "../stores/project";
+import type { VectorExportFormat } from "../workers/protocol";
 
-export interface SvgBatchEntry {
+export type { VectorExportFormat } from "../workers/protocol";
+
+export interface VectorBatchEntry {
   session: DocumentSession;
   fileName: string;
 }
 
-export interface SvgBatchExportResult {
+export interface VectorBatchExportResult {
   cancelled: boolean;
   exported: string[];
   errors: string[];
+  warnings: string[];
 }
 
-export function defaultSvgName(fileName: string): string {
-  return fileName.replace(/\.pdf$/i, "") + ".svg";
+const FORMAT_DETAILS: Record<VectorExportFormat, {
+  extension: string;
+  label: string;
+  mimeType: string;
+}> = {
+  svg: { extension: "svg", label: "SVG", mimeType: "image/svg+xml" },
+  plt: { extension: "plt", label: "PLT", mimeType: "application/vnd.hp-hpgl" },
+};
+
+export function exportFormatLabel(format: VectorExportFormat): string {
+  return FORMAT_DETAILS[format].label;
 }
 
-export function normalizeSvgName(value: string, fallback: string): string {
+export function defaultExportName(fileName: string, format: VectorExportFormat): string {
+  return fileName.replace(/\.pdf$/i, "") + `.${FORMAT_DETAILS[format].extension}`;
+}
+
+export function normalizeExportName(
+  value: string,
+  fallback: string,
+  format: VectorExportFormat,
+): string {
   const sanitized = value
     .trim()
     .replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_")
     .replace(/[. ]+$/g, "");
-  const name = sanitized || defaultSvgName(fallback);
-  return /\.svg$/i.test(name) ? name : `${name}.svg`;
+  const name = sanitized || defaultExportName(fallback, format);
+  const extension = FORMAT_DETAILS[format].extension;
+  const otherExtension = format === "svg" ? /\.plt$/i : /\.svg$/i;
+  const formatName = name.replace(otherExtension, `.${extension}`);
+  return new RegExp(`\\.${extension}$`, "i").test(formatName)
+    ? formatName
+    : `${formatName}.${extension}`;
 }
+
+export const defaultSvgName = (fileName: string) => defaultExportName(fileName, "svg");
+export const normalizeSvgName = (value: string, fallback: string) =>
+  normalizeExportName(value, fallback, "svg");
 
 export function validateSessionExport(session: DocumentSession): string {
   const { documentStore, layoutStore, guideStore, projectStore } = session;
@@ -59,8 +89,12 @@ export function validateSessionExport(session: DocumentSession): string {
   }
 }
 
-function downloadBytes(bytes: Uint8Array<ArrayBuffer>, fileName: string) {
-  const url = URL.createObjectURL(new Blob([bytes], { type: "image/svg+xml" }));
+function downloadBytes(
+  bytes: Uint8Array<ArrayBuffer>,
+  fileName: string,
+  format: VectorExportFormat,
+) {
+  const url = URL.createObjectURL(new Blob([bytes], { type: FORMAT_DETAILS[format].mimeType }));
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = fileName;
@@ -68,7 +102,7 @@ function downloadBytes(bytes: Uint8Array<ArrayBuffer>, fileName: string) {
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-async function generateSessionSvg(session: DocumentSession) {
+async function generateSessionVector(session: DocumentSession, format: VectorExportFormat) {
   const { documentStore, layoutStore, guideStore, projectStore } = session;
   const layout = layoutStore.layout;
   const pageSize = documentStore.info?.pageSizePt;
@@ -81,13 +115,13 @@ async function generateSessionSvg(session: DocumentSession) {
     pageSize,
     layout,
   );
-  return documentStore.exportSvg(layout, resolved.coordinates, {
+  return documentStore.exportVector(format, layout, resolved.coordinates, {
     removeGuides: !projectStore.outputSettings.keepGuides,
     removeBackground: !projectStore.outputSettings.keepBackground,
   });
 }
 
-export function useSvgExport(sessionSource?: MaybeRefOrGetter<DocumentSession | undefined>) {
+export function useVectorExport(sessionSource?: MaybeRefOrGetter<DocumentSession | undefined>) {
   const fallback = sessionSource
     ? undefined
     : {
@@ -101,7 +135,8 @@ export function useSvgExport(sessionSource?: MaybeRefOrGetter<DocumentSession | 
     sessionSource,
   );
 
-  async function exportCurrentSvg() {
+  async function exportCurrent(format: VectorExportFormat) {
+    const details = FORMAT_DETAILS[format];
     const current = session();
     if (current) {
       const validationError = validateSessionExport(current);
@@ -110,25 +145,25 @@ export function useSvgExport(sessionSource?: MaybeRefOrGetter<DocumentSession | 
         current.documentStore.exportErrorMessage = validationError;
         return;
       }
-      const fileName = defaultSvgName(current.documentStore.fileName);
+      const fileName = defaultExportName(current.documentStore.fileName, format);
       let selectedPath: string | undefined;
       if (isTauri()) {
         const selected = await save({
           defaultPath: fileName,
-          filters: [{ name: "SVG", extensions: ["svg"] }],
+          filters: [{ name: details.label, extensions: [details.extension] }],
         });
         if (!selected) return;
         selectedPath = selected;
       }
       try {
-        const result = await generateSessionSvg(current);
+        const result = await generateSessionVector(current, format);
         if (selectedPath) await writeFile(selectedPath, result.bytes);
-        else downloadBytes(result.bytes, fileName);
+        else downloadBytes(result.bytes, fileName, format);
       } catch (error) {
         if (current.documentStore.exportStatus === "cancelled") return;
         current.documentStore.exportStatus = "error";
         current.documentStore.exportErrorMessage =
-          error instanceof Error ? error.message : "SVG 导出失败。";
+          error instanceof Error ? error.message : `${details.label} 导出失败。`;
       }
       return;
     }
@@ -144,40 +179,50 @@ export function useSvgExport(sessionSource?: MaybeRefOrGetter<DocumentSession | 
       documentStore.exportErrorMessage = settings.validationError.value || "当前设置无法导出。";
       return;
     }
+    const fileName = defaultExportName(documentStore.fileName, format);
     const selectedPath = isTauri()
       ? await save({
-          defaultPath: defaultSvgName(documentStore.fileName),
-          filters: [{ name: "SVG", extensions: ["svg"] }],
+          defaultPath: fileName,
+          filters: [{ name: details.label, extensions: [details.extension] }],
         })
       : undefined;
     if (isTauri() && !selectedPath) return;
     try {
-      const result = await documentStore.exportSvg(layout, resolved.coordinates, {
+      const result = await documentStore.exportVector(format, layout, resolved.coordinates, {
         removeGuides: !projectStore.outputSettings.keepGuides,
         removeBackground: !projectStore.outputSettings.keepBackground,
       });
       if (selectedPath) await writeFile(selectedPath, result.bytes);
-      else downloadBytes(result.bytes, defaultSvgName(documentStore.fileName));
+      else downloadBytes(result.bytes, fileName, format);
     } catch (error) {
       if (documentStore.exportStatus === "cancelled") return;
       documentStore.exportStatus = "error";
       documentStore.exportErrorMessage =
-        error instanceof Error ? error.message : "SVG 导出失败。";
+        error instanceof Error ? error.message : `${details.label} 导出失败。`;
     }
   }
 
-  async function exportSelectedSvgs(entries: SvgBatchEntry[]): Promise<SvgBatchExportResult> {
-    const result: SvgBatchExportResult = { cancelled: false, exported: [], errors: [] };
+  async function exportSelected(
+    format: VectorExportFormat,
+    entries: VectorBatchEntry[],
+  ): Promise<VectorBatchExportResult> {
+    const details = FORMAT_DETAILS[format];
+    const result: VectorBatchExportResult = {
+      cancelled: false,
+      exported: [],
+      errors: [],
+      warnings: [],
+    };
     const normalized = entries.map((entry) => ({
       ...entry,
-      fileName: normalizeSvgName(entry.fileName, entry.session.source.fileName),
+      fileName: normalizeExportName(entry.fileName, entry.session.source.fileName, format),
     }));
     let directory: string | undefined;
     if (isTauri()) {
       const selected = await open({
         directory: true,
         multiple: false,
-        title: "选择 SVG 输出目录",
+        title: `选择 ${details.label} 输出目录`,
       });
       if (!selected || Array.isArray(selected)) return { ...result, cancelled: true };
       directory = selected;
@@ -192,13 +237,16 @@ export function useSvgExport(sessionSource?: MaybeRefOrGetter<DocumentSession | 
 
     for (const entry of normalized) {
       try {
-        const generated = await generateSessionSvg(entry.session);
+        const generated = await generateSessionVector(entry.session, format);
         if (directory) {
           await writeFile(await join(directory, entry.fileName), generated.bytes);
         } else {
-          downloadBytes(generated.bytes, entry.fileName);
+          downloadBytes(generated.bytes, entry.fileName, format);
         }
         result.exported.push(entry.fileName);
+        result.warnings.push(
+          ...generated.warnings.map((warning) => `${entry.fileName}：${warning}`),
+        );
       } catch (error) {
         if (entry.session.documentStore.exportStatus === "cancelled") {
           result.errors.push(`${entry.fileName}：导出已取消。`);
@@ -213,5 +261,13 @@ export function useSvgExport(sessionSource?: MaybeRefOrGetter<DocumentSession | 
     return result;
   }
 
-  return { exportCurrentSvg, exportSelectedSvgs };
+  return { exportCurrent, exportSelected };
+}
+
+export function useSvgExport(sessionSource?: MaybeRefOrGetter<DocumentSession | undefined>) {
+  const vectorExport = useVectorExport(sessionSource);
+  return {
+    exportCurrentSvg: () => vectorExport.exportCurrent("svg"),
+    exportSelectedSvgs: (entries: VectorBatchEntry[]) => vectorExport.exportSelected("svg", entries),
+  };
 }

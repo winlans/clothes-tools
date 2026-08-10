@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { PageSizePt } from "@pdf2plt/core";
+import { flattenLayout, type PageSizePt } from "@pdf2plt/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
@@ -16,7 +16,7 @@ const props = defineProps<{
 }>();
 
 const session = useDocumentSession();
-const { layoutStore, guideStore, projectStore } = session;
+const { documentStore, layoutStore, guideStore, projectStore } = session;
 const canvas = ref<InstanceType<typeof LayoutCanvas>>();
 const fullscreenCanvas = ref<InstanceType<typeof LayoutCanvas>>();
 const draftPagesPerColumn = ref(String(layoutStore.pagesPerColumn));
@@ -118,6 +118,23 @@ watch(
   (value) => {
     draftPagesPerColumn.value = String(value);
   },
+);
+
+watch(
+  () => layoutStore.layout,
+  (layout) => {
+    if (!layout) return;
+    const pageNumbers = [
+      ...new Set(
+        flattenLayout(layout).flatMap((cell) =>
+          cell?.kind === "page" ? [cell.pageNumber] : [],
+        ),
+      ),
+    ];
+    documentStore.setPreviewCacheLimit(Math.max(18, pageNumbers.length));
+    documentStore.prioritizePreviews(pageNumbers);
+  },
+  { deep: true, immediate: true },
 );
 
 onMounted(() => {

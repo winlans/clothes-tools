@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 
 import {
+  buildCorelPlt,
   buildCombinedSvg,
   flattenLayout,
   openMuPdfDocument,
@@ -151,10 +152,10 @@ async function detectGuides(request: Extract<PdfWorkerRequest, { type: "detect-g
   }
 }
 
-async function exportSvg(request: Extract<PdfWorkerRequest, { type: "export-svg" }>) {
+async function exportVector(request: Extract<PdfWorkerRequest, { type: "export-vector" }>) {
   try {
     if (!currentDocument) {
-      throw new Pdf2PltError("document-not-open", "请先打开 PDF 再导出 SVG。");
+      throw new Pdf2PltError("document-not-open", "请先打开 PDF 再导出矢量文件。");
     }
     cancelledTasks.delete("export");
     const pageNumbers = [
@@ -184,18 +185,26 @@ async function exportSvg(request: Extract<PdfWorkerRequest, { type: "export-svg"
       request.layout,
       currentDocument.info.pageSizePt,
       request.guides,
-      request.options,
+      request.svgOptions,
     );
-    const bytes = new TextEncoder().encode(result.svg);
+    const pltResult = request.format === "plt"
+      ? buildCorelPlt(result, request.pltOptions)
+      : undefined;
+    const bytes = new TextEncoder().encode(pltResult?.plt ?? result.svg);
     respond(
       {
-        type: "svg-export",
+        type: "vector-export",
         requestId: request.requestId,
+        format: request.format,
         bytes,
         widthPt: result.widthPt,
         heightPt: result.heightPt,
         pageInstances: result.pageInstances,
         visibleObjects: result.visibleObjects,
+        paths: pltResult?.paths ?? 0,
+        segments: pltResult?.segments ?? 0,
+        omittedImages: pltResult?.omittedImages ?? 0,
+        warnings: pltResult?.warnings ?? [],
       },
       [bytes.buffer],
     );
@@ -286,7 +295,7 @@ worker.onmessage = async (event: MessageEvent<PdfWorkerRequest>) => {
     return;
   }
 
-  if (request.type === "export-svg") {
-    await exportSvg(request);
+  if (request.type === "export-vector") {
+    await exportVector(request);
   }
 };
