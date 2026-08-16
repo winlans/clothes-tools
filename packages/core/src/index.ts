@@ -1,4 +1,5 @@
 export * from "./guides/crop";
+export * from "./guides/content-overlap";
 export * from "./guides/detection";
 export * from "./guides/settings";
 export * from "./layout/automatic-layout";

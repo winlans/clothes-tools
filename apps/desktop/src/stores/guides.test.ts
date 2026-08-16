@@ -46,6 +46,29 @@ describe("guide store", () => {
     expect(store.missing).toEqual(["left", "right", "top", "bottom"]);
   });
 
+  it("accepts a right seam rounded to the displayed page width", () => {
+    const store = useGuideStore();
+    const pageSize = { width: 841.88977, height: 1190.55118 };
+
+    expect(store.setManual("right", 841.89, pageSize)).toBe(true);
+    expect(store.lines.right?.coordinatePt).toBe(pageSize.width);
+    expect(store.setManual("right", 841.891, pageSize)).toBe(false);
+  });
+
+  it("retains unrestricted edge-inset coordinates for deferred validation", () => {
+    const store = useGuideStore();
+    const pageSize = { width: 200, height: 300 };
+
+    expect(store.setManual("left", 20, pageSize, true)).toBe(true);
+    expect(store.setManual("right", -50, pageSize, true)).toBe(true);
+    expect(store.lines.right?.coordinatePt).toBe(-50);
+    expect(store.errorMessage).toBe("");
+
+    store.clearManual("right");
+    expect(store.lines.right).toBeUndefined();
+    expect(store.missing).toContain("right");
+  });
+
   it("restores saved seam coordinates instead of later detection defaults", () => {
     const store = useGuideStore();
     store.restore("saved", {

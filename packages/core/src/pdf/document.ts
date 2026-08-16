@@ -2,6 +2,7 @@ import { Pdf2PltError } from "./errors";
 import type {
   GuideDetectionOptions,
   GuideDetectionResult,
+  GuideStitchingMode,
 } from "../guides/detection";
 
 export interface PageSizePt {
@@ -58,14 +59,22 @@ export interface OpenDocumentResult {
   renderPreview(pageNumber: number, options: PreviewOptions): PreviewImage;
   renderRegion(pageNumber: number, options: PdfRegionRenderOptions): PdfRegionImage;
   renderSvgPage(pageNumber: number): string;
-  detectGuides(options?: Partial<GuideDetectionOptions>): GuideDetectionResult;
+  detectGuides(
+    options?: Partial<GuideDetectionOptions>,
+    stitchingMode?: GuideStitchingMode,
+  ): GuideDetectionResult;
   detectGuidesAsync(
     options?: Partial<GuideDetectionOptions>,
     hooks?: {
       isCancelled?(): boolean;
-      onProgress?(completed: number, total: number): void;
+      onProgress?(
+        completed: number,
+        total: number,
+        phase?: "red-guides" | "content-overlap",
+      ): void;
       yieldControl?(): Promise<void>;
     },
+    stitchingMode?: GuideStitchingMode,
   ): Promise<GuideDetectionResult>;
   close(): void;
 }

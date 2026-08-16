@@ -2,6 +2,7 @@ import {
   DEFAULT_GUIDE_DETECTION_OPTIONS,
   resolveGuideDetectionOptions,
   type GuideDetectionOptions,
+  type GuideStitchingMode,
 } from "../guides/detection";
 import type { LayoutCell, LayoutGrid } from "../layout/automatic-layout";
 import type { PageSizePt } from "../pdf/document";
@@ -20,6 +21,8 @@ export interface ProjectSource {
 
 export interface ProjectGuideSettings extends GuideCropSettings {
   detection: GuideDetectionOptions;
+  inputMode?: "edge-insets";
+  stitchingMode?: Exclude<GuideStitchingMode, "auto">;
 }
 
 export interface ProjectOutputSettings {
@@ -165,6 +168,22 @@ export function parsePatternLayoutProject(value: string | unknown): PatternLayou
   if (!["auto", "manual", "none"].includes(String(rawGuides.mode))) {
     throw new Pdf2PltError("invalid-project", "guides.mode 必须是 auto、manual 或 none。");
   }
+  if (rawGuides.inputMode !== undefined && rawGuides.inputMode !== "edge-insets") {
+    throw new Pdf2PltError(
+      "invalid-project",
+      "guides.inputMode 仅支持 edge-insets。",
+    );
+  }
+  if (
+    rawGuides.stitchingMode !== undefined &&
+    rawGuides.stitchingMode !== "red-guides" &&
+    rawGuides.stitchingMode !== "content-overlap"
+  ) {
+    throw new Pdf2PltError(
+      "invalid-project",
+      "guides.stitchingMode 仅支持 red-guides 或 content-overlap。",
+    );
+  }
   const detection = resolveGuideDetectionOptions(
     record(rawGuides.detection, "guides.detection") as Partial<GuideDetectionOptions>,
   );
@@ -176,6 +195,10 @@ export function parsePatternLayoutProject(value: string | unknown): PatternLayou
   const outerBottom = optionalFinite(rawGuides.outerBottom, "guides.outerBottom");
   const guides: ProjectGuideSettings = {
     mode: rawGuides.mode as ProjectGuideSettings["mode"],
+    ...(rawGuides.inputMode === "edge-insets" ? { inputMode: "edge-insets" as const } : {}),
+    ...(rawGuides.stitchingMode === "red-guides" || rawGuides.stitchingMode === "content-overlap"
+      ? { stitchingMode: rawGuides.stitchingMode }
+      : {}),
     ...(seamLeft !== undefined ? { seamLeft } : {}),
     ...(seamRight !== undefined ? { seamRight } : {}),
     ...(seamTop !== undefined ? { seamTop } : {}),

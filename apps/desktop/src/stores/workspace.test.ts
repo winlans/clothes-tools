@@ -1,4 +1,6 @@
+import { DEFAULT_GUIDE_DETECTION_OPTIONS } from "@pdf2plt/core";
 import { createPinia, setActivePinia } from "pinia";
+import { nextTick } from "vue";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import type { PdfImportCandidate } from "./document-session";
@@ -73,6 +75,46 @@ describe("workspace store", () => {
     first.ui.showGrid = true;
     expect(first.ui).toMatchObject({ dirty: true, showGrid: true });
     expect(second.ui).toMatchObject({ dirty: false, showGrid: false });
+    workspace.disposeAll();
+  });
+
+  it("isolates edge-inset inputs to zero-red-line content matching", async () => {
+    const workspace = useWorkspaceStore();
+    const starts: number[] = [];
+    workspace.enqueueCandidates([pendingCandidate(1, starts), pendingCandidate(2, starts)]);
+    const [contentSession, redSession] = workspace.tabs;
+    if (!contentSession || !redSession) throw new Error("missing tabs");
+
+    for (const [index, session] of [contentSession, redSession].entries()) {
+      session.documentStore.info = {
+        documentId: `pdf-${index + 1}`,
+        pageCount: 2,
+        pageSizePt: { width: 200, height: 300 },
+        pages: [
+          { pageNumber: 1, width: 200, height: 300 },
+          { pageNumber: 2, width: 200, height: 300 },
+        ],
+      };
+    }
+    await nextTick();
+
+    contentSession.documentStore.guideDetection = {
+      lines: {},
+      missing: ["left", "right", "top", "bottom"],
+      options: { ...DEFAULT_GUIDE_DETECTION_OPTIONS },
+      contentOverlap: { applied: false, confidence: 0.4 },
+    };
+    redSession.documentStore.guideDetection = {
+      lines: {
+        left: { coordinatePt: 8, source: "auto", supportPages: 2, pixelWeight: 100 },
+      },
+      missing: ["right", "top", "bottom"],
+      options: { ...DEFAULT_GUIDE_DETECTION_OPTIONS },
+    };
+    await nextTick();
+
+    expect(contentSession.projectStore.guideSettings.inputMode).toBe("edge-insets");
+    expect(redSession.projectStore.guideSettings.inputMode).toBeUndefined();
     workspace.disposeAll();
   });
 });

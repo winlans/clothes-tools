@@ -46,7 +46,14 @@ for (const input of inputs) {
       }
     }
     console.log(
-      JSON.stringify({ input: inputPath, lines: detection.lines, missing: detection.missing, differences }),
+      JSON.stringify({
+        input: inputPath,
+        lines: detection.lines,
+        missing: detection.missing,
+        inferredLayout: detection.inferredLayout,
+        contentOverlap: detection.contentOverlap,
+        differences,
+      }),
     );
   } finally {
     document.close();

@@ -183,13 +183,14 @@ describe("pdf document store", () => {
       redDelta: 70,
       minimumFraction: 0.04,
     };
-    const detection = store.detectGuides(options);
+    const detection = store.detectGuides(options, "content-overlap");
 
     expect(store.detectionStatus).toBe("running");
     expect(postMessage).toHaveBeenCalledWith({
       type: "detect-guides",
       requestId: 9,
       options,
+      stitchingMode: "content-overlap",
     });
     store.handleWorkerMessage({
       type: "guides",
@@ -543,7 +544,7 @@ describe("pdf document store", () => {
       otherMax: 120,
       redDelta: 80,
       minimumFraction: 0.03,
-    });
+    }, "auto");
     store.cancelDetection();
     store.handleWorkerMessage({ type: "task-cancelled", requestId: 13, task: "detection" });
     await expect(detection).rejects.toThrow(/取消/);

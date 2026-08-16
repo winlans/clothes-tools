@@ -11,10 +11,18 @@ import { Pdf2PltError } from "./errors";
 import {
   buildGuideDetectionResult,
   detectPageGuideSamples,
+  GUIDE_DIRECTIONS,
   removeRedGuidePixels,
   resolveGuideDetectionOptions,
   type GuideDetectionOptions,
+  type GuideDetectionResult,
+  type GuidePixelPage,
 } from "../guides/detection";
+import {
+  applyGuideStitchingMode,
+  runContentOverlapDpiFallback,
+  runContentOverlapDpiFallbackAsync,
+} from "../guides/content-overlap";
 
 export type MuPdfModule = (typeof import("mupdf"))["default"];
 
@@ -259,6 +267,7 @@ export async function openMuPdfDocument(
 
   const detectGuides = (
     overrides: Partial<GuideDetectionOptions> = {},
+    stitchingMode: "auto" | "red-guides" | "content-overlap" = "auto",
   ) => {
     ensureOpen();
     const options = resolveGuideDetectionOptions(overrides);
@@ -292,58 +301,167 @@ export async function openMuPdfDocument(
         page.destroy();
       }
     };
-    const samples = [];
-    for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
-      samples.push(samplePage(pageIndex));
+    let redResult: GuideDetectionResult;
+    if (stitchingMode === "content-overlap") {
+      redResult = {
+        lines: {},
+        missing: [...GUIDE_DIRECTIONS],
+        options,
+      };
+    } else {
+      const samples = [];
+      for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
+        samples.push(samplePage(pageIndex));
+      }
+      redResult = buildGuideDetectionResult(samples, pageSizePt, options);
     }
-    return buildGuideDetectionResult(samples, pageSizePt, options);
+    if (
+      stitchingMode === "red-guides" ||
+      (stitchingMode === "auto" && Object.keys(redResult.lines).length > 0)
+    ) return redResult;
+
+    return runContentOverlapDpiFallback(options.dpi, (contentDpi) => {
+      const contentScale = contentDpi / 72;
+      const overlapPages: GuidePixelPage[] = [];
+      for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
+        const page = document.loadPage(pageIndex);
+        try {
+          const pixmap = page.toPixmap(
+            mupdf.Matrix.scale(contentScale, contentScale),
+            mupdf.ColorSpace.DeviceRGB,
+            false,
+            true,
+          );
+          try {
+            const source = pixmap.getPixels();
+            const pixels = new Uint8Array(source.byteLength);
+            pixels.set(source);
+            overlapPages.push({
+              pageNumber: pageIndex + 1,
+              width: pixmap.getWidth(),
+              height: pixmap.getHeight(),
+              stride: pixmap.getStride(),
+              components: pixmap.getNumberOfComponents(),
+              pixels,
+            });
+          } finally {
+            pixmap.destroy();
+          }
+        } finally {
+          page.destroy();
+        }
+      }
+      return applyGuideStitchingMode(stitchingMode, redResult, overlapPages, pageSizePt);
+    });
   };
 
   const detectGuidesAsync: OpenDocumentResult["detectGuidesAsync"] = async (
     overrides = {},
     hooks = {},
+    stitchingMode = "auto",
   ) => {
     ensureOpen();
     const options = resolveGuideDetectionOptions(overrides);
     const scale = options.dpi / 72;
-    const samples = [];
-    for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
-      if (hooks.isCancelled?.()) {
-        throw new Pdf2PltError("task-cancelled", "红线检测已取消。");
-      }
-      const page = document.loadPage(pageIndex);
-      try {
-        const pixmap = page.toPixmap(
-          mupdf.Matrix.scale(scale, scale),
-          mupdf.ColorSpace.DeviceRGB,
-          false,
-          true,
-        );
+    let redResult: GuideDetectionResult;
+    if (stitchingMode === "content-overlap") {
+      redResult = {
+        lines: {},
+        missing: [...GUIDE_DIRECTIONS],
+        options,
+      };
+    } else {
+      const samples = [];
+      for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
+        if (hooks.isCancelled?.()) {
+          throw new Pdf2PltError("task-cancelled", "红线检测已取消。");
+        }
+        const page = document.loadPage(pageIndex);
         try {
-          samples.push(
-            detectPageGuideSamples(
-              {
+          const pixmap = page.toPixmap(
+            mupdf.Matrix.scale(scale, scale),
+            mupdf.ColorSpace.DeviceRGB,
+            false,
+            true,
+          );
+          try {
+            samples.push(
+              detectPageGuideSamples(
+                {
+                  pageNumber: pageIndex + 1,
+                  width: pixmap.getWidth(),
+                  height: pixmap.getHeight(),
+                  stride: pixmap.getStride(),
+                  components: pixmap.getNumberOfComponents(),
+                  pixels: pixmap.getPixels(),
+                },
+                pageSizePt,
+                options,
+              ),
+            );
+          } finally {
+            pixmap.destroy();
+          }
+        } finally {
+          page.destroy();
+        }
+        hooks.onProgress?.(pageIndex + 1, pageCount, "red-guides");
+        await (hooks.yieldControl?.() ?? Promise.resolve());
+      }
+      redResult = buildGuideDetectionResult(samples, pageSizePt, options);
+    }
+    if (
+      stitchingMode === "red-guides" ||
+      (stitchingMode === "auto" && Object.keys(redResult.lines).length > 0)
+    ) return redResult;
+
+    const redPhaseCount = stitchingMode === "content-overlap" ? 0 : 1;
+    return runContentOverlapDpiFallbackAsync(
+      options.dpi,
+      async (contentDpi, attemptIndex, attemptCount) => {
+        const contentScale = contentDpi / 72;
+        const overlapPages: GuidePixelPage[] = [];
+        for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
+          if (hooks.isCancelled?.()) {
+            throw new Pdf2PltError("task-cancelled", "内容匹配已取消。");
+          }
+          const page = document.loadPage(pageIndex);
+          try {
+            const pixmap = page.toPixmap(
+              mupdf.Matrix.scale(contentScale, contentScale),
+              mupdf.ColorSpace.DeviceRGB,
+              false,
+              true,
+            );
+            try {
+              const source = pixmap.getPixels();
+              const pixels = new Uint8Array(source.byteLength);
+              pixels.set(source);
+              overlapPages.push({
                 pageNumber: pageIndex + 1,
                 width: pixmap.getWidth(),
                 height: pixmap.getHeight(),
                 stride: pixmap.getStride(),
                 components: pixmap.getNumberOfComponents(),
-                pixels: pixmap.getPixels(),
-              },
-              pageSizePt,
-              options,
-            ),
+                pixels,
+              });
+            } finally {
+              pixmap.destroy();
+            }
+          } finally {
+            page.destroy();
+          }
+          const completedPhases = redPhaseCount + attemptIndex;
+          hooks.onProgress?.(
+            completedPhases * pageCount + pageIndex + 1,
+            (redPhaseCount + attemptCount) * pageCount,
+            "content-overlap",
           );
-        } finally {
-          pixmap.destroy();
+          await (hooks.yieldControl?.() ?? Promise.resolve());
         }
-      } finally {
-        page.destroy();
-      }
-      hooks.onProgress?.(pageIndex + 1, pageCount);
-      await (hooks.yieldControl?.() ?? Promise.resolve());
-    }
-    return buildGuideDetectionResult(samples, pageSizePt, options);
+        return applyGuideStitchingMode(stitchingMode, redResult, overlapPages, pageSizePt);
+      },
+    );
   };
 
   return {

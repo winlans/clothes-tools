@@ -5,6 +5,7 @@ import {
   type GuideCoordinates,
   type GuideDetectionOptions,
   type GuideDetectionResult,
+  type GuideStitchingMode,
   type LayoutGrid,
   type PdfDocumentInfo,
   type PdfRegionRenderOptions,
@@ -92,7 +93,11 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
     info: undefined as PdfDocumentInfo | undefined,
     guideDetection: undefined as GuideDetectionResult | undefined,
     detectionStatus: "idle" as DetectionStatus,
-    detectionProgress: { completed: 0, total: 0 },
+    detectionProgress: {
+      completed: 0,
+      total: 0,
+      phase: "red-guides" as "red-guides" | "content-overlap",
+    },
     detectionErrorMessage: "",
     sourceSha256: "",
     previews: {} as Record<number, PreviewState>,
@@ -177,7 +182,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       this.progress = { completed: 0, total: 0 };
       this.previewStatus = "running";
       this.detectionStatus = "running";
-      this.detectionProgress = { completed: 0, total: 0 };
+      this.detectionProgress = { completed: 0, total: 0, phase: "red-guides" };
       this.detectionErrorMessage = "";
       this.resetExport();
       const request: PdfWorkerRequest = {
@@ -283,9 +288,12 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       if (message.type === "guides") {
         this.guideDetection = message.result;
         this.detectionStatus = "idle";
+        const detectionTotal = this.detectionProgress.total ||
+          (this.info?.pageCount ?? 0) * (message.result.contentOverlap ? 2 : 1);
         this.detectionProgress = {
-          completed: message.result.options ? this.info?.pageCount ?? 0 : 0,
-          total: this.info?.pageCount ?? 0,
+          completed: message.result.options ? detectionTotal : 0,
+          total: detectionTotal,
+          phase: message.result.contentOverlap ? "content-overlap" : "red-guides",
         };
         this.detectionErrorMessage = "";
         pendingDetections.get(this)?.resolve(message.result);
@@ -300,7 +308,11 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
         return;
       }
       if (message.type === "detection-progress") {
-        this.detectionProgress = { completed: message.completed, total: message.total };
+        this.detectionProgress = {
+          completed: message.completed,
+          total: message.total,
+          phase: message.phase ?? "red-guides",
+        };
         return;
       }
       if (message.type === "progress") {
@@ -388,7 +400,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       this.info = undefined;
       this.guideDetection = undefined;
       this.detectionStatus = "idle";
-      this.detectionProgress = { completed: 0, total: 0 };
+      this.detectionProgress = { completed: 0, total: 0, phase: "red-guides" };
       this.detectionErrorMessage = "";
       this.sourceSha256 = "";
       this.errorMessage = "";
@@ -668,16 +680,24 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
     ): Promise<DesktopVectorExport> {
       return this.exportVector("svg", layout, guides, overrides);
     },
-    detectGuides(options: GuideDetectionOptions): Promise<GuideDetectionResult> {
+    detectGuides(
+      options: GuideDetectionOptions,
+      stitchingMode: GuideStitchingMode = "auto",
+    ): Promise<GuideDetectionResult> {
       if (!this.worker || !this.info) return Promise.reject(new Error("请先打开 PDF。"));
       if (pendingDetections.has(this)) return Promise.reject(new Error("红线检测已在进行中。"));
       this.detectionStatus = "running";
       this.detectionErrorMessage = "";
-      this.detectionProgress = { completed: 0, total: this.info.pageCount };
+      this.detectionProgress = {
+        completed: 0,
+        total: this.info.pageCount,
+        phase: stitchingMode === "content-overlap" ? "content-overlap" : "red-guides",
+      };
       const request: PdfWorkerRequest = {
         type: "detect-guides",
         requestId: this.requestId,
         options: { ...options },
+        stitchingMode,
       };
       return new Promise<GuideDetectionResult>((resolve, reject) => {
         pendingDetections.set(this, { resolve, reject });

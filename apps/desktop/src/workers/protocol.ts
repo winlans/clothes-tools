@@ -2,6 +2,7 @@ import type {
   GuideCoordinates,
   GuideDetectionOptions,
   GuideDetectionResult,
+  GuideStitchingMode,
   LayoutGrid,
   PdfDocumentInfo,
   PdfRegionRenderOptions,
@@ -52,6 +53,7 @@ export type PdfWorkerRequest =
       type: "detect-guides";
       requestId: number;
       options: GuideDetectionOptions;
+      stitchingMode: GuideStitchingMode;
     }
   | {
       type: "export-vector";
@@ -142,6 +144,7 @@ export type PdfWorkerResponse =
       requestId: number;
       completed: number;
       total: number;
+      phase?: "red-guides" | "content-overlap";
     }
   | {
       type: "complete";

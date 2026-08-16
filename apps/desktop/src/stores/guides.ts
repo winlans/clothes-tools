@@ -9,6 +9,8 @@ import {
 } from "@pdf2plt/core";
 import { defineStore } from "pinia";
 
+import { roundUiNumber } from "../numbers";
+
 export type GuidePreviewMode = "full" | "cropped";
 
 export const useGuideStore = defineStore("guides", {
@@ -73,15 +75,40 @@ export const useGuideStore = defineStore("guides", {
       this.previewMode = this.missing.length === 0 && settings.mode !== "none" ? "cropped" : "full";
       this.errorMessage = "";
     },
-    setManual(direction: GuideDirection, coordinatePt: number, pageSize: PageSizePt) {
+    setManual(
+      direction: GuideDirection,
+      coordinatePt: number,
+      pageSize: PageSizePt,
+      deferValidation = false,
+    ) {
       const limit = direction === "left" || direction === "right" ? pageSize.width : pageSize.height;
-      if (!Number.isFinite(coordinatePt) || coordinatePt < 0 || coordinatePt > limit) {
+      if (deferValidation) {
+        if (!Number.isFinite(coordinatePt)) return false;
+        this.lines[direction] = {
+          coordinatePt,
+          source: "manual",
+          supportPages: 0,
+          pixelWeight: 0,
+        };
+        this.missing = GUIDE_DIRECTIONS.filter((name) => !this.lines[name]);
+        this.errorMessage = "";
+        return true;
+      }
+      const normalizedCoordinate =
+        coordinatePt > limit && roundUiNumber(coordinatePt) === roundUiNumber(limit)
+          ? limit
+          : coordinatePt;
+      if (
+        !Number.isFinite(normalizedCoordinate) ||
+        normalizedCoordinate < 0 ||
+        normalizedCoordinate > limit
+      ) {
         this.errorMessage = `${direction} 坐标必须在 0..${limit.toFixed(3)} pt 范围内。`;
         return false;
       }
       const previous = this.lines[direction];
       this.lines[direction] = {
-        coordinatePt,
+        coordinatePt: normalizedCoordinate,
         source: "manual",
         supportPages: 0,
         pixelWeight: 0,
@@ -96,6 +123,11 @@ export const useGuideStore = defineStore("guides", {
       }
       this.errorMessage = "";
       return true;
+    },
+    clearManual(direction: GuideDirection) {
+      delete this.lines[direction];
+      this.missing = GUIDE_DIRECTIONS.filter((name) => !this.lines[name]);
+      this.errorMessage = "";
     },
     setPreviewMode(mode: GuidePreviewMode) {
       if (mode === "cropped" && !this.canPreviewCropped) {

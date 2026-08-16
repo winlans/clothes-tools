@@ -69,12 +69,12 @@ describe("LayoutEditor", () => {
     });
   });
 
-  function mountEditor() {
+  function mountEditor(pageSize = { width: 841.89, height: 1190.551 }) {
     const store = useLayoutStore();
     store.initialize("pdf-1", 15);
     const wrapper = mount(LayoutEditor, {
       props: {
-        pageSize: { width: 841.89, height: 1190.551 },
+        pageSize,
         previews: [],
       },
       global: { plugins: [pinia], stubs: { LayoutCanvas: LayoutCanvasStub } },
@@ -382,6 +382,200 @@ describe("LayoutEditor", () => {
     expect(guideStore.lines.right?.source).toBe("auto");
   });
 
+  it("accepts the displayed rounded page width in the right seam input", async () => {
+    const pageSize = { width: 841.88977, height: 1190.55118 };
+    const { wrapper } = mountEditor(pageSize);
+    const guideStore = useGuideStore();
+    const projectStore = useProjectStore();
+    guideStore.applyDetection("pdf-1", {
+      lines: {
+        left: { coordinatePt: 20, source: "auto", supportPages: 8, pixelWeight: 800 },
+        right: { coordinatePt: 820, source: "auto", supportPages: 8, pixelWeight: 800 },
+        top: { coordinatePt: 22, source: "auto", supportPages: 8, pixelWeight: 800 },
+        bottom: { coordinatePt: 1167, source: "auto", supportPages: 8, pixelWeight: 800 },
+      },
+      missing: [],
+      options: { dpi: 72, redMin: 200, otherMax: 120, redDelta: 80, minimumFraction: 0.03 },
+    });
+    await nextTick();
+
+    const right = wrapper.get('[aria-label="右拼接线 point 坐标"]');
+    await right.setValue("841.89");
+    await right.trigger("change");
+
+    expect(guideStore.lines.right).toMatchObject({
+      coordinatePt: pageSize.width,
+      source: "manual",
+    });
+    expect(projectStore.guideSettings).toMatchObject({
+      mode: "manual",
+      seamRight: pageSize.width,
+    });
+    expect((right.element as HTMLInputElement).value).toBe("841.89");
+  });
+
+  it("uses independent edge insets only for content-overlap documents", async () => {
+    const pageSize = { width: 841.89, height: 1190.551 };
+    const { wrapper } = mountEditor(pageSize);
+    const guideStore = useGuideStore();
+    const projectStore = useProjectStore();
+    projectStore.setGuideSettings({
+      ...projectStore.guideSettings,
+      inputMode: "edge-insets",
+    });
+    guideStore.applyDetection("pdf-1", {
+      lines: {
+        left: { coordinatePt: 8, source: "auto", supportPages: 8, pixelWeight: 800 },
+        right: { coordinatePt: pageSize.width, source: "auto", supportPages: 8, pixelWeight: 800 },
+        top: { coordinatePt: 0, source: "auto", supportPages: 8, pixelWeight: 800 },
+        bottom: {
+          coordinatePt: pageSize.height - 8,
+          source: "auto",
+          supportPages: 8,
+          pixelWeight: 800,
+        },
+      },
+      missing: [],
+      options: { dpi: 72, redMin: 200, otherMax: 120, redDelta: 80, minimumFraction: 0.03 },
+      contentOverlap: { applied: true, confidence: 0.95 },
+    });
+    await nextTick();
+
+    const left = wrapper.get<HTMLInputElement>('[aria-label="左拼接线 point 坐标"]');
+    const right = wrapper.get<HTMLInputElement>('[aria-label="右拼接线 point 坐标"]');
+    const bottom = wrapper.get<HTMLInputElement>('[aria-label="下拼接线 point 坐标"]');
+    expect(wrapper.text()).toContain("左裁切量");
+    expect(left.element.value).toBe("8");
+    expect(right.element.value).toBe("0");
+    expect(bottom.element.value).toBe("8");
+    expect(wrapper.get<HTMLInputElement>('[aria-label="右外边界 point 坐标"]')
+      .element.value).toBe("0");
+
+    await right.setValue("12");
+    await right.trigger("change");
+    expect(guideStore.lines.right?.coordinatePt).toBeCloseTo(pageSize.width - 12, 6);
+    expect(projectStore.guideSettings.seamRight).toBeCloseTo(pageSize.width - 12, 6);
+
+    const outerRight = wrapper.get<HTMLInputElement>('[aria-label="右外边界 point 坐标"]');
+    await outerRight.setValue("12");
+    await outerRight.trigger("change");
+    expect(projectStore.guideSettings.outerRight).toBeCloseTo(pageSize.width - 12, 6);
+
+    await right.setValue("900");
+    await right.trigger("change");
+    expect(right.element.value).toBe("900");
+    expect(guideStore.lines.right?.coordinatePt).toBeCloseTo(pageSize.width - 900, 6);
+    expect(wrapper.text()).toContain("左右拼接线不能形成有效裁切范围");
+  });
+
+  it("can synchronise all four content-overlap seam insets", async () => {
+    const pageSize = { width: 841.89, height: 1190.551 };
+    const { wrapper } = mountEditor(pageSize);
+    const guideStore = useGuideStore();
+    const projectStore = useProjectStore();
+    projectStore.setGuideSettings({
+      ...projectStore.guideSettings,
+      inputMode: "edge-insets",
+      stitchingMode: "content-overlap",
+    });
+    guideStore.applyDetection("pdf-1", {
+      lines: {
+        left: { coordinatePt: 8, source: "auto", supportPages: 8, pixelWeight: 800 },
+        right: { coordinatePt: pageSize.width - 8, source: "auto", supportPages: 8, pixelWeight: 800 },
+        top: { coordinatePt: 8, source: "auto", supportPages: 8, pixelWeight: 800 },
+        bottom: { coordinatePt: pageSize.height - 8, source: "auto", supportPages: 8, pixelWeight: 800 },
+      },
+      missing: [],
+      options: { dpi: 72, redMin: 200, otherMax: 120, redDelta: 80, minimumFraction: 0.03 },
+      contentOverlap: { applied: true, confidence: 0.95 },
+    });
+    await nextTick();
+
+    await wrapper.get('[aria-label="同步修改四个方向裁切量"]').setValue(true);
+    const left = wrapper.get<HTMLInputElement>('[aria-label="左拼接线 point 坐标"]');
+    await left.setValue("12.5");
+    await left.trigger("change");
+
+    expect(guideStore.lines.left?.coordinatePt).toBe(12.5);
+    expect(guideStore.lines.right?.coordinatePt).toBeCloseTo(pageSize.width - 12.5, 6);
+    expect(guideStore.lines.top?.coordinatePt).toBe(12.5);
+    expect(guideStore.lines.bottom?.coordinatePt).toBeCloseTo(pageSize.height - 12.5, 6);
+    for (const direction of ["左", "右", "上", "下"]) {
+      expect(wrapper.get<HTMLInputElement>(`[aria-label="${direction}拼接线 point 坐标"]`)
+        .element.value).toBe("12.5");
+    }
+  });
+
+  it("lets the user choose automatic, red-guide, or content-overlap stitching", async () => {
+    const pageSize = { width: 841.89, height: 1190.551 };
+    const documentStore = usePdfDocumentStore();
+    documentStore.requestId = 27;
+    documentStore.info = {
+      documentId: "pdf-1",
+      pageCount: 15,
+      pageSizePt: pageSize,
+      pages: Array.from({ length: 15 }, (_, index) => ({
+        pageNumber: index + 1,
+        ...pageSize,
+      })),
+    };
+    const postMessage = vi.fn();
+    documentStore.worker = { postMessage } as unknown as Worker;
+    const { wrapper } = mountEditor(pageSize);
+    const projectStore = useProjectStore();
+    const selector = wrapper.get<HTMLSelectElement>('[aria-label="拼接模式"]');
+
+    expect(selector.element.value).toBe("auto");
+    await selector.setValue("content-overlap");
+    expect(projectStore.guideSettings).toMatchObject({
+      stitchingMode: "content-overlap",
+      inputMode: "edge-insets",
+    });
+    expect(postMessage).toHaveBeenLastCalledWith(expect.objectContaining({
+      type: "detect-guides",
+      stitchingMode: "content-overlap",
+    }));
+
+    const options = projectStore.guideSettings.detection;
+    documentStore.handleWorkerMessage({
+      type: "guides",
+      requestId: 27,
+      result: {
+        lines: {},
+        missing: ["left", "right", "top", "bottom"],
+        options,
+        contentOverlap: { applied: false, confidence: 0.4 },
+      },
+    });
+    await flushPromises();
+
+    await selector.setValue("red-guides");
+    expect(projectStore.guideSettings.stitchingMode).toBe("red-guides");
+    expect(projectStore.guideSettings.inputMode).toBeUndefined();
+    expect(postMessage).toHaveBeenLastCalledWith(expect.objectContaining({
+      type: "detect-guides",
+      stitchingMode: "red-guides",
+    }));
+
+    documentStore.handleWorkerMessage({
+      type: "guides",
+      requestId: 27,
+      result: {
+        lines: {},
+        missing: ["left", "right", "top", "bottom"],
+        options,
+      },
+    });
+    await flushPromises();
+
+    await selector.setValue("auto");
+    expect(projectStore.guideSettings.stitchingMode).toBeUndefined();
+    expect(postMessage).toHaveBeenLastCalledWith(expect.objectContaining({
+      type: "detect-guides",
+      stitchingMode: "auto",
+    }));
+  });
+
   it("toggles seam cropping and updates output size after valid outer bounds", async () => {
     const { wrapper } = mountEditor();
     const seamCropping = wrapper.get('[aria-label="裁切页间接缝"]');
@@ -391,6 +585,10 @@ describe("LayoutEditor", () => {
     expect(wrapper.get('[aria-label="成品尺寸"]').text()).toBe("1485.00 × 1260.00 mm");
     const outerLeft = wrapper.get('[aria-label="左外边界 point 坐标"]');
     const outerRight = wrapper.get('[aria-label="右外边界 point 坐标"]');
+    const outerBottom = wrapper.get('[aria-label="下外边界 point 坐标"]');
+    expect((outerRight.element as HTMLInputElement).value).toBe("842");
+    expect((outerBottom.element as HTMLInputElement).value).toBe("1191");
+    expect(outerRight.attributes("step")).toBe("1");
     await outerLeft.setValue("10");
     await outerRight.setValue("800");
     await outerRight.trigger("change");

@@ -4,6 +4,7 @@ import {
   type GuideDetectionResult,
   type GuideDirection,
   type GuideLine,
+  type PageSizePt,
   type ProjectGuideSettings,
 } from "@pdf2plt/core";
 
@@ -13,6 +14,34 @@ const seamKeys: Record<GuideDirection, keyof ProjectGuideSettings> = {
   top: "seamTop",
   bottom: "seamBottom",
 };
+
+function directionLimit(direction: GuideDirection, pageSize: PageSizePt): number {
+  return direction === "left" || direction === "right" ? pageSize.width : pageSize.height;
+}
+
+export function guideInputValueFromCoordinate(
+  direction: GuideDirection,
+  coordinatePt: number,
+  pageSize: PageSizePt,
+  inputMode: ProjectGuideSettings["inputMode"],
+): number {
+  if (inputMode !== "edge-insets" || direction === "left" || direction === "top") {
+    return coordinatePt;
+  }
+  return directionLimit(direction, pageSize) - coordinatePt;
+}
+
+export function guideCoordinateFromInput(
+  direction: GuideDirection,
+  inputValuePt: number,
+  pageSize: PageSizePt,
+  inputMode: ProjectGuideSettings["inputMode"],
+): number {
+  if (inputMode !== "edge-insets" || direction === "left" || direction === "top") {
+    return inputValuePt;
+  }
+  return directionLimit(direction, pageSize) - inputValuePt;
+}
 
 export function guideSettingsFromLines(
   base: ProjectGuideSettings,

@@ -230,17 +230,27 @@ async function drainPreviewQueue(requestId: number, generation: number) {
 async function detectGuides(request: Extract<PdfWorkerRequest, { type: "detect-guides" }>) {
   try {
     if (!currentDocument) {
-      throw new Pdf2PltError("document-not-open", "请先打开 PDF 再检测红线。");
+      throw new Pdf2PltError("document-not-open", "请先打开 PDF 再识别拼接方式。");
     }
     cancelledTasks.delete("detection");
-    const result = await currentDocument.detectGuidesAsync(request.options, {
-      isCancelled: () =>
-        cancelledTasks.has("detection") || activeRequestId !== request.requestId,
-      onProgress(completed, total) {
-        respond({ type: "detection-progress", requestId: request.requestId, completed, total });
+    const result = await currentDocument.detectGuidesAsync(
+      request.options,
+      {
+        isCancelled: () =>
+          cancelledTasks.has("detection") || activeRequestId !== request.requestId,
+        onProgress(completed, total, phase) {
+          respond({
+            type: "detection-progress",
+            requestId: request.requestId,
+            completed,
+            total,
+            ...(phase ? { phase } : {}),
+          });
+        },
+        yieldControl,
       },
-      yieldControl,
-    });
+      request.stitchingMode,
+    );
     if (cancelledTasks.has("detection") || activeRequestId !== request.requestId) return;
     respond({ type: "guides", requestId: request.requestId, result });
   } catch (error) {
@@ -343,8 +353,14 @@ worker.onmessage = async (event: MessageEvent<PdfWorkerRequest>) => {
       const initialDetection = await currentDocument.detectGuidesAsync({}, {
         isCancelled: () =>
           cancelledTasks.has("detection") || activeRequestId !== request.requestId,
-        onProgress(completed, total) {
-          respond({ type: "detection-progress", requestId: request.requestId, completed, total });
+        onProgress(completed, total, phase) {
+          respond({
+            type: "detection-progress",
+            requestId: request.requestId,
+            completed,
+            total,
+            ...(phase ? { phase } : {}),
+          });
         },
         yieldControl,
       });

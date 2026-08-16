@@ -72,7 +72,7 @@ export function createDocumentSession(
   });
 
   scope.run(() => {
-    watchDocumentState(documentStore, layoutStore, guideStore);
+    watchDocumentState(documentStore, layoutStore, guideStore, projectStore);
   });
 
   return {
@@ -105,6 +105,7 @@ function watchDocumentState(
   documentStore: ReturnType<typeof usePdfDocumentStore>,
   layoutStore: ReturnType<typeof useLayoutStore>,
   guideStore: ReturnType<typeof useGuideStore>,
+  projectStore: ReturnType<typeof useProjectStore>,
 ) {
   watch(
     () => documentStore.info,
@@ -124,6 +125,16 @@ function watchDocumentState(
     ([documentId, detection]) => {
       if (!documentId || !detection) return;
       guideStore.applyDetection(documentId, detection);
+      if (
+        detection.contentOverlap &&
+        !projectStore.pendingProject &&
+        !projectStore.activeProject
+      ) {
+        projectStore.setGuideSettings({
+          ...projectStore.guideSettings,
+          inputMode: "edge-insets",
+        });
+      }
       if (detection.inferredLayout) {
         layoutStore.applyDetectedColumnLayout(detection.inferredLayout);
       } else if (detection.inferredPagesPerColumn !== undefined) {

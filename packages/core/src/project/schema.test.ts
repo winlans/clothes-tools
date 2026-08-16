@@ -41,9 +41,36 @@ describe("pattern layout project schema", () => {
     const second = serializePatternLayoutProject(parsePatternLayoutProject(first));
     expect(second).toBe(first);
     expect(first).toContain('"schemaVersion": 1');
+    expect(first).not.toContain("inputMode");
+    expect(first).not.toContain("stitchingMode");
     expect(parsePatternLayoutProject(first).output).toMatchObject({
       rotation: 0,
     });
+  });
+
+  it("persists the isolated edge-insets input mode without changing legacy defaults", () => {
+    const value = project();
+    value.guides.inputMode = "edge-insets";
+
+    const serialized = serializePatternLayoutProject(value);
+    expect(parsePatternLayoutProject(serialized).guides.inputMode).toBe("edge-insets");
+    expect(() => parsePatternLayoutProject({
+      ...project(),
+      guides: { ...project().guides, inputMode: "unknown" },
+    })).toThrow(/inputMode/);
+  });
+
+  it("persists an explicit stitching mode while legacy projects remain automatic", () => {
+    const value = project();
+    value.guides.stitchingMode = "content-overlap";
+
+    const serialized = serializePatternLayoutProject(value);
+    expect(parsePatternLayoutProject(serialized).guides.stitchingMode)
+      .toBe("content-overlap");
+    expect(() => parsePatternLayoutProject({
+      ...project(),
+      guides: { ...project().guides, stitchingMode: "unknown" },
+    })).toThrow(/stitchingMode/);
   });
 
   it("preserves spacer cells and view state", () => {

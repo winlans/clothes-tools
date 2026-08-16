@@ -158,6 +158,17 @@ export interface GuideDetectionResult {
   options: GuideDetectionOptions;
   inferredPagesPerColumn?: number;
   inferredLayout?: InferredColumnLayout;
+  contentOverlap?: ContentOverlapMetadata;
+}
+
+export type GuideStitchingMode = "auto" | "red-guides" | "content-overlap";
+
+export interface ContentOverlapMetadata {
+  applied: boolean;
+  confidence: number;
+  horizontalOverlapPt?: number;
+  verticalOverlapPt?: number;
+  rasterDpi?: number;
 }
 
 export type PageGuideSamples = Partial<Record<GuideDirection, GuideSample>>;
