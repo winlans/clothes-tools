@@ -139,6 +139,149 @@ export function removeRedGuidePixels(
   return removed;
 }
 
+export interface GuidePixelViewport {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+function isVisibleRasterInk(red: number, green: number, blue: number): boolean {
+  return Math.min(red, green, blue) < 245;
+}
+
+export function removeGuidePixelsAtCoordinates(
+  page: GuidePixelPage,
+  pageSize: PageSizePt,
+  guides: Record<GuideDirection, number>,
+  viewport: GuidePixelViewport = { x: 0, y: 0, ...pageSize },
+): number {
+  if (page.width <= 0 || page.height <= 0 || page.components < 3) return 0;
+  if (page.stride < page.width * page.components) return 0;
+  if (viewport.width <= 0 || viewport.height <= 0) return 0;
+
+  const cleared = new Uint8Array(page.width * page.height);
+  let matchedStripes = 0;
+  const guideChannelCounts = [0, 0, 0];
+  const clearStripe = (axis: "x" | "y", coordinatePt: number): number => {
+    const axisSize = axis === "x" ? page.width : page.height;
+    const spanSize = axis === "x" ? page.height : page.width;
+    const viewportStart = axis === "x" ? viewport.x : viewport.y;
+    const viewportSize = axis === "x" ? viewport.width : viewport.height;
+    const center = ((coordinatePt - viewportStart) / viewportSize) * axisSize;
+    const pixelsPerPt = axisSize / viewportSize;
+    const radius = Math.max(1, Math.ceil(pixelsPerPt * 0.75));
+    const start = Math.max(0, Math.floor(center - radius));
+    const end = Math.min(axisSize - 1, Math.ceil(center + radius));
+    if (start > end || center < -radius || center > axisSize - 1 + radius) return 0;
+
+    let inkPositions = 0;
+    for (let span = 0; span < spanSize; span += 1) {
+      let found = false;
+      for (let position = start; position <= end; position += 1) {
+        const x = axis === "x" ? position : span;
+        const y = axis === "x" ? span : position;
+        const offset = y * page.stride + x * page.components;
+        const red = page.pixels[offset];
+        const green = page.pixels[offset + 1];
+        const blue = page.pixels[offset + 2];
+        if (
+          red !== undefined && green !== undefined && blue !== undefined &&
+          isVisibleRasterInk(red, green, blue)
+        ) {
+          found = true;
+          break;
+        }
+      }
+      if (found) inkPositions += 1;
+    }
+    if (inkPositions < Math.max(4, Math.ceil(spanSize * 0.15))) return 0;
+    matchedStripes += 1;
+
+    let removed = 0;
+    for (let span = 0; span < spanSize; span += 1) {
+      for (let position = start; position <= end; position += 1) {
+        const x = axis === "x" ? position : span;
+        const y = axis === "x" ? span : position;
+        const pixelIndex = y * page.width + x;
+        if (cleared[pixelIndex] === 1) continue;
+        const offset = y * page.stride + x * page.components;
+        const red = page.pixels[offset];
+        const green = page.pixels[offset + 1];
+        const blue = page.pixels[offset + 2];
+        if (
+          red === undefined || green === undefined || blue === undefined ||
+          !isVisibleRasterInk(red, green, blue)
+        ) continue;
+        const channels = [red, green, blue];
+        const strongest = channels.indexOf(Math.max(...channels));
+        const others = channels.filter((_, index) => index !== strongest);
+        if (channels[strongest]! - Math.max(...others) >= 16) {
+          guideChannelCounts[strongest] = (guideChannelCounts[strongest] ?? 0) + 1;
+        }
+        page.pixels[offset] = 255;
+        page.pixels[offset + 1] = 255;
+        page.pixels[offset + 2] = 255;
+        cleared[pixelIndex] = 1;
+        removed += 1;
+      }
+    }
+    return removed;
+  };
+
+  let removed = clearStripe("x", guides.left) +
+    clearStripe("x", guides.right) +
+    clearStripe("y", guides.top) +
+    clearStripe("y", guides.bottom);
+  if (matchedStripes < 2) return removed;
+  const maximumGuideChannelCount = Math.max(...guideChannelCounts);
+  const guideChannel = maximumGuideChannelCount > 0
+    ? guideChannelCounts.indexOf(maximumGuideChannelCount)
+    : -1;
+  if (guideChannel < 0) return removed;
+
+  const clearOuterEdge = (axis: "x" | "y", coordinatePt: number): number => {
+    const axisSize = axis === "x" ? page.width : page.height;
+    const spanSize = axis === "x" ? page.height : page.width;
+    const viewportStart = axis === "x" ? viewport.x : viewport.y;
+    const viewportSize = axis === "x" ? viewport.width : viewport.height;
+    const center = ((coordinatePt - viewportStart) / viewportSize) * axisSize;
+    const radius = Math.max(1, Math.ceil((axisSize / viewportSize) * 0.75));
+    const start = Math.max(0, Math.floor(center - radius));
+    const end = Math.min(axisSize - 1, Math.ceil(center + radius));
+    if (start > end || center < -radius || center > axisSize - 1 + radius) return 0;
+    let edgeRemoved = 0;
+    for (let span = 0; span < spanSize; span += 1) {
+      for (let position = start; position <= end; position += 1) {
+        const x = axis === "x" ? position : span;
+        const y = axis === "x" ? span : position;
+        const pixelIndex = y * page.width + x;
+        if (cleared[pixelIndex] === 1) continue;
+        const offset = y * page.stride + x * page.components;
+        const red = page.pixels[offset];
+        const green = page.pixels[offset + 1];
+        const blue = page.pixels[offset + 2];
+        if (
+          red === undefined || green === undefined || blue === undefined ||
+          !isVisibleRasterInk(red, green, blue)
+        ) continue;
+        const channels = [red, green, blue];
+        const others = channels.filter((_, index) => index !== guideChannel);
+        if (channels[guideChannel]! - Math.max(...others) < 16) continue;
+        page.pixels[offset] = 255;
+        page.pixels[offset + 1] = 255;
+        page.pixels[offset + 2] = 255;
+        cleared[pixelIndex] = 1;
+        edgeRemoved += 1;
+      }
+    }
+    return edgeRemoved;
+  };
+  removed += clearOuterEdge("x", 0) + clearOuterEdge("x", pageSize.width) +
+    clearOuterEdge("y", 0) + clearOuterEdge("y", pageSize.height);
+  return removed;
+}
+
 export interface GuideSample {
   pageNumber: number;
   positionPt: number;
@@ -162,6 +305,7 @@ export interface GuideDetectionResult {
 }
 
 export type GuideStitchingMode = "auto" | "red-guides" | "content-overlap";
+export type GuideDetectionPhase = "red-guides" | "guide-pattern" | "content-overlap";
 
 export interface ContentOverlapMetadata {
   applied: boolean;
@@ -278,6 +422,192 @@ export function detectPageGuideSamples(
     if (sample) result[direction] = sample;
   }
   return result;
+}
+
+type PatternCandidateBuckets = Record<GuideDirection, GuideSample[]>;
+
+function isVisibleGuidePatternInk(red: number, green: number, blue: number): boolean {
+  return Math.min(red, green, blue) <= 223;
+}
+
+function projectionCandidates(
+  counts: Uint32Array,
+  start: number,
+  end: number,
+  threshold: number,
+  scale: number,
+  pageNumber: number,
+): GuideSample[] {
+  const candidates: GuideSample[] = [];
+  for (let position = start; position < end; position += 1) {
+    const count = counts[position] ?? 0;
+    if (count < threshold) continue;
+    const previous = counts[position - 1] ?? 0;
+    const next = counts[position + 1] ?? 0;
+    if (previous > count || next > count) continue;
+    candidates.push({
+      pageNumber,
+      positionPt: position * scale,
+      pixelWeight: count,
+    });
+  }
+  return candidates;
+}
+
+function detectPagePatternCandidates(
+  page: GuidePixelPage,
+  pageSize: PageSizePt,
+  options: GuideDetectionOptions,
+): PatternCandidateBuckets {
+  if (page.width <= 0 || page.height <= 0 || page.components < 3) {
+    throw new Pdf2PltError("invalid-guide-pixels", "辅助线模式检测像素尺寸或通道数无效。");
+  }
+  if (page.stride < page.width * page.components) {
+    throw new Pdf2PltError("invalid-guide-pixels", "辅助线模式检测像素步长无效。");
+  }
+
+  const xCounts = new Uint32Array(page.width);
+  const yCounts = new Uint32Array(page.height);
+  for (let y = 0; y < page.height; y += 1) {
+    const rowOffset = y * page.stride;
+    for (let x = 0; x < page.width; x += 1) {
+      const offset = rowOffset + x * page.components;
+      const red = page.pixels[offset];
+      const green = page.pixels[offset + 1];
+      const blue = page.pixels[offset + 2];
+      if (red === undefined || green === undefined || blue === undefined) {
+        throw new Pdf2PltError("invalid-guide-pixels", "辅助线模式检测像素缓冲区长度不足。");
+      }
+      if (!isVisibleGuidePatternInk(red, green, blue)) continue;
+      xCounts[x] = (xCounts[x] ?? 0) + 1;
+      yCounts[y] = (yCounts[y] ?? 0) + 1;
+    }
+  }
+
+  const minimumPatternFraction = Math.max(0.15, options.minimumFraction);
+  const xThreshold = Math.max(12, Math.round(page.height * minimumPatternFraction));
+  const yThreshold = Math.max(12, Math.round(page.width * minimumPatternFraction));
+  const xMargin = Math.max(2, Math.floor(page.width * 0.2));
+  const yMargin = Math.max(2, Math.floor(page.height * 0.2));
+  const scaleX = pageSize.width / page.width;
+  const scaleY = pageSize.height / page.height;
+  return {
+    left: projectionCandidates(
+      xCounts,
+      1,
+      xMargin,
+      xThreshold,
+      scaleX,
+      page.pageNumber,
+    ),
+    right: projectionCandidates(
+      xCounts,
+      page.width - xMargin,
+      page.width - 1,
+      xThreshold,
+      scaleX,
+      page.pageNumber,
+    ),
+    top: projectionCandidates(
+      yCounts,
+      1,
+      yMargin,
+      yThreshold,
+      scaleY,
+      page.pageNumber,
+    ),
+    bottom: projectionCandidates(
+      yCounts,
+      page.height - yMargin,
+      page.height - 1,
+      yThreshold,
+      scaleY,
+      page.pageNumber,
+    ),
+  };
+}
+
+function selectRepeatedPattern(
+  candidates: readonly GuideSample[],
+  tolerancePt: number,
+  pageCount: number,
+): GuideSample[] {
+  if (candidates.length === 0) return [];
+  const sorted = [...candidates].sort((first, second) => first.positionPt - second.positionPt);
+  const clusters: GuideSample[][] = [];
+  for (const candidate of sorted) {
+    const cluster = clusters.at(-1);
+    const previous = cluster?.at(-1);
+    if (!cluster || !previous || candidate.positionPt - previous.positionPt > tolerancePt) {
+      clusters.push([candidate]);
+    } else {
+      cluster.push(candidate);
+    }
+  }
+
+  const uniquePages = (cluster: GuideSample[]): GuideSample[] => {
+    const strongestByPage = new Map<number, GuideSample>();
+    for (const sample of cluster) {
+      const current = strongestByPage.get(sample.pageNumber);
+      if (!current || sample.pixelWeight > current.pixelWeight) {
+        strongestByPage.set(sample.pageNumber, sample);
+      }
+    }
+    return [...strongestByPage.values()];
+  };
+  const minimumSupport = Math.max(2, Math.ceil(pageCount * 0.2));
+  let best: GuideSample[] = [];
+  for (const cluster of clusters) {
+    const samples = uniquePages(cluster);
+    if (samples.length < minimumSupport) continue;
+    const weight = samples.reduce((sum, sample) => sum + sample.pixelWeight, 0);
+    const bestWeight = best.reduce((sum, sample) => sum + sample.pixelWeight, 0);
+    if (samples.length > best.length || (samples.length === best.length && weight > bestWeight)) {
+      best = samples;
+    }
+  }
+  return best;
+}
+
+export function detectPatternGuides(
+  pages: readonly GuidePixelPage[],
+  pageSize: PageSizePt,
+  options: GuideDetectionOptions,
+): GuideDetectionResult {
+  const candidates = pages.map((page) =>
+    detectPagePatternCandidates(page, pageSize, options)
+  );
+  const tolerance: Record<GuideDirection, number> = {
+    left: Math.max(0.5, pageSize.width * 0.003),
+    right: Math.max(0.5, pageSize.width * 0.003),
+    top: Math.max(0.5, pageSize.height * 0.003),
+    bottom: Math.max(0.5, pageSize.height * 0.003),
+  };
+  const selected: Record<GuideDirection, GuideSample[]> = {
+    left: [],
+    right: [],
+    top: [],
+    bottom: [],
+  };
+  for (const direction of GUIDE_DIRECTIONS) {
+    selected[direction] = selectRepeatedPattern(
+      candidates.flatMap((page) => page[direction]),
+      tolerance[direction],
+      pages.length,
+    );
+  }
+
+  const pageSamples = pages.map((page): PageGuideSamples => {
+    const result: PageGuideSamples = {};
+    for (const direction of GUIDE_DIRECTIONS) {
+      const sample = selected[direction].find((candidate) =>
+        candidate.pageNumber === page.pageNumber
+      );
+      if (sample) result[direction] = sample;
+    }
+    return result;
+  });
+  return buildGuideDetectionResult(pageSamples, pageSize, options);
 }
 
 function weightedMedian(samples: readonly GuideSample[]): number {

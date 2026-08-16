@@ -1,6 +1,7 @@
 import type {
   GuideCoordinates,
   GuideDetectionOptions,
+  GuideDetectionPhase,
   GuideDetectionResult,
   GuideStitchingMode,
   LayoutGrid,
@@ -19,6 +20,7 @@ export type PdfWorkerRequest =
       bytes: Uint8Array<ArrayBuffer>;
       previewLongEdge: number;
       previewPriority: number[];
+      previewGeneration: number;
       removePreviewGuides: boolean;
       previewGuideDetection: GuideDetectionOptions;
     }
@@ -42,6 +44,8 @@ export type PdfWorkerRequest =
       requestId: number;
       removeGuides: boolean;
       options: GuideDetectionOptions;
+      guides?: GuideCoordinates;
+      previewGeneration: number;
       pageNumbers: number[];
     }
   | {
@@ -61,6 +65,7 @@ export type PdfWorkerRequest =
       format: VectorExportFormat;
       layout: LayoutGrid;
       guides: GuideCoordinates | undefined;
+      guideRemovalCoordinates?: GuideCoordinates;
       svgOptions: SvgExportOptions;
       pltOptions: PltExportOptions;
     }
@@ -75,6 +80,7 @@ export type PdfWorkerResponse =
   | {
       type: "preview";
       requestId: number;
+      previewGeneration?: number;
       pageNumber: number;
       width: number;
       height: number;
@@ -83,6 +89,7 @@ export type PdfWorkerResponse =
   | {
       type: "vector-preview";
       requestId: number;
+      previewGeneration?: number;
       pageNumber: number;
       width: number;
       height: number;
@@ -91,6 +98,7 @@ export type PdfWorkerResponse =
   | {
       type: "vector-preview-error";
       requestId: number;
+      previewGeneration?: number;
       pageNumber: number;
       code: string;
       message: string;
@@ -98,6 +106,7 @@ export type PdfWorkerResponse =
   | {
       type: "detail-preview";
       requestId: number;
+      previewGeneration?: number;
       pageNumber: number;
       maxLongEdge: number;
       width: number;
@@ -107,6 +116,7 @@ export type PdfWorkerResponse =
   | {
       type: "detail-preview-error";
       requestId: number;
+      previewGeneration?: number;
       pageNumber: number;
       maxLongEdge: number;
       code: string;
@@ -136,6 +146,7 @@ export type PdfWorkerResponse =
   | {
       type: "progress";
       requestId: number;
+      previewGeneration?: number;
       completed: number;
       total: number;
     }
@@ -144,11 +155,12 @@ export type PdfWorkerResponse =
       requestId: number;
       completed: number;
       total: number;
-      phase?: "red-guides" | "content-overlap";
+      phase?: GuideDetectionPhase;
     }
   | {
       type: "complete";
       requestId: number;
+      previewGeneration?: number;
     }
   | {
       type: "export-progress";

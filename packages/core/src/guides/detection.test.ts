@@ -4,9 +4,11 @@ import {
   DEFAULT_GUIDE_DETECTION_OPTIONS,
   buildGuideDetectionResult,
   clusterGuideSamples,
+  detectPatternGuides,
   detectRedGuides,
   inferColumnLayoutFromGuideSamples,
   inferPagesPerColumnFromGuideSamples,
+  removeGuidePixelsAtCoordinates,
   removeRedGuidePixels,
   type GuidePixelPage,
   type GuideSample,
@@ -38,6 +40,46 @@ function makePage(directions: Array<"left" | "right" | "top" | "bottom">): Guide
   return { pageNumber: 1, width, height, stride: width * components, components, pixels };
 }
 
+function makePatternPage(
+  pageNumber: number,
+  directions: Array<"left" | "right" | "top" | "bottom">,
+): GuidePixelPage {
+  const width = 100;
+  const height = 120;
+  const components = 3;
+  const pixels = new Uint8Array(width * height * components).fill(255);
+  const paint = (x: number, y: number, color: [number, number, number]) => {
+    const offset = (y * width + x) * components;
+    pixels[offset] = color[0];
+    pixels[offset + 1] = color[1];
+    pixels[offset + 2] = color[2];
+  };
+  const blue: [number, number, number] = [40, 40, 255];
+  const dashed = (length: number, callback: (position: number) => void) => {
+    for (let position = 0; position < length; position += 1) {
+      if (position % 10 < 6) callback(position);
+    }
+  };
+  if (directions.includes("left")) dashed(height, (y) => paint(10, y, blue));
+  if (directions.includes("right")) dashed(height, (y) => paint(90, y, blue));
+  if (directions.includes("top")) dashed(width, (x) => paint(x, 15, blue));
+  if (directions.includes("bottom")) dashed(width, (x) => paint(x, 105, blue));
+
+  // A longer ordinary black line on a minority of pages must not replace the
+  // repeated edge-frame pattern merely because it has more pixels.
+  if (pageNumber === 2 || pageNumber === 5) {
+    for (let x = 0; x < width; x += 1) paint(x, 20, [0, 0, 0]);
+  }
+  return {
+    pageNumber,
+    width,
+    height,
+    stride: width * components,
+    components,
+    pixels,
+  };
+}
+
 describe("red guide detection", () => {
   it("removes solid and antialiased red guide pixels from previews", () => {
     const pixels = new Uint8ClampedArray([
@@ -64,6 +106,48 @@ describe("red guide detection", () => {
     ]);
   });
 
+  it("removes a detected non-red guide only at its page coordinate", () => {
+    const width = 10;
+    const height = 8;
+    const pixels = new Uint8ClampedArray(width * height * 3).fill(255);
+    for (let y = 0; y < height; y += 1) {
+      const offset = (y * width + 2) * 3;
+      pixels[offset] = 40;
+      pixels[offset + 1] = 40;
+      pixels[offset + 2] = 255;
+    }
+    for (let x = 0; x < width; x += 1) {
+      const offset = (2 * width + x) * 3;
+      pixels[offset] = 40;
+      pixels[offset + 1] = 40;
+      pixels[offset + 2] = 255;
+    }
+    pixels[0] = 40;
+    pixels[1] = 40;
+    pixels[2] = 255;
+    const artworkOffset = (4 * width + 6) * 3;
+    pixels[artworkOffset] = 0;
+    pixels[artworkOffset + 1] = 0;
+    pixels[artworkOffset + 2] = 0;
+    const edgeArtworkOffset = 6 * 3;
+    pixels[edgeArtworkOffset] = 0;
+    pixels[edgeArtworkOffset + 1] = 0;
+    pixels[edgeArtworkOffset + 2] = 0;
+
+    const removed = removeGuidePixelsAtCoordinates(
+      { pageNumber: 1, width, height, stride: width * 3, components: 3, pixels },
+      { width: 20, height: 16 },
+      { left: 4, right: 18, top: 4, bottom: 14 },
+    );
+
+    expect(removed).toBeGreaterThanOrEqual(height);
+    expect([...pixels.slice((4 * width + 2) * 3, (4 * width + 2) * 3 + 3)])
+      .toEqual([255, 255, 255]);
+    expect([...pixels.slice(artworkOffset, artworkOffset + 3)]).toEqual([0, 0, 0]);
+    expect([...pixels.slice(0, 3)]).toEqual([255, 255, 255]);
+    expect([...pixels.slice(edgeArtworkOffset, edgeArtworkOffset + 3)]).toEqual([0, 0, 0]);
+  });
+
   it("keeps the legacy CLI defaults", () => {
     expect(DEFAULT_GUIDE_DETECTION_OPTIONS).toEqual({
       dpi: 72,
@@ -85,6 +169,38 @@ describe("red guide detection", () => {
     expect(result.lines.right).toMatchObject({ coordinatePt: 180, source: "auto" });
     expect(result.lines.top).toMatchObject({ coordinatePt: 30, source: "auto" });
     expect(result.lines.bottom).toMatchObject({ coordinatePt: 210, source: "auto" });
+  });
+
+  it("detects a repeated edge-frame pattern without depending on its colour", () => {
+    const directions = [
+      ["right", "bottom"],
+      ["right", "top", "bottom"],
+      ["right", "top"],
+      ["left", "right", "bottom"],
+      ["left", "right", "top", "bottom"],
+      ["left", "right", "top"],
+    ] as const;
+    const result = detectPatternGuides(
+      directions.map((pageDirections, index) =>
+        makePatternPage(index + 1, [...pageDirections])
+      ),
+      { width: 200, height: 240 },
+      DEFAULT_GUIDE_DETECTION_OPTIONS,
+    );
+
+    expect(result.lines).toMatchObject({
+      left: { coordinatePt: 20 },
+      right: { coordinatePt: 180 },
+      top: { coordinatePt: 30 },
+      bottom: { coordinatePt: 210 },
+    });
+    expect(result.inferredLayout).toEqual({
+      pagesPerColumn: 3,
+      columns: [
+        [1, 2, 3],
+        [4, 5, 6],
+      ],
+    });
   });
 
   it("reports missing directions so the UI can request manual values", () => {

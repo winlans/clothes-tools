@@ -10,8 +10,10 @@ import {
 import { Pdf2PltError } from "./errors";
 import {
   buildGuideDetectionResult,
+  detectPatternGuides,
   detectPageGuideSamples,
   GUIDE_DIRECTIONS,
+  removeGuidePixelsAtCoordinates,
   removeRedGuidePixels,
   resolveGuideDetectionOptions,
   type GuideDetectionOptions,
@@ -20,6 +22,7 @@ import {
 } from "../guides/detection";
 import {
   applyGuideStitchingMode,
+  contentOverlapDpiCandidates,
   runContentOverlapDpiFallback,
   runContentOverlapDpiFallbackAsync,
 } from "../guides/content-overlap";
@@ -121,6 +124,20 @@ export async function openMuPdfDocument(
             },
             resolveGuideDetectionOptions(options.guideDetection),
           );
+          if (options.guides) {
+            removeGuidePixelsAtCoordinates(
+              {
+                pageNumber,
+                width: pixmap.getWidth(),
+                height: pixmap.getHeight(),
+                stride: pixmap.getStride(),
+                components: pixmap.getNumberOfComponents(),
+                pixels: pixmap.getPixels(),
+              },
+              pageInfo,
+              options.guides,
+            );
+          }
         }
         const source = pixmap.asPNG();
         const png = new Uint8Array(source.byteLength);
@@ -173,6 +190,10 @@ export async function openMuPdfDocument(
       throw new Pdf2PltError("invalid-region", "局部放大区域或输出尺寸无效。");
     }
 
+    const pageInfo = pages[pageNumber - 1];
+    if (!pageInfo) {
+      throw new Pdf2PltError("invalid-page", `找不到第 ${pageNumber} 页。`);
+    }
     const outputWidth = Math.max(1, Math.round(options.outputWidth));
     const outputHeight = Math.max(1, Math.round(options.outputHeight));
     const page = document.loadPage(pageNumber - 1);
@@ -210,6 +231,26 @@ export async function openMuPdfDocument(
             },
             resolveGuideDetectionOptions(options.guideDetection),
           );
+          if (options.guides) {
+            removeGuidePixelsAtCoordinates(
+              {
+                pageNumber,
+                width: outputWidth,
+                height: outputHeight,
+                stride: pixmap.getStride(),
+                components: pixmap.getNumberOfComponents(),
+                pixels: pixmap.getPixels(),
+              },
+              pageInfo,
+              options.guides,
+              {
+                x: options.x,
+                y: options.y,
+                width: options.width,
+                height: options.height,
+              },
+            );
+          }
         }
         const source = pixmap.asPNG();
         const png = new Uint8Array(source.byteLength);
@@ -265,6 +306,41 @@ export async function openMuPdfDocument(
     }
   };
 
+  const renderGuidePixelPage = (pageIndex: number, dpi: number): GuidePixelPage => {
+    const scale = dpi / 72;
+    const page = document.loadPage(pageIndex);
+    try {
+      const pixmap = page.toPixmap(
+        mupdf.Matrix.scale(scale, scale),
+        mupdf.ColorSpace.DeviceRGB,
+        false,
+        true,
+      );
+      try {
+        const source = pixmap.getPixels();
+        const pixels = new Uint8Array(source.byteLength);
+        pixels.set(source);
+        return {
+          pageNumber: pageIndex + 1,
+          width: pixmap.getWidth(),
+          height: pixmap.getHeight(),
+          stride: pixmap.getStride(),
+          components: pixmap.getNumberOfComponents(),
+          pixels,
+        };
+      } finally {
+        pixmap.destroy();
+      }
+    } finally {
+      page.destroy();
+    }
+  };
+
+  const renderGuidePixelPages = (dpi: number): GuidePixelPage[] =>
+    Array.from({ length: pageCount }, (_, pageIndex) =>
+      renderGuidePixelPage(pageIndex, dpi)
+    );
+
   const detectGuides = (
     overrides: Partial<GuideDetectionOptions> = {},
     stitchingMode: "auto" | "red-guides" | "content-overlap" = "auto",
@@ -315,42 +391,24 @@ export async function openMuPdfDocument(
       }
       redResult = buildGuideDetectionResult(samples, pageSizePt, options);
     }
-    if (
-      stitchingMode === "red-guides" ||
-      (stitchingMode === "auto" && Object.keys(redResult.lines).length > 0)
-    ) return redResult;
+    if (stitchingMode !== "content-overlap" && Object.keys(redResult.lines).length > 0) {
+      return redResult;
+    }
+
+    let patternPages: GuidePixelPage[] | undefined;
+    if (stitchingMode !== "content-overlap") {
+      patternPages = renderGuidePixelPages(options.dpi);
+      const patternResult = detectPatternGuides(patternPages, pageSizePt, options);
+      if (patternResult.inferredLayout) return patternResult;
+      if (stitchingMode === "red-guides") {
+        return Object.keys(patternResult.lines).length > 0 ? patternResult : redResult;
+      }
+    }
 
     return runContentOverlapDpiFallback(options.dpi, (contentDpi) => {
-      const contentScale = contentDpi / 72;
-      const overlapPages: GuidePixelPage[] = [];
-      for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
-        const page = document.loadPage(pageIndex);
-        try {
-          const pixmap = page.toPixmap(
-            mupdf.Matrix.scale(contentScale, contentScale),
-            mupdf.ColorSpace.DeviceRGB,
-            false,
-            true,
-          );
-          try {
-            const source = pixmap.getPixels();
-            const pixels = new Uint8Array(source.byteLength);
-            pixels.set(source);
-            overlapPages.push({
-              pageNumber: pageIndex + 1,
-              width: pixmap.getWidth(),
-              height: pixmap.getHeight(),
-              stride: pixmap.getStride(),
-              components: pixmap.getNumberOfComponents(),
-              pixels,
-            });
-          } finally {
-            pixmap.destroy();
-          }
-        } finally {
-          page.destroy();
-        }
-      }
+      const overlapPages = contentDpi === options.dpi && patternPages
+        ? patternPages
+        : renderGuidePixelPages(contentDpi);
       return applyGuideStitchingMode(stitchingMode, redResult, overlapPages, pageSizePt);
     });
   };
@@ -374,7 +432,7 @@ export async function openMuPdfDocument(
       const samples = [];
       for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
         if (hooks.isCancelled?.()) {
-          throw new Pdf2PltError("task-cancelled", "红线检测已取消。");
+          throw new Pdf2PltError("task-cancelled", "颜色辅助线识别已取消。");
         }
         const page = document.loadPage(pageIndex);
         try {
@@ -410,47 +468,61 @@ export async function openMuPdfDocument(
       }
       redResult = buildGuideDetectionResult(samples, pageSizePt, options);
     }
-    if (
-      stitchingMode === "red-guides" ||
-      (stitchingMode === "auto" && Object.keys(redResult.lines).length > 0)
-    ) return redResult;
+    if (stitchingMode !== "content-overlap" && Object.keys(redResult.lines).length > 0) {
+      return redResult;
+    }
 
     const redPhaseCount = stitchingMode === "content-overlap" ? 0 : 1;
+    let patternPages: GuidePixelPage[] | undefined;
+    if (stitchingMode !== "content-overlap") {
+      patternPages = [];
+      const contentAttemptCount = contentOverlapDpiCandidates(options.dpi).length;
+      const totalPhases = stitchingMode === "red-guides"
+        ? redPhaseCount + 1
+        : redPhaseCount + contentAttemptCount;
+      for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
+        if (hooks.isCancelled?.()) {
+          throw new Pdf2PltError("task-cancelled", "辅助线模式识别已取消。");
+        }
+        patternPages.push(renderGuidePixelPage(pageIndex, options.dpi));
+        hooks.onProgress?.(
+          redPhaseCount * pageCount + pageIndex + 1,
+          totalPhases * pageCount,
+          "guide-pattern",
+        );
+        await (hooks.yieldControl?.() ?? Promise.resolve());
+      }
+      const patternResult = detectPatternGuides(patternPages, pageSizePt, options);
+      if (patternResult.inferredLayout) return patternResult;
+      if (stitchingMode === "red-guides") {
+        return Object.keys(patternResult.lines).length > 0 ? patternResult : redResult;
+      }
+    }
+
     return runContentOverlapDpiFallbackAsync(
       options.dpi,
       async (contentDpi, attemptIndex, attemptCount) => {
-        const contentScale = contentDpi / 72;
+        if (contentDpi === options.dpi && patternPages) {
+          const result = applyGuideStitchingMode(
+            stitchingMode,
+            redResult,
+            patternPages,
+            pageSizePt,
+          );
+          hooks.onProgress?.(
+            (redPhaseCount + 1) * pageCount,
+            (redPhaseCount + attemptCount) * pageCount,
+            "content-overlap",
+          );
+          await (hooks.yieldControl?.() ?? Promise.resolve());
+          return result;
+        }
         const overlapPages: GuidePixelPage[] = [];
         for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
           if (hooks.isCancelled?.()) {
             throw new Pdf2PltError("task-cancelled", "内容匹配已取消。");
           }
-          const page = document.loadPage(pageIndex);
-          try {
-            const pixmap = page.toPixmap(
-              mupdf.Matrix.scale(contentScale, contentScale),
-              mupdf.ColorSpace.DeviceRGB,
-              false,
-              true,
-            );
-            try {
-              const source = pixmap.getPixels();
-              const pixels = new Uint8Array(source.byteLength);
-              pixels.set(source);
-              overlapPages.push({
-                pageNumber: pageIndex + 1,
-                width: pixmap.getWidth(),
-                height: pixmap.getHeight(),
-                stride: pixmap.getStride(),
-                components: pixmap.getNumberOfComponents(),
-                pixels,
-              });
-            } finally {
-              pixmap.destroy();
-            }
-          } finally {
-            page.destroy();
-          }
+          overlapPages.push(renderGuidePixelPage(pageIndex, contentDpi));
           const completedPhases = redPhaseCount + attemptIndex;
           hooks.onProgress?.(
             completedPhases * pageCount + pageIndex + 1,

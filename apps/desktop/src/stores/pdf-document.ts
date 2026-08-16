@@ -4,6 +4,7 @@ import {
   DEFAULT_SVG_EXPORT_OPTIONS,
   type GuideCoordinates,
   type GuideDetectionOptions,
+  type GuideDetectionPhase,
   type GuideDetectionResult,
   type GuideStitchingMode,
   type LayoutGrid,
@@ -85,6 +86,28 @@ function rejectPendingRegions(store: object, message: string) {
   pending.clear();
 }
 
+function automaticGuideCoordinates(
+  result: GuideDetectionResult | undefined,
+): GuideCoordinates | undefined {
+  if (!result || result.contentOverlap) return undefined;
+  const left = result.lines.left?.coordinatePt;
+  const right = result.lines.right?.coordinatePt;
+  const top = result.lines.top?.coordinatePt;
+  const bottom = result.lines.bottom?.coordinatePt;
+  return left !== undefined && right !== undefined && top !== undefined && bottom !== undefined
+    ? { left, right, top, bottom }
+    : undefined;
+}
+
+function sameGuideCoordinates(
+  first: GuideCoordinates | undefined,
+  second: GuideCoordinates | undefined,
+): boolean {
+  if (!first || !second) return first === second;
+  return first.left === second.left && first.right === second.right &&
+    first.top === second.top && first.bottom === second.bottom;
+}
+
 export const usePdfDocumentStore = defineStore("pdf-document", {
   state: () => ({
     status: "idle" as DocumentStatus,
@@ -96,7 +119,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
     detectionProgress: {
       completed: 0,
       total: 0,
-      phase: "red-guides" as "red-guides" | "content-overlap",
+      phase: "red-guides" as GuideDetectionPhase,
     },
     detectionErrorMessage: "",
     sourceSha256: "",
@@ -113,6 +136,8 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
     previewCacheLimit: MAX_PREVIEW_CACHE,
     previewRemoveGuides: true,
     previewGuideDetection: { ...DEFAULT_GUIDE_DETECTION_OPTIONS } as GuideDetectionOptions,
+    previewGuides: undefined as GuideCoordinates | undefined,
+    previewGeneration: 0,
     previewStatus: "idle" as "idle" | "running" | "complete" | "cancelled",
     progress: { completed: 0, total: 0 },
     errorMessage: "",
@@ -156,7 +181,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
         }
         if (this.detectionStatus === "running") {
           this.detectionStatus = "error";
-          this.detectionErrorMessage = event.message || "红线检测 Worker 发生错误。";
+          this.detectionErrorMessage = event.message || "拼接识别 Worker 发生错误。";
           pendingDetections.get(this)?.reject(new Error(this.detectionErrorMessage));
           pendingDetections.delete(this);
           return;
@@ -167,7 +192,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
     },
     async open(bytes: Uint8Array<ArrayBuffer>, fileName: string, sourcePath?: string) {
       rejectPendingRegions(this, "PDF 已切换，局部放大已取消。");
-      pendingDetections.get(this)?.reject(new Error("红线检测已取消。"));
+      pendingDetections.get(this)?.reject(new Error("拼接识别已取消。"));
       pendingDetections.delete(this);
       this.disposePreviews();
       this.ensureWorker();
@@ -177,6 +202,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       this.sourcePath = sourcePath;
       this.info = undefined;
       this.guideDetection = undefined;
+      this.previewGuides = undefined;
       this.sourceSha256 = await sha256Hex(bytes);
       this.errorMessage = "";
       this.progress = { completed: 0, total: 0 };
@@ -185,12 +211,14 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       this.detectionProgress = { completed: 0, total: 0, phase: "red-guides" };
       this.detectionErrorMessage = "";
       this.resetExport();
+      this.previewGeneration += 1;
       const request: PdfWorkerRequest = {
         type: "open",
         requestId: this.requestId,
         bytes,
         previewLongEdge: 1600,
         previewPriority: [1, 2, 3],
+        previewGeneration: this.previewGeneration,
         removePreviewGuides: this.previewRemoveGuides,
         previewGuideDetection: { ...this.previewGuideDetection },
       };
@@ -198,6 +226,11 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
     },
     handleWorkerMessage(message: PdfWorkerResponse) {
       if (message.requestId !== this.requestId) return;
+      if (
+        "previewGeneration" in message &&
+        message.previewGeneration !== undefined &&
+        message.previewGeneration !== this.previewGeneration
+      ) return;
       if (message.type === "document") {
         this.info = message.info;
         this.progress = { completed: 0, total: Math.min(3, message.info.pageCount) };
@@ -374,7 +407,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
           if (this.info) this.status = "ready";
         } else if (message.task === "detection") {
           this.detectionStatus = "cancelled";
-          pendingDetections.get(this)?.reject(new Error("红线检测已取消。"));
+          pendingDetections.get(this)?.reject(new Error("拼接识别已取消。"));
           pendingDetections.delete(this);
         } else {
           this.exportStatus = "cancelled";
@@ -388,7 +421,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
     },
     close() {
       rejectPendingRegions(this, "局部放大已取消。");
-      pendingDetections.get(this)?.reject(new Error("红线检测已取消。"));
+      pendingDetections.get(this)?.reject(new Error("拼接识别已取消。"));
       pendingDetections.delete(this);
       this.requestId += 1;
       const request: PdfWorkerRequest = { type: "close", requestId: this.requestId };
@@ -399,6 +432,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       this.sourcePath = undefined;
       this.info = undefined;
       this.guideDetection = undefined;
+      this.previewGuides = undefined;
       this.detectionStatus = "idle";
       this.detectionProgress = { completed: 0, total: 0, phase: "red-guides" };
       this.detectionErrorMessage = "";
@@ -492,13 +526,16 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
     },
     setPreviewGuideRemoval(removeGuides: boolean, options: GuideDetectionOptions) {
       const nextOptions = { ...options };
+      const nextGuides = automaticGuideCoordinates(this.guideDetection);
       const optionsChanged = (
         Object.keys(nextOptions) as Array<keyof GuideDetectionOptions>
       ).some((key) => nextOptions[key] !== this.previewGuideDetection[key]);
-      if (removeGuides === this.previewRemoveGuides && !optionsChanged) return;
+      const guidesChanged = !sameGuideCoordinates(nextGuides, this.previewGuides);
+      if (removeGuides === this.previewRemoveGuides && !optionsChanged && !guidesChanged) return;
 
       this.previewRemoveGuides = removeGuides;
       this.previewGuideDetection = nextOptions;
+      this.previewGuides = nextGuides ? { ...nextGuides } : undefined;
       this.disposeDetailPreviews();
       this.disposeVectorPreviews();
       if (!this.worker || !this.info) return;
@@ -522,11 +559,14 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       this.visiblePreviewPages = pageNumbers;
       this.previewStatus = "running";
       this.progress = { completed: 0, total: pageNumbers.length };
+      this.previewGeneration += 1;
       this.worker.postMessage({
         type: "configure-preview-guides",
         requestId: this.requestId,
         removeGuides,
         options: nextOptions,
+        ...(nextGuides ? { guides: { ...nextGuides } } : {}),
+        previewGeneration: this.previewGeneration,
         pageNumbers,
       } satisfies PdfWorkerRequest);
     },
@@ -634,6 +674,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
           ...options,
           removeGuides: this.previewRemoveGuides,
           guideDetection: { ...this.previewGuideDetection },
+          ...(this.previewGuides ? { guides: { ...this.previewGuides } } : {}),
         },
       } satisfies PdfWorkerRequest);
       return promise;
@@ -659,13 +700,21 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       this.exportProgress = { completed: 0, total: this.info.pageCount };
       this.exportSummary = undefined;
       this.exportErrorMessage = "";
+      const guideRemovalCoordinates = automaticGuideCoordinates(this.guideDetection);
       const request: PdfWorkerRequest = {
         type: "export-vector",
         requestId: this.requestId,
         format,
         layout: JSON.parse(JSON.stringify(layout)) as LayoutGrid,
         guides: guides ? { ...guides } : undefined,
-        svgOptions: { ...DEFAULT_SVG_EXPORT_OPTIONS, ...svgOverrides },
+        ...(guideRemovalCoordinates
+          ? { guideRemovalCoordinates: { ...guideRemovalCoordinates } }
+          : {}),
+        svgOptions: {
+          ...DEFAULT_SVG_EXPORT_OPTIONS,
+          removeGuidesByCoordinates: !this.guideDetection?.contentOverlap,
+          ...svgOverrides,
+        },
         pltOptions: { ...DEFAULT_PLT_EXPORT_OPTIONS, ...pltOverrides },
       };
       return new Promise<DesktopVectorExport>((resolve, reject) => {
@@ -685,7 +734,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       stitchingMode: GuideStitchingMode = "auto",
     ): Promise<GuideDetectionResult> {
       if (!this.worker || !this.info) return Promise.reject(new Error("请先打开 PDF。"));
-      if (pendingDetections.has(this)) return Promise.reject(new Error("红线检测已在进行中。"));
+      if (pendingDetections.has(this)) return Promise.reject(new Error("拼接识别已在进行中。"));
       this.detectionStatus = "running";
       this.detectionErrorMessage = "";
       this.detectionProgress = {

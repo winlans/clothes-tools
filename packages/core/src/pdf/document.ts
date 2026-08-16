@@ -1,9 +1,11 @@
 import { Pdf2PltError } from "./errors";
 import type {
   GuideDetectionOptions,
+  GuideDetectionPhase,
   GuideDetectionResult,
   GuideStitchingMode,
 } from "../guides/detection";
+import type { GuideCoordinates } from "../guides/crop";
 
 export interface PageSizePt {
   width: number;
@@ -25,6 +27,7 @@ export interface PreviewOptions {
   maxLongEdge: number;
   removeGuides?: boolean;
   guideDetection?: Partial<GuideDetectionOptions>;
+  guides?: GuideCoordinates;
 }
 
 export interface PreviewImage {
@@ -44,6 +47,7 @@ export interface PdfRegionRenderOptions {
   outputHeight: number;
   removeGuides?: boolean;
   guideDetection?: Partial<GuideDetectionOptions>;
+  guides?: GuideCoordinates;
 }
 
 export interface PdfRegionImage {
@@ -70,7 +74,7 @@ export interface OpenDocumentResult {
       onProgress?(
         completed: number,
         total: number,
-        phase?: "red-guides" | "content-overlap",
+        phase?: GuideDetectionPhase,
       ): void;
       yieldControl?(): Promise<void>;
     },

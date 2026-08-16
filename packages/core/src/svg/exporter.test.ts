@@ -6,6 +6,9 @@ import { buildCombinedSvg } from "./exporter";
 const source = `<?xml version="1.0"?><svg width="200" height="300" viewBox="0 0 200 300">
 <defs><clipPath id="clip_1"><path id="shape" d="M0 0H10V10Z"/></clipPath></defs>
 <path id="red" stroke="#ff0000" d="M1 0V300"/>
+<path id="blue-coordinate-guide" transform="matrix(.1 0 0 .1 0 0)" fill="none" stroke="#0000ff" d="M200 0V3000"/>
+<path id="blue-corner-guide" fill="none" stroke="#0000ff" d="M0 0H10"/>
+<path id="blue-artwork" fill="none" stroke="#0000ff" d="M80 0V300"/>
 <path id="paper" fill="#ffffff" d="M0 0H200V300Z"/>
 <path id="ink" clip-path="url(#clip_1)" d="M2 2H8V8Z"/>
 <use href="#shape"/>
@@ -32,6 +35,9 @@ describe("combined SVG exporter", () => {
     expect(result.svg).not.toContain('id="clip_1"');
     expect(result.svg).not.toContain("#ff0000");
     expect(result.svg).not.toContain("#ffffff");
+    expect(result.svg).not.toContain("blue-coordinate-guide");
+    expect(result.svg).not.toContain("blue-corner-guide");
+    expect(result.svg).toContain("blue-artwork");
   });
 
   it("retains spacer dimensions without emitting a page instance", () => {
@@ -63,6 +69,35 @@ describe("combined SVG exporter", () => {
 
     expect(result.svg).toContain("#ff0000");
     expect(result.svg).toContain("#ffffff");
+    expect(result.svg).toContain("blue-coordinate-guide");
+    expect(result.svg).toContain("blue-corner-guide");
+  });
+
+  it("uses the detected guide position for removal after crop coordinates are adjusted", () => {
+    const result = buildCombinedSvg(
+      [{ pageNumber: 1, svg: source }],
+      createAutomaticLayout(1, 1),
+      { width: 200, height: 300 },
+      { left: 25, right: 175, top: 35, bottom: 265 },
+      {},
+      { left: 20, right: 180, top: 30, bottom: 270 },
+    );
+
+    expect(result.svg).not.toContain("blue-coordinate-guide");
+    expect(result.svg).toContain("blue-artwork");
+  });
+
+  it("can disable coordinate removal for content-overlap documents", () => {
+    const result = buildCombinedSvg(
+      [{ pageNumber: 1, svg: source }],
+      createAutomaticLayout(1, 1),
+      { width: 200, height: 300 },
+      { left: 20, right: 180, top: 30, bottom: 270 },
+      { removeGuidesByCoordinates: false },
+    );
+
+    expect(result.svg).not.toContain('id="red"');
+    expect(result.svg).toContain("blue-coordinate-guide");
   });
 
   it("rotates the completed composition in 90-degree increments", () => {

@@ -3,6 +3,7 @@ import type { LayoutGrid } from "../layout/automatic-layout";
 import type { PageSizePt } from "../pdf/document";
 import { Pdf2PltError } from "../pdf/errors";
 import { rotatedSize, type QuarterTurn } from "../rotation";
+import { removeCoordinateGuideElements } from "./guide-removal";
 
 export interface SvgPageSource {
   pageNumber: number;
@@ -11,12 +12,14 @@ export interface SvgPageSource {
 
 export interface SvgExportOptions {
   removeGuides: boolean;
+  removeGuidesByCoordinates?: boolean;
   removeBackground: boolean;
   rotation: QuarterTurn;
 }
 
 export const DEFAULT_SVG_EXPORT_OPTIONS: Readonly<SvgExportOptions> = {
   removeGuides: true,
+  removeGuidesByCoordinates: true,
   removeBackground: true,
   rotation: 0,
 };
@@ -38,8 +41,12 @@ function extractSvgBody(svg: string): string {
   return svg.slice(opening.index + opening[0].length, closing).trim();
 }
 
-function removeColorElements(body: string, options: SvgExportOptions): string {
-  return body.replace(/<[^>]+\/>/g, (element) => {
+function removeColorElements(
+  body: string,
+  options: SvgExportOptions,
+  guides: GuideCoordinates | undefined,
+): string {
+  const colorFiltered = body.replace(/<[^>]+\/>/g, (element) => {
     const normalized = element.replace(/\s+/g, "").toLowerCase();
     const red =
       normalized.includes('stroke="#ff0000"') ||
@@ -54,6 +61,12 @@ function removeColorElements(body: string, options: SvgExportOptions): string {
     if ((options.removeGuides && red) || (options.removeBackground && white)) return "";
     return element;
   });
+  return options.removeGuides
+    ? removeCoordinateGuideElements(
+        colorFiltered,
+        options.removeGuidesByCoordinates !== false ? guides : undefined,
+      )
+    : colorFiltered;
 }
 
 function rewriteIds(body: string, prefix: string): string {
@@ -86,6 +99,7 @@ export function buildCombinedSvg(
   pageSize: PageSizePt,
   guides: GuideCoordinates | undefined,
   overrides: Partial<SvgExportOptions> = {},
+  guideRemovalCoordinates: GuideCoordinates | undefined = guides,
 ): SvgExportResult {
   const options = { ...DEFAULT_SVG_EXPORT_OPTIONS, ...overrides };
   const geometry = createLayoutCropGeometry(layout, pageSize, guides);
@@ -112,7 +126,10 @@ export function buildCombinedSvg(
       pageInstances += 1;
       const prefix = `page${cell.pageNumber}-cell${row}-${column}-`;
       const clipId = `tile-clip-${row}-${column}`;
-      const body = rewriteIds(removeColorElements(extractSvgBody(source), options), prefix);
+      const body = rewriteIds(
+        removeColorElements(extractSvgBody(source), options, guideRemovalCoordinates),
+        prefix,
+      );
       clips.push(
         `<clipPath id="${clipId}" clipPathUnits="userSpaceOnUse"><rect x="${format(columnGeometry.sourceStart)}" y="${format(rowGeometry.sourceStart)}" width="${format(columnGeometry.size)}" height="${format(rowGeometry.size)}"/></clipPath>`,
       );

@@ -2,11 +2,14 @@ import {
   resolveGuideDetectionOptions,
   type GuideDetectionOptions,
 } from "../guides/detection";
+import type { GuideCoordinates } from "../guides/crop";
 import { Pdf2PltError } from "../pdf/errors";
+import { removeCoordinateGuideElements } from "./guide-removal";
 
 export interface SvgPreviewOptions {
   removeGuides: boolean;
   guideDetection?: Partial<GuideDetectionOptions>;
+  guides?: GuideCoordinates;
 }
 
 const VECTOR_ELEMENT =
@@ -81,7 +84,8 @@ export function prepareSvgPreview(svg: string, options: SvgPreviewOptions): stri
     "gi",
   );
   const selfClosingElement = new RegExp(`<(${VECTOR_ELEMENT})\\b[^>]*/>`, "gi");
-  return svg
+  const colorFiltered = svg
     .replace(pairedElement, (element) => isGuideElement(element, detection) ? "" : element)
     .replace(selfClosingElement, (element) => isGuideElement(element, detection) ? "" : element);
+  return removeCoordinateGuideElements(colorFiltered, options.guides);
 }

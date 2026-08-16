@@ -317,7 +317,7 @@ describe("LayoutEditor", () => {
       ["下拼接线 point 坐标", "1167"],
     ] as const;
 
-    expect(wrapper.text()).toContain("缺少左、右、上、下方向红线");
+    expect(wrapper.text()).toContain("缺少左、右、上、下方向辅助线");
     for (const [name, value] of values) {
       const input = wrapper.get(`[aria-label="${name}"]`);
       await input.setValue(value);
@@ -599,7 +599,7 @@ describe("LayoutEditor", () => {
   it("persists advanced output switches in the shared project store", async () => {
     const { wrapper } = mountEditor();
     const projectStore = useProjectStore();
-    const removeGuides = wrapper.get<HTMLInputElement>('[aria-label="删除红色辅助线"]');
+    const removeGuides = wrapper.get<HTMLInputElement>('[aria-label="删除辅助线"]');
     expect(removeGuides.element.checked).toBe(true);
     await removeGuides.setValue(false);
     await wrapper.get('[aria-label="保留白色背景"]').setValue(true);

@@ -9,6 +9,7 @@ import {
   Pdf2PltError,
   prepareSvgPreview,
   type GuideDetectionOptions,
+  type GuideCoordinates,
   type OpenDocumentResult,
 } from "@pdf2plt/core";
 import mupdfWasmUrl from "@mupdf-wasm?url";
@@ -30,6 +31,7 @@ let removePreviewGuides = true;
 let previewGuideDetection: GuideDetectionOptions = {
   ...DEFAULT_GUIDE_DETECTION_OPTIONS,
 };
+let previewGuides: GuideCoordinates | undefined;
 let previewQueue: number[] = [];
 let detailPreviewQueue: Array<{ pageNumber: number; maxLongEdge: number }> = [];
 let vectorPreviewQueue: number[] = [];
@@ -125,12 +127,14 @@ async function drainPreviewQueue(requestId: number, generation: number) {
           const svg = prepareSvgPreview(currentDocument.renderSvgPage(pageNumber), {
             removeGuides: removePreviewGuides,
             guideDetection: previewGuideDetection,
+            ...(previewGuides ? { guides: previewGuides } : {}),
           });
           const page = currentDocument.info.pages[pageNumber - 1];
           if (!page) throw new Pdf2PltError("invalid-page", `找不到第 ${pageNumber} 页。`);
           respond({
             type: "vector-preview",
             requestId,
+            previewGeneration: generation,
             pageNumber,
             width: page.width,
             height: page.height,
@@ -143,12 +147,14 @@ async function drainPreviewQueue(requestId: number, generation: number) {
           maxLongEdge: detailRequest?.maxLongEdge ?? previewLongEdge,
           removeGuides: removePreviewGuides,
           guideDetection: previewGuideDetection,
+          ...(previewGuides ? { guides: previewGuides } : {}),
         });
         if (detailRequest) {
           respond(
             {
               type: "detail-preview",
               requestId,
+              previewGeneration: generation,
               pageNumber,
               maxLongEdge: detailRequest.maxLongEdge,
               width: preview.width,
@@ -163,6 +169,7 @@ async function drainPreviewQueue(requestId: number, generation: number) {
             {
               type: "preview",
               requestId,
+              previewGeneration: generation,
               pageNumber,
               width: preview.width,
               height: preview.height,
@@ -173,6 +180,7 @@ async function drainPreviewQueue(requestId: number, generation: number) {
           respond({
             type: "progress",
             requestId,
+            previewGeneration: generation,
             completed: previewCompleted.size,
             total: previewTargetCount,
           });
@@ -182,6 +190,7 @@ async function drainPreviewQueue(requestId: number, generation: number) {
           respond({
             type: "vector-preview-error",
             requestId,
+            previewGeneration: generation,
             pageNumber,
             ...serializeError(error),
           });
@@ -192,6 +201,7 @@ async function drainPreviewQueue(requestId: number, generation: number) {
         respond({
           type: "detail-preview-error",
           requestId,
+          previewGeneration: generation,
           pageNumber,
           maxLongEdge: detailRequest.maxLongEdge,
           ...serializeError(error),
@@ -208,7 +218,7 @@ async function drainPreviewQueue(requestId: number, generation: number) {
       previewGeneration === generation &&
       !cancelledTasks.has("preview")
     ) {
-      respond({ type: "complete", requestId });
+      respond({ type: "complete", requestId, previewGeneration: generation });
     }
   } catch (error) {
     if (activeRequestId !== requestId || previewGeneration !== generation) return;
@@ -294,6 +304,7 @@ async function exportVector(request: Extract<PdfWorkerRequest, { type: "export-v
       currentDocument.info.pageSizePt,
       request.guides,
       request.svgOptions,
+      request.guideRemovalCoordinates,
     );
     const pltResult = request.format === "plt"
       ? buildCorelPlt(result, request.pltOptions)
@@ -328,7 +339,7 @@ worker.onmessage = async (event: MessageEvent<PdfWorkerRequest>) => {
 
   if (request.type === "open") {
     activeRequestId = request.requestId;
-    previewGeneration += 1;
+    previewGeneration = request.previewGeneration;
     currentDocument?.close();
     currentDocument = undefined;
     previewQueue = [];
@@ -339,6 +350,7 @@ worker.onmessage = async (event: MessageEvent<PdfWorkerRequest>) => {
     previewLongEdge = request.previewLongEdge;
     removePreviewGuides = request.removePreviewGuides;
     previewGuideDetection = { ...request.previewGuideDetection };
+    previewGuides = undefined;
     cancelledTasks.clear();
 
     try {
@@ -462,7 +474,7 @@ worker.onmessage = async (event: MessageEvent<PdfWorkerRequest>) => {
   }
 
   if (request.type === "configure-preview-guides") {
-    previewGeneration += 1;
+    previewGeneration = request.previewGeneration;
     previewQueue = [];
     detailPreviewQueue = [];
     vectorPreviewQueue = [];
@@ -470,6 +482,7 @@ worker.onmessage = async (event: MessageEvent<PdfWorkerRequest>) => {
     previewTargetCount = 0;
     removePreviewGuides = request.removeGuides;
     previewGuideDetection = { ...request.options };
+    previewGuides = request.guides ? { ...request.guides } : undefined;
     cancelledTasks.delete("preview");
     queuePreviews(request.pageNumbers, true);
     void drainPreviewQueue(request.requestId, previewGeneration);

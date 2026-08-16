@@ -33,7 +33,12 @@ const selectedStitchingMode = computed<GuideStitchingMode>(
 );
 const detectedStitchingModeText = computed(() => {
   if (!documentStore.guideDetection) return "";
-  return documentStore.guideDetection.contentOverlap ? "内容匹配" : "红线拼接";
+  return documentStore.guideDetection.contentOverlap ? "内容匹配" : "辅助线拼接";
+});
+const detectionPhaseText = computed(() => {
+  if (documentStore.detectionProgress.phase === "content-overlap") return "内容匹配";
+  if (documentStore.detectionProgress.phase === "guide-pattern") return "辅助线模式识别";
+  return "颜色辅助线识别";
 });
 
 const guideLabels: Record<GuideDirection, string> = {
@@ -362,7 +367,7 @@ watch(
           @change="setStitchingMode"
         >
           <option value="auto">自动识别</option>
-          <option value="red-guides">红线拼接</option>
+          <option value="red-guides">辅助线拼接</option>
           <option value="content-overlap">内容匹配</option>
         </select>
         <small v-if="selectedStitchingMode === 'auto' && detectedStitchingModeText">
@@ -383,7 +388,7 @@ watch(
         >（已自动改用 {{ documentStore.guideDetection.contentOverlap.rasterDpi }} DPI）</span>，可继续调整四边裁切量。
       </p>
       <p v-else-if="guideStore.missing.length" class="guide-warning" role="status">
-        {{ usesEdgeInsets ? `内容匹配置信度不足；缺少${missingGuideText}方向裁切量，可直接填写。` : `缺少${missingGuideText}方向红线，可直接填写或重新检测。` }}
+        {{ usesEdgeInsets ? `内容匹配置信度不足；缺少${missingGuideText}方向裁切量，可直接填写。` : `缺少${missingGuideText}方向辅助线，可直接填写或重新检测。` }}
       </p>
       <p v-else-if="hasManualGuides" class="guide-success" role="status">
         拼接线已微调，可继续编辑或重新检测。
@@ -450,7 +455,7 @@ watch(
         </button>
       </div>
       <small v-if="documentStore.detectionStatus === 'running'" class="task-progress-text">
-        {{ documentStore.detectionProgress.phase === 'content-overlap' ? '内容匹配' : '红线检测' }} ·
+        {{ detectionPhaseText }} ·
         {{ documentStore.detectionProgress.completed }}/{{ documentStore.detectionProgress.total || '…' }} 页
       </small>
       <div class="inspector-grid inspector-grid--two">
@@ -475,11 +480,11 @@ watch(
       <label class="check-row">
         <input
           type="checkbox"
-          aria-label="删除红色辅助线"
+          aria-label="删除辅助线"
           :checked="!projectStore.outputSettings.keepGuides"
           @change="setRemoveGuides"
         />
-        删除红色辅助线
+        删除辅助线
       </label>
       <label class="check-row">
         <input

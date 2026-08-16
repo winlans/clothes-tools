@@ -30,6 +30,7 @@ watch(
   () => [
     projectStore.outputSettings.keepGuides,
     projectStore.guideSettings.detection,
+    documentStore.guideDetection,
   ] as const,
   ([keepGuides, detection]) => {
     documentStore.setPreviewGuideRemoval(!keepGuides, detection);

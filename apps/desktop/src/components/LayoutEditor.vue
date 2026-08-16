@@ -214,7 +214,7 @@ onBeforeUnmount(() => {
       </button>
       <span class="layout-toolbar__summary">{{ layoutSummary }}</span>
       <span v-if="layoutStore.detectedPagesPerColumn" class="guide-success">
-        {{ documentStore.guideDetection?.contentOverlap?.applied ? '内容匹配' : '红线识别' }}：每列 {{ layoutStore.detectedPagesPerColumn }} 页
+        {{ documentStore.guideDetection?.contentOverlap?.applied ? '内容匹配' : '辅助线识别' }}：每列 {{ layoutStore.detectedPagesPerColumn }} 页
       </span>
       <button type="button" class="ghost-button" @click="canvas?.fitContent()">
         适合内容

@@ -139,6 +139,7 @@ describe("pdf document store", () => {
         requestId: 3,
         svgOptions: {
           removeGuides: true,
+          removeGuidesByCoordinates: true,
           removeBackground: true,
           rotation: 0,
         },
@@ -425,7 +426,7 @@ describe("pdf document store", () => {
     });
   });
 
-  it("rebuilds cached previews when red-guide removal changes", () => {
+  it("rebuilds cached previews and rejects stale generations when guide removal changes", () => {
     const store = usePdfDocumentStore();
     store.requestId = 22;
     store.info = {
@@ -462,8 +463,44 @@ describe("pdf document store", () => {
       requestId: 22,
       removeGuides: false,
       options,
+      previewGeneration: 1,
       pageNumbers: [1, 2],
     });
+
+    store.guideDetection = {
+      lines: {
+        left: { coordinatePt: 20, source: "auto", supportPages: 2, pixelWeight: 100 },
+        right: { coordinatePt: 180, source: "auto", supportPages: 2, pixelWeight: 100 },
+        top: { coordinatePt: 30, source: "auto", supportPages: 2, pixelWeight: 100 },
+        bottom: { coordinatePt: 270, source: "auto", supportPages: 2, pixelWeight: 100 },
+      },
+      missing: [],
+      options,
+    };
+    store.setPreviewGuideRemoval(true, options);
+
+    expect(postMessage).toHaveBeenLastCalledWith({
+      type: "configure-preview-guides",
+      requestId: 22,
+      removeGuides: true,
+      options,
+      guides: { left: 20, right: 180, top: 30, bottom: 270 },
+      previewGeneration: 2,
+      pageNumbers: [1, 2],
+    });
+
+    const activeGeneration = postMessage.mock.lastCall?.[0]?.previewGeneration;
+    expect(activeGeneration).toBeTypeOf("number");
+    store.handleWorkerMessage({
+      type: "preview",
+      requestId: 22,
+      previewGeneration: activeGeneration - 1,
+      pageNumber: 1,
+      width: 100,
+      height: 150,
+      bytes: new Uint8Array([1, 2, 3]),
+    } as Parameters<typeof store.handleWorkerMessage>[0]);
+    expect(store.previews[1]).toBeUndefined();
   });
 
   it("prioritizes missing visible previews and cancels export cooperatively", async () => {
