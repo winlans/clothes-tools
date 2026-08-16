@@ -1,13 +1,13 @@
 # 对应源码与重建说明
 
-pdf2plt 0.1.4 is distributed under **AGPL-3.0-or-later**. There is no warranty,
+pdf2plt 0.1.6 is distributed under **AGPL-3.0-or-later**. There is no warranty,
 to the extent permitted by law. You may copy and modify it under the terms in
 `LICENSE`.
 
 ## 获取对应源码
 
 Each binary release must be published together with
-`pdf2plt-0.1.4-source.tar.gz`. That archive is generated from the same Git commit
+`pdf2plt-0.1.6-source.tar.gz`. That archive is generated from the same Git commit
 as the binaries and contains the preferred source form, build scripts,
 `pnpm-lock.yaml`, and Rust `Cargo.lock`.
 

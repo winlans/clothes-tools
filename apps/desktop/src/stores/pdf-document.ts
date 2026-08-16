@@ -12,6 +12,8 @@ import {
   type PdfRegionRenderOptions,
   type PltExportOptions,
   type SvgExportOptions,
+  type VectorObjectExclusionRule,
+  type VectorSelectionPreview,
 } from "@pdf2plt/core";
 import { defineStore } from "pinia";
 import { markRaw } from "vue";
@@ -71,9 +73,15 @@ type PendingDetection = {
   resolve(value: GuideDetectionResult): void;
   reject(reason: Error): void;
 };
+type PendingSelection = {
+  requestId: number;
+  resolve(value: VectorSelectionPreview[]): void;
+  reject(reason: Error): void;
+};
 
 const pendingExports = new WeakMap<object, PendingExport>();
 const pendingDetections = new WeakMap<object, PendingDetection>();
+const pendingSelections = new WeakMap<object, PendingSelection>();
 const pendingRegions = new WeakMap<
   object,
   Map<number, { resolve(value: DesktopPdfRegion): void; reject(reason: Error): void }>
@@ -108,6 +116,22 @@ function sameGuideCoordinates(
     first.top === second.top && first.bottom === second.bottom;
 }
 
+function cloneObjectExclusions(
+  rules: readonly VectorObjectExclusionRule[],
+): VectorObjectExclusionRule[] {
+  return rules.map((rule) => ({
+    id: rule.id,
+    sourcePageNumber: rule.sourcePageNumber,
+    scope: rule.scope,
+    ...(rule.objectKinds ? { objectKinds: [...rule.objectKinds] } : {}),
+    strokes: rule.strokes.map((stroke) => ({
+      operation: stroke.operation,
+      radiusPt: stroke.radiusPt,
+      points: stroke.points.map((point) => ({ x: point.x, y: point.y })),
+    })),
+  }));
+}
+
 export const usePdfDocumentStore = defineStore("pdf-document", {
   state: () => ({
     status: "idle" as DocumentStatus,
@@ -122,6 +146,9 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       phase: "red-guides" as GuideDetectionPhase,
     },
     detectionErrorMessage: "",
+    selectionStatus: "idle" as "idle" | "running" | "cancelled" | "error",
+    selectionProgress: { completed: 0, total: 0 },
+    selectionErrorMessage: "",
     sourceSha256: "",
     previews: {} as Record<number, PreviewState>,
     detailPreviews: {} as Record<number, DetailPreviewState>,
@@ -137,6 +164,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
     previewRemoveGuides: true,
     previewGuideDetection: { ...DEFAULT_GUIDE_DETECTION_OPTIONS } as GuideDetectionOptions,
     previewGuides: undefined as GuideCoordinates | undefined,
+    previewObjectExclusions: [] as VectorObjectExclusionRule[],
     previewGeneration: 0,
     previewStatus: "idle" as "idle" | "running" | "complete" | "cancelled",
     progress: { completed: 0, total: 0 },
@@ -148,6 +176,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
     worker: undefined as Worker | undefined,
     requestId: 0,
     regionRequestId: 0,
+    selectionRequestId: 0,
   }),
   getters: {
     previewList(state): PreviewState[] {
@@ -179,6 +208,13 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
           pendingExports.delete(this);
           return;
         }
+        if (this.selectionStatus === "running") {
+          this.selectionStatus = "error";
+          this.selectionErrorMessage = event.message || "画笔识别 Worker 发生错误。";
+          pendingSelections.get(this)?.reject(new Error(this.selectionErrorMessage));
+          pendingSelections.delete(this);
+          return;
+        }
         if (this.detectionStatus === "running") {
           this.detectionStatus = "error";
           this.detectionErrorMessage = event.message || "拼接识别 Worker 发生错误。";
@@ -194,6 +230,8 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       rejectPendingRegions(this, "PDF 已切换，局部放大已取消。");
       pendingDetections.get(this)?.reject(new Error("拼接识别已取消。"));
       pendingDetections.delete(this);
+      pendingSelections.get(this)?.reject(new Error("画笔识别已取消。"));
+      pendingSelections.delete(this);
       this.disposePreviews();
       this.ensureWorker();
       this.requestId += 1;
@@ -203,6 +241,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       this.info = undefined;
       this.guideDetection = undefined;
       this.previewGuides = undefined;
+      this.previewObjectExclusions = [];
       this.sourceSha256 = await sha256Hex(bytes);
       this.errorMessage = "";
       this.progress = { completed: 0, total: 0 };
@@ -210,6 +249,9 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       this.detectionStatus = "running";
       this.detectionProgress = { completed: 0, total: 0, phase: "red-guides" };
       this.detectionErrorMessage = "";
+      this.selectionStatus = "idle";
+      this.selectionProgress = { completed: 0, total: 0 };
+      this.selectionErrorMessage = "";
       this.resetExport();
       this.previewGeneration += 1;
       const request: PdfWorkerRequest = {
@@ -348,6 +390,34 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
         };
         return;
       }
+      if (message.type === "selection-progress") {
+        const pending = pendingSelections.get(this);
+        if (!pending || pending.requestId !== message.selectionRequestId) return;
+        this.selectionProgress = { completed: message.completed, total: message.total };
+        return;
+      }
+      if (message.type === "selection-result") {
+        const pending = pendingSelections.get(this);
+        if (!pending || pending.requestId !== message.selectionRequestId) return;
+        this.selectionStatus = "idle";
+        this.selectionProgress = {
+          completed: message.results.length,
+          total: message.results.length,
+        };
+        this.selectionErrorMessage = "";
+        pending.resolve(message.results);
+        pendingSelections.delete(this);
+        return;
+      }
+      if (message.type === "selection-error") {
+        const pending = pendingSelections.get(this);
+        if (!pending || pending.requestId !== message.selectionRequestId) return;
+        this.selectionStatus = "error";
+        this.selectionErrorMessage = message.message;
+        pending.reject(new Error(message.message));
+        pendingSelections.delete(this);
+        return;
+      }
       if (message.type === "progress") {
         this.progress = { completed: message.completed, total: message.total };
         return;
@@ -409,6 +479,10 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
           this.detectionStatus = "cancelled";
           pendingDetections.get(this)?.reject(new Error("拼接识别已取消。"));
           pendingDetections.delete(this);
+        } else if (message.task === "selection") {
+          this.selectionStatus = "cancelled";
+          pendingSelections.get(this)?.reject(new Error("画笔识别已取消。"));
+          pendingSelections.delete(this);
         } else {
           this.exportStatus = "cancelled";
           pendingExports.get(this)?.reject(new Error("矢量导出已取消。"));
@@ -423,6 +497,8 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       rejectPendingRegions(this, "局部放大已取消。");
       pendingDetections.get(this)?.reject(new Error("拼接识别已取消。"));
       pendingDetections.delete(this);
+      pendingSelections.get(this)?.reject(new Error("画笔识别已取消。"));
+      pendingSelections.delete(this);
       this.requestId += 1;
       const request: PdfWorkerRequest = { type: "close", requestId: this.requestId };
       this.worker?.postMessage(request);
@@ -433,9 +509,13 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       this.info = undefined;
       this.guideDetection = undefined;
       this.previewGuides = undefined;
+      this.previewObjectExclusions = [];
       this.detectionStatus = "idle";
       this.detectionProgress = { completed: 0, total: 0, phase: "red-guides" };
       this.detectionErrorMessage = "";
+      this.selectionStatus = "idle";
+      this.selectionProgress = { completed: 0, total: 0 };
+      this.selectionErrorMessage = "";
       this.sourceSha256 = "";
       this.errorMessage = "";
       this.progress = { completed: 0, total: 0 };
@@ -524,18 +604,31 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       if (this.previewCacheLimit < MAX_PREVIEW_CACHE) this.visiblePreviewPages = [];
       this.evictPreviewCache();
     },
-    setPreviewGuideRemoval(removeGuides: boolean, options: GuideDetectionOptions) {
+    setPreviewGuideRemoval(
+      removeGuides: boolean,
+      options: GuideDetectionOptions,
+      objectExclusions: readonly VectorObjectExclusionRule[] = [],
+    ) {
       const nextOptions = { ...options };
       const nextGuides = automaticGuideCoordinates(this.guideDetection);
+      const nextObjectExclusions = cloneObjectExclusions(objectExclusions);
       const optionsChanged = (
         Object.keys(nextOptions) as Array<keyof GuideDetectionOptions>
       ).some((key) => nextOptions[key] !== this.previewGuideDetection[key]);
       const guidesChanged = !sameGuideCoordinates(nextGuides, this.previewGuides);
-      if (removeGuides === this.previewRemoveGuides && !optionsChanged && !guidesChanged) return;
+      const exclusionsChanged = JSON.stringify(nextObjectExclusions) !==
+        JSON.stringify(this.previewObjectExclusions);
+      if (
+        removeGuides === this.previewRemoveGuides &&
+        !optionsChanged &&
+        !guidesChanged &&
+        !exclusionsChanged
+      ) return;
 
       this.previewRemoveGuides = removeGuides;
       this.previewGuideDetection = nextOptions;
       this.previewGuides = nextGuides ? { ...nextGuides } : undefined;
+      this.previewObjectExclusions = nextObjectExclusions;
       this.disposeDetailPreviews();
       this.disposeVectorPreviews();
       if (!this.worker || !this.info) return;
@@ -566,6 +659,9 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
         removeGuides,
         options: nextOptions,
         ...(nextGuides ? { guides: { ...nextGuides } } : {}),
+        ...(nextObjectExclusions.length > 0
+          ? { objectExclusions: cloneObjectExclusions(nextObjectExclusions) }
+          : {}),
         previewGeneration: this.previewGeneration,
         pageNumbers,
       } satisfies PdfWorkerRequest);
@@ -675,6 +771,9 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
           removeGuides: this.previewRemoveGuides,
           guideDetection: { ...this.previewGuideDetection },
           ...(this.previewGuides ? { guides: { ...this.previewGuides } } : {}),
+          ...(this.previewObjectExclusions.length > 0
+            ? { objectExclusions: cloneObjectExclusions(this.previewObjectExclusions) }
+            : {}),
         },
       } satisfies PdfWorkerRequest);
       return promise;
@@ -701,6 +800,7 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
       this.exportSummary = undefined;
       this.exportErrorMessage = "";
       const guideRemovalCoordinates = automaticGuideCoordinates(this.guideDetection);
+      const { objectExclusions, ...plainSvgOverrides } = svgOverrides;
       const request: PdfWorkerRequest = {
         type: "export-vector",
         requestId: this.requestId,
@@ -713,7 +813,10 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
         svgOptions: {
           ...DEFAULT_SVG_EXPORT_OPTIONS,
           removeGuidesByCoordinates: !this.guideDetection?.contentOverlap,
-          ...svgOverrides,
+          ...plainSvgOverrides,
+          ...(objectExclusions?.length
+            ? { objectExclusions: cloneObjectExclusions(objectExclusions) }
+            : {}),
         },
         pltOptions: { ...DEFAULT_PLT_EXPORT_OPTIONS, ...pltOverrides },
       };
@@ -753,12 +856,46 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
         this.worker?.postMessage(request);
       });
     },
+    analyzeVectorExclusion(
+      rule: VectorObjectExclusionRule,
+      pageNumbers: number[],
+    ): Promise<VectorSelectionPreview[]> {
+      if (!this.worker || !this.info) return Promise.reject(new Error("请先打开 PDF。"));
+      if (pendingSelections.has(this)) return Promise.reject(new Error("画笔识别已在进行中。"));
+      this.selectionRequestId += 1;
+      const selectionRequestId = this.selectionRequestId;
+      const targets = [...new Set(pageNumbers)].filter(
+        (pageNumber) => pageNumber >= 1 && pageNumber <= this.info!.pageCount,
+      );
+      this.selectionStatus = "running";
+      this.selectionProgress = { completed: 0, total: targets.length };
+      this.selectionErrorMessage = "";
+      const request: PdfWorkerRequest = {
+        type: "analyze-vector-exclusion",
+        requestId: this.requestId,
+        selectionRequestId,
+        rule: cloneObjectExclusions([rule])[0]!,
+        pageNumbers: targets,
+      };
+      return new Promise<VectorSelectionPreview[]>((resolve, reject) => {
+        pendingSelections.set(this, { requestId: selectionRequestId, resolve, reject });
+        this.worker?.postMessage(request);
+      });
+    },
     cancelDetection() {
       if (!this.worker || this.detectionStatus !== "running") return;
       this.worker.postMessage({
         type: "cancel-task",
         requestId: this.requestId,
         task: "detection",
+      } satisfies PdfWorkerRequest);
+    },
+    cancelSelection() {
+      if (!this.worker || this.selectionStatus !== "running") return;
+      this.worker.postMessage({
+        type: "cancel-task",
+        requestId: this.requestId,
+        task: "selection",
       } satisfies PdfWorkerRequest);
     },
     cancelExport() {

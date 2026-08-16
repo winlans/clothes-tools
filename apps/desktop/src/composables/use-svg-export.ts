@@ -119,6 +119,7 @@ async function generateSessionVector(session: DocumentSession, format: VectorExp
     removeGuides: !projectStore.outputSettings.keepGuides,
     removeBackground: !projectStore.outputSettings.keepBackground,
     rotation: projectStore.outputSettings.rotation ?? 0,
+    objectExclusions: projectStore.outputSettings.objectExclusions ?? [],
   });
 }
 
@@ -193,6 +194,7 @@ export function useVectorExport(sessionSource?: MaybeRefOrGetter<DocumentSession
         removeGuides: !projectStore.outputSettings.keepGuides,
         removeBackground: !projectStore.outputSettings.keepBackground,
         rotation: projectStore.outputSettings.rotation ?? 0,
+        objectExclusions: projectStore.outputSettings.objectExclusions ?? [],
       });
       if (selectedPath) await writeFile(selectedPath, result.bytes);
       else downloadBytes(result.bytes, fileName, format);

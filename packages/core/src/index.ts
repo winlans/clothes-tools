@@ -8,6 +8,7 @@ export * from "./layout/reorder";
 export * from "./pdf/document";
 export * from "./pdf/errors";
 export * from "./pdf/mupdf-engine";
+export * from "./pdf/vector-exclusion";
 export * from "./plt/exporter";
 export * from "./project/schema";
 export * from "./rotation";

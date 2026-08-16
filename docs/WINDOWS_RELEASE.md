@@ -25,7 +25,7 @@ pnpm release:desktop:windows:cross
 ```
 
 该命令会缓存 Windows SDK 与 Rust 构建结果，并把安装包复制到
-`dist/release/pdf2plt_0.1.4_x64-setup.exe`。缓存默认位于
+`dist/release/pdf2plt_0.1.6_x64-setup.exe`。缓存默认位于
 `/tmp/pdf2plt-xwin-cache` 和 `/tmp/pdf2plt-windows-target`；可分别通过
 `PDF2PLT_XWIN_CACHE_DIR` 与 `PDF2PLT_WINDOWS_TARGET_DIR` 修改。交叉构建只生成
 NSIS `.exe`，不生成 WiX `.msi`，也不替代 Windows 10/11 实机验收。
@@ -39,7 +39,7 @@ Linux 上交叉编译。
 
 ```text
 dist/release/
-  pdf2plt_0.1.4_x64-setup.exe
+  pdf2plt_0.1.6_x64-setup.exe
   pdf2plt-cli-windows-x64.zip
   pdf2plt-cli-windows-x64/
     pdf-pattern-svg.exe
@@ -47,10 +47,10 @@ dist/release/
     THIRD_PARTY_NOTICES.md
     SOURCE_OFFER.md
     USER_GUIDE.md
-  pdf2plt-0.1.4-source.tar.gz
+  pdf2plt-0.1.6-source.tar.gz
 apps/desktop/src-tauri/target/release/bundle/
-  nsis/pdf2plt_0.1.4_x64-setup.exe
-  msi/pdf2plt_0.1.4_x64_en-US.msi
+  nsis/pdf2plt_0.1.6_x64-setup.exe
+  msi/pdf2plt_0.1.6_x64_en-US.msi
 ```
 
 普通用户优先使用 NSIS `.exe`；需要 MSI 部署的环境可使用 `.msi`。当前自动

@@ -26,6 +26,11 @@ import {
   runContentOverlapDpiFallback,
   runContentOverlapDpiFallbackAsync,
 } from "../guides/content-overlap";
+import {
+  createVectorExclusionDevice,
+  type VectorDeviceMode,
+  type VectorObjectExclusionRule,
+} from "./vector-exclusion";
 
 export type MuPdfModule = (typeof import("mupdf"))["default"];
 
@@ -105,13 +110,40 @@ export async function openMuPdfDocument(
     const scale = options.maxLongEdge / Math.max(pageInfo.width, pageInfo.height);
     const page = document.loadPage(pageNumber - 1);
     try {
-      const pixmap = page.toPixmap(
-        mupdf.Matrix.scale(scale, scale),
-        mupdf.ColorSpace.DeviceRGB,
-        false,
-        true,
-      );
+      const matrix = mupdf.Matrix.scale(scale, scale);
+      const exclusions = options.objectExclusions ?? [];
+      const pixmap = exclusions.length === 0
+        ? page.toPixmap(
+            matrix,
+            mupdf.ColorSpace.DeviceRGB,
+            false,
+            true,
+          )
+        : new mupdf.Pixmap(
+            mupdf.ColorSpace.DeviceRGB,
+            [0, 0, Math.max(1, Math.ceil(pageInfo.width * scale)), Math.max(1, Math.ceil(pageInfo.height * scale))],
+            false,
+          );
+      let drawDevice: InstanceType<MuPdfModule["DrawDevice"]> | undefined;
+      let exclusionDevice: ReturnType<typeof createVectorExclusionDevice> | undefined;
       try {
+        if (exclusions.length > 0) {
+          pixmap.clear(255);
+          drawDevice = new mupdf.DrawDevice(mupdf.Matrix.identity, pixmap);
+          exclusionDevice = createVectorExclusionDevice(
+            mupdf,
+            drawDevice,
+            pageNumber,
+            pageInfo,
+            exclusions,
+            "exclude",
+            matrix,
+          );
+          page.run(exclusionDevice.device, matrix);
+          exclusionDevice.destroy();
+          exclusionDevice = undefined;
+          drawDevice.close();
+        }
         if (options.removeGuides !== false) {
           removeRedGuidePixels(
             {
@@ -150,6 +182,8 @@ export async function openMuPdfDocument(
           bytes: png,
         };
       } finally {
+        exclusionDevice?.destroy();
+        drawDevice?.destroy();
         pixmap.destroy();
       }
     } finally {
@@ -210,14 +244,33 @@ export async function openMuPdfDocument(
       try {
         pixmap.clear(255);
         device = new mupdf.DrawDevice(mupdf.Matrix.identity, pixmap);
-        page.run(device, [
+        const matrix: [number, number, number, number, number, number] = [
           scaleX,
           0,
           0,
           scaleY,
           -(pageX0 + options.x) * scaleX,
           -(pageY0 + options.y) * scaleY,
-        ]);
+        ];
+        const exclusions = options.objectExclusions ?? [];
+        if (exclusions.length > 0) {
+          const exclusionDevice = createVectorExclusionDevice(
+            mupdf,
+            device,
+            pageNumber,
+            pageInfo,
+            exclusions,
+            "exclude",
+            matrix,
+          );
+          try {
+            page.run(exclusionDevice.device, matrix);
+          } finally {
+            exclusionDevice.destroy();
+          }
+        } else {
+          page.run(device, matrix);
+        }
         device.close();
         if (options.removeGuides !== false) {
           removeRedGuidePixels(
@@ -274,7 +327,11 @@ export async function openMuPdfDocument(
   const documentId = `pdf-${nextDocumentId}`;
   nextDocumentId += 1;
 
-  const renderSvgPage = (pageNumber: number): string => {
+  const writeSvgPage = (
+    pageNumber: number,
+    rules: readonly VectorObjectExclusionRule[],
+    mode: VectorDeviceMode,
+  ) => {
     ensureOpen();
     if (!Number.isInteger(pageNumber) || pageNumber < 1 || pageNumber > pageCount) {
       throw new Pdf2PltError("invalid-page", `页码 ${pageNumber} 超出范围 1..${pageCount}。`);
@@ -283,14 +340,31 @@ export async function openMuPdfDocument(
     const buffer = new mupdf.Buffer();
     const writer = new mupdf.DocumentWriter(buffer, "svg", "text=path");
     let device: InstanceType<MuPdfModule["Device"]> | undefined;
+    let exclusionDevice: ReturnType<typeof createVectorExclusionDevice> | undefined;
     let closed = false;
     try {
       device = writer.beginPage(page.getBounds());
-      page.run(device, mupdf.Matrix.identity);
+      exclusionDevice = rules.length > 0
+        ? createVectorExclusionDevice(
+            mupdf,
+            device,
+            pageNumber,
+            pages[pageNumber - 1] ?? pageSizePt,
+            rules,
+            mode,
+          )
+        : undefined;
+      page.run(exclusionDevice?.device ?? device, mupdf.Matrix.identity);
+      const selectedObjects = exclusionDevice?.selectedObjects ?? [];
+      exclusionDevice?.destroy();
+      exclusionDevice = undefined;
       writer.endPage();
       writer.close();
       closed = true;
-      return new TextDecoder().decode(buffer.asUint8Array());
+      return {
+        svg: new TextDecoder().decode(buffer.asUint8Array()),
+        selectedObjects,
+      };
     } finally {
       if (!closed) {
         try {
@@ -299,11 +373,27 @@ export async function openMuPdfDocument(
           // Preserve the original MuPDF error.
         }
       }
+      exclusionDevice?.destroy();
       device?.destroy();
       writer.destroy();
       buffer.destroy();
       page.destroy();
     }
+  };
+
+  const renderSvgPage: OpenDocumentResult["renderSvgPage"] = (pageNumber, options = {}) =>
+    writeSvgPage(pageNumber, options.objectExclusions ?? [], "exclude").svg;
+
+  const renderVectorSelection: OpenDocumentResult["renderVectorSelection"] = (
+    pageNumber,
+    rules,
+  ) => {
+    const result = writeSvgPage(pageNumber, rules, "overlay");
+    return {
+      pageNumber,
+      selectedObjects: result.selectedObjects,
+      overlaySvg: result.svg,
+    };
   };
 
   const renderGuidePixelPage = (pageIndex: number, dpi: number): GuidePixelPage => {
@@ -546,6 +636,7 @@ export async function openMuPdfDocument(
     renderPreview,
     renderRegion,
     renderSvgPage,
+    renderVectorSelection,
     detectGuides,
     detectGuidesAsync,
     close() {

@@ -430,18 +430,6 @@ onBeforeUnmount(() => {
             </button>
           </div>
         </div>
-        <button
-          type="button"
-          class="app-command"
-          :disabled="!activeSession"
-          title="关闭当前标签（Ctrl+W）"
-          @click="closeActiveTab"
-        >
-          <svg class="app-command__icon" viewBox="0 0 16 16" aria-hidden="true">
-            <path d="m4 4 8 8m0-8-8 8" />
-          </svg>
-          关闭标签
-        </button>
         <div class="app-command-menu">
           <button
             type="button"
@@ -552,7 +540,7 @@ onBeforeUnmount(() => {
       @click.self="showLegalNotice = false"
     >
       <section class="legal-dialog" role="dialog" aria-modal="true" aria-labelledby="legal-title">
-        <span class="eyebrow">pdf2plt 0.1.4</span>
+        <span class="eyebrow">pdf2plt 0.1.6</span>
         <h2 id="legal-title">关于与许可证</h2>
         <p>
           pdf2plt 与内含的 MuPDF.js 按 GNU Affero General Public License

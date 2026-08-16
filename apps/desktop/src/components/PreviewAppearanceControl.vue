@@ -15,7 +15,6 @@ function inputValue(event: Event): string {
 
 <template>
   <div class="preview-appearance-control" aria-label="全局预览样式">
-    <span class="preview-appearance-control__title">预览样式</span>
     <label class="preview-color-control">
       <span>前景色</span>
       <input
@@ -24,7 +23,6 @@ function inputValue(event: Event): string {
         :value="appearance.foregroundColor"
         @input="appearance.setForegroundColor(inputValue($event))"
       />
-      <code>{{ appearance.foregroundColor }}</code>
     </label>
     <label class="preview-color-control">
       <span>背景色</span>
@@ -34,7 +32,6 @@ function inputValue(event: Event): string {
         :value="appearance.backgroundColor"
         @input="appearance.setBackgroundColor(inputValue($event))"
       />
-      <code>{{ appearance.backgroundColor }}</code>
     </label>
     <label class="preview-line-weight-control">
       <span>线条粗细</span>

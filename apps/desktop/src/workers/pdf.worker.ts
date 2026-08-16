@@ -11,6 +11,7 @@ import {
   type GuideDetectionOptions,
   type GuideCoordinates,
   type OpenDocumentResult,
+  type VectorObjectExclusionRule,
 } from "@pdf2plt/core";
 import mupdfWasmUrl from "@mupdf-wasm?url";
 
@@ -22,7 +23,7 @@ const mupdfGlobal = globalThis as typeof globalThis & {
     locateFile(path: string): string;
   };
 };
-type TaskKind = "preview" | "detection" | "export";
+type TaskKind = "preview" | "detection" | "export" | "selection";
 
 let currentDocument: OpenDocumentResult | undefined;
 let activeRequestId = 0;
@@ -32,6 +33,7 @@ let previewGuideDetection: GuideDetectionOptions = {
   ...DEFAULT_GUIDE_DETECTION_OPTIONS,
 };
 let previewGuides: GuideCoordinates | undefined;
+let previewObjectExclusions: VectorObjectExclusionRule[] = [];
 let previewQueue: number[] = [];
 let detailPreviewQueue: Array<{ pageNumber: number; maxLongEdge: number }> = [];
 let vectorPreviewQueue: number[] = [];
@@ -124,7 +126,9 @@ async function drainPreviewQueue(requestId: number, generation: number) {
       if (!pageNumber) continue;
       try {
         if (vectorPageNumber) {
-          const svg = prepareSvgPreview(currentDocument.renderSvgPage(pageNumber), {
+          const svg = prepareSvgPreview(currentDocument.renderSvgPage(pageNumber, {
+            objectExclusions: previewObjectExclusions,
+          }), {
             removeGuides: removePreviewGuides,
             guideDetection: previewGuideDetection,
             ...(previewGuides ? { guides: previewGuides } : {}),
@@ -148,6 +152,7 @@ async function drainPreviewQueue(requestId: number, generation: number) {
           removeGuides: removePreviewGuides,
           guideDetection: previewGuideDetection,
           ...(previewGuides ? { guides: previewGuides } : {}),
+          objectExclusions: previewObjectExclusions,
         });
         if (detailRequest) {
           respond(
@@ -288,7 +293,12 @@ async function exportVector(request: Extract<PdfWorkerRequest, { type: "export-v
       if (cancelledTasks.has("export") || activeRequestId !== request.requestId) return;
       const pageNumber = pageNumbers[index];
       if (!pageNumber) continue;
-      pages.push({ pageNumber, svg: currentDocument.renderSvgPage(pageNumber) });
+      pages.push({
+        pageNumber,
+        svg: currentDocument.renderSvgPage(pageNumber, {
+          objectExclusions: request.svgOptions.objectExclusions ?? [],
+        }),
+      });
       respond({
         type: "export-progress",
         requestId: request.requestId,
@@ -334,6 +344,57 @@ async function exportVector(request: Extract<PdfWorkerRequest, { type: "export-v
   }
 }
 
+async function analyzeVectorExclusion(
+  request: Extract<PdfWorkerRequest, { type: "analyze-vector-exclusion" }>,
+) {
+  try {
+    if (!currentDocument) {
+      throw new Pdf2PltError("document-not-open", "请先打开 PDF 再使用画笔消除。");
+    }
+    cancelledTasks.delete("selection");
+    const pageNumbers = [...new Set(request.pageNumbers)].filter(
+      (pageNumber) =>
+        Number.isInteger(pageNumber) &&
+        pageNumber >= 1 &&
+        pageNumber <= currentDocument!.info.pageCount,
+    );
+    const results = [];
+    for (let index = 0; index < pageNumbers.length; index += 1) {
+      if (
+        cancelledTasks.has("selection") ||
+        activeRequestId !== request.requestId
+      ) return;
+      const pageNumber = pageNumbers[index];
+      if (!pageNumber) continue;
+      results.push(currentDocument.renderVectorSelection(pageNumber, [request.rule]));
+      respond({
+        type: "selection-progress",
+        requestId: request.requestId,
+        selectionRequestId: request.selectionRequestId,
+        completed: index + 1,
+        total: pageNumbers.length,
+      });
+      await yieldControl();
+    }
+    if (cancelledTasks.has("selection") || activeRequestId !== request.requestId) return;
+    respond({
+      type: "selection-result",
+      requestId: request.requestId,
+      selectionRequestId: request.selectionRequestId,
+      results,
+    });
+  } catch (error) {
+    if (cancelledTasks.has("selection") || activeRequestId !== request.requestId) return;
+    const serialized = serializeError(error);
+    respond({
+      type: "selection-error",
+      requestId: request.requestId,
+      selectionRequestId: request.selectionRequestId,
+      ...serialized,
+    });
+  }
+}
+
 worker.onmessage = async (event: MessageEvent<PdfWorkerRequest>) => {
   const request = event.data;
 
@@ -351,6 +412,7 @@ worker.onmessage = async (event: MessageEvent<PdfWorkerRequest>) => {
     removePreviewGuides = request.removePreviewGuides;
     previewGuideDetection = { ...request.previewGuideDetection };
     previewGuides = undefined;
+    previewObjectExclusions = [];
     cancelledTasks.clear();
 
     try {
@@ -397,9 +459,11 @@ worker.onmessage = async (event: MessageEvent<PdfWorkerRequest>) => {
     detailPreviewQueue = [];
     vectorPreviewQueue = [];
     previewTargetCount = 0;
+    previewObjectExclusions = [];
     cancelledTasks.add("preview");
     cancelledTasks.add("detection");
     cancelledTasks.add("export");
+    cancelledTasks.add("selection");
     currentDocument?.close();
     currentDocument = undefined;
     respond({ type: "complete", requestId: request.requestId });
@@ -483,6 +547,9 @@ worker.onmessage = async (event: MessageEvent<PdfWorkerRequest>) => {
     removePreviewGuides = request.removeGuides;
     previewGuideDetection = { ...request.options };
     previewGuides = request.guides ? { ...request.guides } : undefined;
+    previewObjectExclusions = request.objectExclusions
+      ? structuredClone(request.objectExclusions)
+      : [];
     cancelledTasks.delete("preview");
     queuePreviews(request.pageNumbers, true);
     void drainPreviewQueue(request.requestId, previewGeneration);
@@ -491,6 +558,11 @@ worker.onmessage = async (event: MessageEvent<PdfWorkerRequest>) => {
 
   if (request.type === "detect-guides") {
     await detectGuides(request);
+    return;
+  }
+
+  if (request.type === "analyze-vector-exclusion") {
+    await analyzeVectorExclusion(request);
     return;
   }
 

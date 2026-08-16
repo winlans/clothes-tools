@@ -1,5 +1,13 @@
 <script setup lang="ts">
-import { flattenLayout, rotateQuarterTurn, type PageSizePt } from "@pdf2plt/core";
+import {
+  flattenLayout,
+  rotateQuarterTurn,
+  type PageSizePt,
+  type VectorBrushStroke,
+  type VectorObjectExclusionRule,
+  type VectorPaintKind,
+  type VectorSelectionPreview,
+} from "@pdf2plt/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
@@ -27,6 +35,19 @@ const draftPagesPerColumn = ref(String(layoutStore.pagesPerColumn));
 const zoom = ref(1);
 const fullscreenZoom = ref(1);
 const fullscreenPreviewOpen = ref(false);
+const brushEnabled = ref(false);
+const brushOperation = ref<VectorBrushStroke["operation"]>("add");
+const brushRadiusPt = ref(12);
+const brushScope = ref<VectorObjectExclusionRule["scope"]>("all-pages");
+const brushStrokes = ref<VectorBrushStroke[]>([]);
+const brushObjectKinds = ref<VectorPaintKind[]>([]);
+const brushSourcePageNumber = ref<number>();
+const selectionOverlays = ref<PreviewState[]>([]);
+const selectedObjectCount = ref(0);
+const selectionReady = ref(false);
+const brushError = ref("");
+let brushRevision = 0;
+let nextBrushRuleId = 1;
 let nativeWindowFullscreenActive = false;
 let fullscreenTransition = 0;
 const resolvedSettings = useResolvedSettings(() => props.pageSize, () => session);
@@ -49,6 +70,189 @@ const initialCamera = computed(() =>
       }
     : undefined,
 );
+const savedExclusionRules = computed(
+  () => projectStore.outputSettings.objectExclusions ?? [],
+);
+
+function disposeSelectionOverlays() {
+  for (const overlay of selectionOverlays.value) URL.revokeObjectURL(overlay.url);
+  selectionOverlays.value = [];
+}
+
+function setSelectionResults(results: readonly VectorSelectionPreview[]) {
+  disposeSelectionOverlays();
+  selectedObjectCount.value = results.reduce(
+    (total, result) => total + result.selectedObjects.length,
+    0,
+  );
+  selectionOverlays.value = results
+    .filter((result) => result.selectedObjects.length > 0)
+    .map((result) => ({
+      pageNumber: result.pageNumber,
+      width: props.pageSize.width,
+      height: props.pageSize.height,
+      url: URL.createObjectURL(new Blob(
+        [result.overlaySvg],
+        { type: "image/svg+xml;charset=utf-8" },
+      )),
+      format: "svg" as const,
+    }));
+}
+
+function currentBrushRule(includeLearnedKinds = true): VectorObjectExclusionRule | undefined {
+  const sourcePageNumber = brushSourcePageNumber.value;
+  if (!sourcePageNumber || !brushStrokes.value.some((stroke) => stroke.operation === "add")) {
+    return undefined;
+  }
+  return {
+    id: `brush-${Date.now()}-${nextBrushRuleId}`,
+    sourcePageNumber,
+    scope: brushScope.value,
+    ...(includeLearnedKinds && brushObjectKinds.value.length > 0
+      ? { objectKinds: [...brushObjectKinds.value] }
+      : {}),
+    strokes: brushStrokes.value.map((stroke) => ({
+      operation: stroke.operation,
+      radiusPt: stroke.radiusPt,
+      points: stroke.points.map((point) => ({ x: point.x, y: point.y })),
+    })),
+  };
+}
+
+async function analyzeBrush(pageNumbers: number[], applied: boolean) {
+  const rule = currentBrushRule(applied);
+  if (!rule) {
+    brushError.value = "请先用加选画笔选择至少一个对象。";
+    return;
+  }
+  const revision = ++brushRevision;
+  brushError.value = "";
+  try {
+    const results = await documentStore.analyzeVectorExclusion(rule, pageNumbers);
+    if (revision !== brushRevision || !brushEnabled.value) return;
+    setSelectionResults(results);
+    selectionReady.value = selectedObjectCount.value > 0;
+    if (!applied) {
+      brushObjectKinds.value = [...new Set(
+        results.flatMap((result) => result.selectedObjects.map((object) => object.kind)),
+      )];
+    }
+    if (selectedObjectCount.value === 0) {
+      brushError.value = "当前画笔没有命中可消除的矢量对象。";
+    }
+  } catch (error) {
+    if (revision !== brushRevision) return;
+    brushError.value = error instanceof Error ? error.message : "画笔识别失败。";
+  }
+}
+
+function startBrushMode() {
+  brushEnabled.value = true;
+  brushOperation.value = "add";
+  brushScope.value = "all-pages";
+  brushStrokes.value = [];
+  brushObjectKinds.value = [];
+  brushSourcePageNumber.value = undefined;
+  selectedObjectCount.value = 0;
+  selectionReady.value = false;
+  brushError.value = "";
+  disposeSelectionOverlays();
+}
+
+function cancelBrushMode() {
+  brushRevision += 1;
+  documentStore.cancelSelection();
+  brushEnabled.value = false;
+  brushStrokes.value = [];
+  brushObjectKinds.value = [];
+  brushSourcePageNumber.value = undefined;
+  selectedObjectCount.value = 0;
+  selectionReady.value = false;
+  brushError.value = "";
+  disposeSelectionOverlays();
+}
+
+function handleBrushStroke(pageNumber: number, stroke: VectorBrushStroke) {
+  if (documentStore.selectionStatus === "running") return;
+  if (
+    brushSourcePageNumber.value !== undefined &&
+    brushSourcePageNumber.value !== pageNumber
+  ) {
+    brushError.value = "一条消除规则只能在同一个参考页调整；请确认或取消当前规则。";
+    return;
+  }
+  if (stroke.operation === "subtract" && brushSourcePageNumber.value === undefined) {
+    brushError.value = "请先使用加选画笔选择对象。";
+    return;
+  }
+  brushSourcePageNumber.value ??= pageNumber;
+  brushStrokes.value = [
+    ...brushStrokes.value,
+    {
+      operation: stroke.operation,
+      radiusPt: stroke.radiusPt,
+      points: stroke.points.map((point) => ({ x: point.x, y: point.y })),
+    },
+  ];
+  brushObjectKinds.value = [];
+  selectionReady.value = false;
+  void analyzeBrush([pageNumber], false);
+}
+
+function undoBrushStroke() {
+  if (brushStrokes.value.length === 0 || documentStore.selectionStatus === "running") return;
+  brushStrokes.value = brushStrokes.value.slice(0, -1);
+  brushObjectKinds.value = [];
+  selectionReady.value = false;
+  if (!brushStrokes.value.some((stroke) => stroke.operation === "add")) {
+    brushSourcePageNumber.value = undefined;
+    selectedObjectCount.value = 0;
+    brushError.value = "";
+    disposeSelectionOverlays();
+    return;
+  }
+  if (brushSourcePageNumber.value) {
+    void analyzeBrush([brushSourcePageNumber.value], false);
+  }
+}
+
+function previewBrushMatches() {
+  const sourcePageNumber = brushSourcePageNumber.value;
+  if (!sourcePageNumber) {
+    brushError.value = "请先在参考页上涂选对象。";
+    return;
+  }
+  const pageNumbers = brushScope.value === "all-pages"
+    ? documentStore.info?.pages.map((page) => page.pageNumber) ?? []
+    : [sourcePageNumber];
+  void analyzeBrush(pageNumbers, true);
+}
+
+function confirmBrushRule() {
+  const rule = currentBrushRule();
+  if (!rule || !selectionReady.value || selectedObjectCount.value === 0) {
+    brushError.value = "请先在参考页上涂选并检查红色标记结果。";
+    return;
+  }
+  nextBrushRuleId += 1;
+  projectStore.setOutputSettings({
+    ...projectStore.outputSettings,
+    objectExclusions: [
+      ...(projectStore.outputSettings.objectExclusions ?? []),
+      rule,
+    ],
+  });
+  session.markDirty();
+  cancelBrushMode();
+}
+
+function removeExclusionRule(id: string) {
+  projectStore.setOutputSettings({
+    ...projectStore.outputSettings,
+    objectExclusions: savedExclusionRules.value.filter((rule) => rule.id !== id),
+  });
+  session.markDirty();
+}
 
 function applyAutomaticLayout() {
   const value = Number(draftPagesPerColumn.value);
@@ -157,6 +361,9 @@ onBeforeUnmount(() => {
   window.removeEventListener("keydown", handlePreviewKeyDown);
   document.body.classList.remove("fullscreen-preview-open");
   fullscreenTransition += 1;
+  brushRevision += 1;
+  documentStore.cancelSelection();
+  disposeSelectionOverlays();
   if (nativeWindowFullscreenActive) {
     nativeWindowFullscreenActive = false;
     void getCurrentWindow().setFullscreen(false).catch(() => undefined);
@@ -166,127 +373,114 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="layout-editor">
-    <div class="layout-toolbar">
-      <label>
-        <span>每列页数</span>
-        <div class="pages-per-column-stepper">
+    <div class="workspace-control-panel">
+      <div class="workspace-control-row workspace-control-row--layout">
+        <div class="layout-toolbar">
+          <label>
+            <span>每列页数</span>
+            <div class="pages-per-column-stepper">
+              <button
+                type="button"
+                aria-label="减少每列页数"
+                :disabled="Number(draftPagesPerColumn) <= 1"
+                @click="stepPagesPerColumn(-1)"
+              >
+                −
+              </button>
+              <input
+                v-model="draftPagesPerColumn"
+                type="number"
+                min="1"
+                step="1"
+                inputmode="numeric"
+                aria-label="每列页数"
+                aria-describedby="layout-input-error"
+                @change="applyAutomaticLayout"
+                @keydown.enter="applyAutomaticLayout"
+              />
+              <button
+                type="button"
+                aria-label="增加每列页数"
+                @click="stepPagesPerColumn(1)"
+              >
+                ＋
+              </button>
+            </div>
+          </label>
           <button
             type="button"
-            aria-label="减少每列页数"
-            :disabled="Number(draftPagesPerColumn) <= 1"
-            @click="stepPagesPerColumn(-1)"
+            class="ghost-button layout-refresh-button"
+            aria-label="重新自动排列"
+            title="重新打开 PDF 并自动排列"
+            @click="emit('reload')"
           >
-            −
+            <svg class="refresh-icon" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M13.5 5.8A5.8 5.8 0 0 0 3.1 3.7L1.8 5" />
+              <path d="M1.8 2.3V5h2.7" />
+              <path d="M2.5 10.2a5.8 5.8 0 0 0 10.4 2.1l1.3-1.3" />
+              <path d="M14.2 13.7V11h-2.7" />
+            </svg>
           </button>
-          <input
-            v-model="draftPagesPerColumn"
-            type="number"
-            min="1"
-            step="1"
-            inputmode="numeric"
-            aria-label="每列页数"
-            aria-describedby="layout-input-error"
-            @change="applyAutomaticLayout"
-            @keydown.enter="applyAutomaticLayout"
-          />
+          <span class="layout-toolbar__summary">{{ layoutSummary }}</span>
+          <span v-if="layoutStore.detectedPagesPerColumn" class="guide-success">
+            {{ documentStore.guideDetection?.contentOverlap?.applied ? '内容匹配' : '辅助线识别' }}：每列 {{ layoutStore.detectedPagesPerColumn }} 页
+          </span>
+        </div>
+
+        <div class="layout-commandbar" aria-label="布局编辑命令">
           <button
             type="button"
-            aria-label="增加每列页数"
-            @click="stepPagesPerColumn(1)"
+            class="compact-button"
+            :disabled="!layoutStore.canUndo"
+            @click="applyLayoutMutation(() => layoutStore.undo())"
           >
-            ＋
+            撤销
+          </button>
+          <button
+            type="button"
+            class="compact-button"
+            :disabled="!layoutStore.canRedo"
+            @click="applyLayoutMutation(() => layoutStore.redo())"
+          >
+            重做
+          </button>
+          <span class="command-separator" />
+          <button
+            type="button"
+            class="compact-button"
+            aria-label="增加一行"
+            @click="applyLayoutMutation(() => layoutStore.addRow())"
+          >
+            + 行
+          </button>
+          <button
+            type="button"
+            class="compact-button"
+            aria-label="删除最后一行"
+            @click="applyLayoutMutation(() => layoutStore.removeLastRow())"
+          >
+            − 行
+          </button>
+          <button
+            type="button"
+            class="compact-button"
+            aria-label="增加一列"
+            @click="applyLayoutMutation(() => layoutStore.addColumn())"
+          >
+            + 列
+          </button>
+          <button
+            type="button"
+            class="compact-button"
+            aria-label="删除最后一列"
+            @click="applyLayoutMutation(() => layoutStore.removeLastColumn())"
+          >
+            − 列
           </button>
         </div>
-      </label>
-      <button
-        type="button"
-        class="ghost-button layout-refresh-button"
-        aria-label="重新自动排列"
-        title="重新打开 PDF 并自动排列"
-        @click="emit('reload')"
-      >
-        <svg class="refresh-icon" viewBox="0 0 16 16" aria-hidden="true">
-          <path d="M13.5 5.8A5.8 5.8 0 0 0 3.1 3.7L1.8 5" />
-          <path d="M1.8 2.3V5h2.7" />
-          <path d="M2.5 10.2a5.8 5.8 0 0 0 10.4 2.1l1.3-1.3" />
-          <path d="M14.2 13.7V11h-2.7" />
-        </svg>
-      </button>
-      <span class="layout-toolbar__summary">{{ layoutSummary }}</span>
-      <span v-if="layoutStore.detectedPagesPerColumn" class="guide-success">
-        {{ documentStore.guideDetection?.contentOverlap?.applied ? '内容匹配' : '辅助线识别' }}：每列 {{ layoutStore.detectedPagesPerColumn }} 页
-      </span>
-      <button type="button" class="ghost-button" @click="canvas?.fitContent()">
-        适合内容
-      </button>
-    </div>
+      </div>
 
-    <div class="layout-commandbar" aria-label="布局编辑命令">
-      <button
-        type="button"
-        class="compact-button"
-        :disabled="!layoutStore.canUndo"
-        @click="applyLayoutMutation(() => layoutStore.undo())"
-      >
-        撤销
-      </button>
-      <button
-        type="button"
-        class="compact-button"
-        :disabled="!layoutStore.canRedo"
-        @click="applyLayoutMutation(() => layoutStore.redo())"
-      >
-        重做
-      </button>
-      <span class="command-separator" />
-      <button
-        type="button"
-        class="compact-button"
-        aria-label="增加一行"
-        @click="applyLayoutMutation(() => layoutStore.addRow())"
-      >
-        + 行
-      </button>
-      <button
-        type="button"
-        class="compact-button"
-        aria-label="删除最后一行"
-        @click="applyLayoutMutation(() => layoutStore.removeLastRow())"
-      >
-        − 行
-      </button>
-      <button
-        type="button"
-        class="compact-button"
-        aria-label="增加一列"
-        @click="applyLayoutMutation(() => layoutStore.addColumn())"
-      >
-        + 列
-      </button>
-      <button
-        type="button"
-        class="compact-button"
-        aria-label="删除最后一列"
-        @click="applyLayoutMutation(() => layoutStore.removeLastColumn())"
-      >
-        − 列
-      </button>
-    </div>
-
-    <p
-      v-if="layoutStore.errorMessage"
-      id="layout-input-error"
-      class="inline-error"
-      role="alert"
-    >
-      {{ layoutStore.errorMessage }}
-    </p>
-    <p v-if="guideStore.errorMessage" class="inline-error" role="alert">
-      {{ guideStore.errorMessage }}
-    </p>
-
-    <div class="layout-editor__body">
-      <div class="canvas-column">
+      <div class="workspace-control-row workspace-control-row--preview">
         <div class="canvas-preview-switch">
           <span class="eyebrow">画板预览</span>
           <div class="canvas-preview-actions">
@@ -340,7 +534,19 @@ onBeforeUnmount(() => {
                 </svg>
               </button>
             </div>
+            <button
+              type="button"
+              class="compact-button"
+              :class="{ active: brushEnabled }"
+              aria-label="画笔消除"
+              @click="brushEnabled ? cancelBrushMode() : startBrushMode()"
+            >
+              {{ brushEnabled ? '退出画笔' : '画笔消除' }}
+            </button>
             <ZoomControl :scale="zoom" @set-zoom="canvas?.setZoom($event)" />
+            <button type="button" class="compact-button" @click="canvas?.fitContent()">
+              适合内容
+            </button>
             <button
               type="button"
               class="compact-button"
@@ -352,7 +558,128 @@ onBeforeUnmount(() => {
         </div>
 
         <PreviewAppearanceControl />
+      </div>
+    </div>
 
+    <div v-if="brushEnabled" class="brush-removal-toolbar" aria-label="画笔消除工具">
+      <div class="mode-switch" role="group" aria-label="画笔操作">
+        <button
+          type="button"
+          :class="{ active: brushOperation === 'add' }"
+          :disabled="documentStore.selectionStatus === 'running'"
+          @click="brushOperation = 'add'"
+        >
+          加选
+        </button>
+        <button
+          type="button"
+          :class="{ active: brushOperation === 'subtract' }"
+          :disabled="documentStore.selectionStatus === 'running'"
+          @click="brushOperation = 'subtract'"
+        >
+          减选
+        </button>
+      </div>
+      <label class="brush-size-control">
+        <span>笔刷半径</span>
+        <input
+          v-model.number="brushRadiusPt"
+          type="range"
+          min="2"
+          max="40"
+          step="1"
+          :disabled="documentStore.selectionStatus === 'running'"
+        />
+        <output>{{ brushRadiusPt }} pt</output>
+      </label>
+      <label>
+        <span>生效范围</span>
+        <select
+          v-model="brushScope"
+          aria-label="画笔消除生效范围"
+          :disabled="documentStore.selectionStatus === 'running'"
+        >
+          <option value="all-pages">全部页面</option>
+          <option value="current-page">仅参考页</option>
+        </select>
+      </label>
+      <span class="brush-selection-summary" role="status">
+        <template v-if="documentStore.selectionStatus === 'running'">
+          正在识别 {{ documentStore.selectionProgress.completed }}/{{ documentStore.selectionProgress.total }} 页
+        </template>
+        <template v-else>
+          {{ brushSourcePageNumber ? `参考页 ${brushSourcePageNumber}` : '请在一个页面上涂选' }} ·
+          已标记 {{ selectedObjectCount }} 个对象
+        </template>
+      </span>
+      <button
+        type="button"
+        class="compact-button"
+        :disabled="brushStrokes.length === 0 || documentStore.selectionStatus === 'running'"
+        @click="undoBrushStroke"
+      >
+        撤销一笔
+      </button>
+      <button
+        v-if="documentStore.selectionStatus === 'running'"
+        type="button"
+        class="compact-button"
+        @click="documentStore.cancelSelection()"
+      >
+        取消识别
+      </button>
+      <button
+        v-else
+        type="button"
+        class="compact-button"
+        :aria-label="brushScope === 'all-pages' ? '预览全部页面匹配结果' : '预览参考页匹配结果'"
+        :title="brushScope === 'all-pages' ? '预览全部页面匹配结果' : '预览参考页匹配结果'"
+        :disabled="!brushSourcePageNumber"
+        @click="previewBrushMatches"
+      >
+        预览匹配
+      </button>
+      <button
+        type="button"
+        class="primary-button"
+        :disabled="!selectionReady || selectedObjectCount === 0 || documentStore.selectionStatus === 'running'"
+        @click="confirmBrushRule"
+      >
+        确认消除
+      </button>
+      <button type="button" class="ghost-button" @click="cancelBrushMode">取消</button>
+    </div>
+
+    <div v-if="savedExclusionRules.length" class="saved-exclusion-rules" aria-label="已保存消除规则">
+      <span class="eyebrow">已保存消除规则</span>
+      <button
+        v-for="(rule, index) in savedExclusionRules"
+        :key="rule.id"
+        type="button"
+        class="compact-button"
+        :aria-label="`删除消除规则 ${index + 1}`"
+        @click="removeExclusionRule(rule.id)"
+      >
+        规则 {{ index + 1 }} · {{ rule.scope === 'all-pages' ? '全部页面' : `第 ${rule.sourcePageNumber} 页` }} ×
+      </button>
+    </div>
+
+    <p v-if="brushError" class="inline-error" role="alert">{{ brushError }}</p>
+
+    <p
+      v-if="layoutStore.errorMessage"
+      id="layout-input-error"
+      class="inline-error"
+      role="alert"
+    >
+      {{ layoutStore.errorMessage }}
+    </p>
+    <p v-if="guideStore.errorMessage" class="inline-error" role="alert">
+      {{ guideStore.errorMessage }}
+    </p>
+
+    <div class="layout-editor__body">
+      <div class="canvas-column">
         <LayoutCanvas
           v-if="layoutStore.layout"
           ref="canvas"
@@ -367,6 +694,13 @@ onBeforeUnmount(() => {
           :rotation="projectStore.outputSettings.rotation ?? 0"
           :render-region="documentStore.renderRegion"
           :initial-camera="initialCamera"
+          :brush-enabled="brushEnabled"
+          :brush-locked="documentStore.selectionStatus === 'running'"
+          :brush-operation="brushOperation"
+          :brush-radius-pt="brushRadiusPt"
+          :brush-strokes="brushStrokes"
+          :brush-source-page-number="brushSourcePageNumber"
+          :selection-overlays="selectionOverlays"
           @zoom-change="zoom = $event"
           @view-change="projectStore.setView"
           @move-page="(pageNumber, target) => applyLayoutMutation(() => layoutStore.movePageTo(pageNumber, target))"
@@ -374,13 +708,16 @@ onBeforeUnmount(() => {
           @move-spacer="(spacerId, target) => applyLayoutMutation(() => layoutStore.moveSpacerTo(spacerId, target))"
           @delete-spacer="(spacerId) => applyLayoutMutation(() => layoutStore.deleteSpacer(spacerId))"
           @canvas-preview-request="documentStore.requestCanvasPreviews"
+          @brush-stroke="handleBrushStroke"
         />
 
         <footer class="canvas-status">
           <span>缩放 {{ displayZoom(zoom) }}%</span>
           <span>
             {{ guideStore.previewMode === 'cropped' ? '成品裁切预览' : '完整页面预览' }} ·
-            左键平移 · 右键拖动成员吸附重排 · 按住空格局部放大（滚轮调倍数） · 双击删除空白 · 滚轮滚动 · Ctrl＋滚轮缩放 · Ctrl＋Shift＋滚轮微调
+            <template v-if="brushEnabled">左键画笔加选/减选 · </template>
+            <template v-else>左键平移 · 右键拖动成员吸附重排 · </template>
+            按住空格局部放大（滚轮调倍数） · 双击删除空白 · 滚轮滚动 · Ctrl＋滚轮缩放 · Ctrl＋Shift＋滚轮微调
           </span>
         </footer>
       </div>

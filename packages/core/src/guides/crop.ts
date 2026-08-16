@@ -24,6 +24,9 @@ export interface LayoutCropGeometry {
   rows: CropAxisSegment[];
 }
 
+const GUIDE_COORDINATE_TOLERANCE_PT = 0.05;
+const ROUNDED_OUTER_BOUNDARY_TOLERANCE_PT = 0.5;
+
 function buildSegments(
   count: number,
   fullSize: number,
@@ -55,16 +58,22 @@ export function createLayoutCropGeometry(
   const outerRight = guides?.outerRight ?? pageSize.width;
   const outerTop = guides?.outerTop ?? 0;
   const outerBottom = guides?.outerBottom ?? pageSize.height;
-  if (!(0 <= left && left < right && right <= pageSize.width + 0.05)) {
+  if (!(0 <= left && left < right && right <= pageSize.width + GUIDE_COORDINATE_TOLERANCE_PT)) {
     throw new Pdf2PltError("invalid-guide-crop", "左右拼接线不能形成有效裁切范围。");
   }
-  if (!(0 <= top && top < bottom && bottom <= pageSize.height + 0.05)) {
+  if (!(0 <= top && top < bottom && bottom <= pageSize.height + GUIDE_COORDINATE_TOLERANCE_PT)) {
     throw new Pdf2PltError("invalid-guide-crop", "上下拼接线不能形成有效裁切范围。");
   }
-  if (!(0 <= outerLeft && outerLeft < outerRight && outerRight <= pageSize.width + 0.05)) {
+  if (
+    !(0 <= outerLeft && outerLeft < outerRight &&
+      outerRight <= pageSize.width + ROUNDED_OUTER_BOUNDARY_TOLERANCE_PT)
+  ) {
     throw new Pdf2PltError("invalid-guide-crop", "左右外边界不能形成有效裁切范围。");
   }
-  if (!(0 <= outerTop && outerTop < outerBottom && outerBottom <= pageSize.height + 0.05)) {
+  if (
+    !(0 <= outerTop && outerTop < outerBottom &&
+      outerBottom <= pageSize.height + ROUNDED_OUTER_BOUNDARY_TOLERANCE_PT)
+  ) {
     throw new Pdf2PltError("invalid-guide-crop", "上下外边界不能形成有效裁切范围。");
   }
   const columns = buildSegments(

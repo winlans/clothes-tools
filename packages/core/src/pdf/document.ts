@@ -6,6 +6,11 @@ import type {
   GuideStitchingMode,
 } from "../guides/detection";
 import type { GuideCoordinates } from "../guides/crop";
+import type {
+  VectorObjectExclusionRule,
+  VectorRenderOptions,
+  VectorSelectionPreview,
+} from "./vector-exclusion";
 
 export interface PageSizePt {
   width: number;
@@ -28,6 +33,7 @@ export interface PreviewOptions {
   removeGuides?: boolean;
   guideDetection?: Partial<GuideDetectionOptions>;
   guides?: GuideCoordinates;
+  objectExclusions?: readonly VectorObjectExclusionRule[];
 }
 
 export interface PreviewImage {
@@ -48,6 +54,7 @@ export interface PdfRegionRenderOptions {
   removeGuides?: boolean;
   guideDetection?: Partial<GuideDetectionOptions>;
   guides?: GuideCoordinates;
+  objectExclusions?: readonly VectorObjectExclusionRule[];
 }
 
 export interface PdfRegionImage {
@@ -62,7 +69,11 @@ export interface OpenDocumentResult {
   info: PdfDocumentInfo;
   renderPreview(pageNumber: number, options: PreviewOptions): PreviewImage;
   renderRegion(pageNumber: number, options: PdfRegionRenderOptions): PdfRegionImage;
-  renderSvgPage(pageNumber: number): string;
+  renderSvgPage(pageNumber: number, options?: VectorRenderOptions): string;
+  renderVectorSelection(
+    pageNumber: number,
+    rules: readonly VectorObjectExclusionRule[],
+  ): VectorSelectionPreview;
   detectGuides(
     options?: Partial<GuideDetectionOptions>,
     stitchingMode?: GuideStitchingMode,

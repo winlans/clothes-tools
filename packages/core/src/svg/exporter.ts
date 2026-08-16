@@ -4,6 +4,7 @@ import type { PageSizePt } from "../pdf/document";
 import { Pdf2PltError } from "../pdf/errors";
 import { rotatedSize, type QuarterTurn } from "../rotation";
 import { removeCoordinateGuideElements } from "./guide-removal";
+import type { VectorObjectExclusionRule } from "../pdf/vector-exclusion";
 
 export interface SvgPageSource {
   pageNumber: number;
@@ -15,6 +16,7 @@ export interface SvgExportOptions {
   removeGuidesByCoordinates?: boolean;
   removeBackground: boolean;
   rotation: QuarterTurn;
+  objectExclusions?: readonly VectorObjectExclusionRule[];
 }
 
 export const DEFAULT_SVG_EXPORT_OPTIONS: Readonly<SvgExportOptions> = {

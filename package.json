@@ -1,6 +1,6 @@
 {
   "name": "pdf2plt",
-  "version": "0.1.4",
+  "version": "0.1.6",
   "private": true,
   "license": "AGPL-3.0-or-later",
   "type": "module",
@@ -13,7 +13,7 @@
     "release:cli:linux": "pnpm --filter @pdf2plt/cli release:linux",
     "release:cli:windows": "pnpm --filter @pdf2plt/cli release:windows",
     "release:desktop": "pnpm release:desktop:linux",
-    "release:desktop:linux": "pnpm tauri build && scripts/postprocess-appimage.sh apps/desktop/src-tauri/target/release/bundle/appimage/pdf2plt_0.1.4_amd64.AppImage",
+    "release:desktop:linux": "pnpm tauri build && scripts/postprocess-appimage.sh apps/desktop/src-tauri/target/release/bundle/appimage/pdf2plt_0.1.6_amd64.AppImage",
     "release:desktop:windows": "pnpm tauri build --bundles nsis,msi --ci",
     "release:desktop:windows:cross": "scripts/build-windows-nsis.sh",
     "smoke:pdf": "pnpm --filter @pdf2plt/core smoke:pdf",

@@ -503,6 +503,107 @@ describe("pdf document store", () => {
     expect(store.previews[1]).toBeUndefined();
   });
 
+  it("analyzes brush rules across selected pages and reports progress", async () => {
+    const store = usePdfDocumentStore();
+    store.requestId = 26;
+    store.info = {
+      documentId: "brush-selection",
+      pageCount: 3,
+      pageSizePt: { width: 200, height: 300 },
+      pages: Array.from({ length: 3 }, (_, index) => ({
+        pageNumber: index + 1,
+        width: 200,
+        height: 300,
+      })),
+    };
+    const postMessage = vi.fn();
+    store.worker = { postMessage } as unknown as Worker;
+    const rule = {
+      id: "remove-watermark",
+      sourcePageNumber: 1,
+      scope: "all-pages" as const,
+      strokes: [{
+        operation: "add" as const,
+        radiusPt: 8,
+        points: [{ x: 80, y: 120 }, { x: 120, y: 120 }],
+      }],
+    };
+
+    const analyzed = store.analyzeVectorExclusion(rule, [3, 1, 3, 0, 4]);
+
+    expect(store.selectionStatus).toBe("running");
+    expect(store.selectionProgress).toEqual({ completed: 0, total: 2 });
+    expect(postMessage).toHaveBeenCalledWith({
+      type: "analyze-vector-exclusion",
+      requestId: 26,
+      selectionRequestId: 1,
+      rule,
+      pageNumbers: [3, 1],
+    });
+    store.handleWorkerMessage({
+      type: "selection-progress",
+      requestId: 26,
+      selectionRequestId: 1,
+      completed: 1,
+      total: 2,
+    });
+    expect(store.selectionProgress).toEqual({ completed: 1, total: 2 });
+    const results = [{
+      pageNumber: 3,
+      selectedObjects: [{
+        objectId: 7,
+        kind: "text" as const,
+        bounds: { x: 70, y: 110, width: 60, height: 20 },
+      }],
+      overlaySvg: '<svg xmlns="http://www.w3.org/2000/svg"/>',
+    }];
+    store.handleWorkerMessage({
+      type: "selection-result",
+      requestId: 26,
+      selectionRequestId: 1,
+      results,
+    });
+
+    await expect(analyzed).resolves.toEqual(results);
+    expect(store.selectionStatus).toBe("idle");
+    expect(store.selectionProgress).toEqual({ completed: 1, total: 1 });
+  });
+
+  it("cancels an active brush analysis without closing the document", async () => {
+    const store = usePdfDocumentStore();
+    store.requestId = 28;
+    store.info = {
+      documentId: "brush-selection",
+      pageCount: 1,
+      pageSizePt: { width: 200, height: 300 },
+      pages: [{ pageNumber: 1, width: 200, height: 300 }],
+    };
+    const postMessage = vi.fn();
+    store.worker = { postMessage } as unknown as Worker;
+    const analyzed = store.analyzeVectorExclusion({
+      id: "remove-page-number",
+      sourcePageNumber: 1,
+      scope: "current-page",
+      strokes: [{ operation: "add", radiusPt: 6, points: [{ x: 30, y: 30 }] }],
+    }, [1]);
+
+    store.cancelSelection();
+    expect(postMessage).toHaveBeenLastCalledWith({
+      type: "cancel-task",
+      requestId: 28,
+      task: "selection",
+    });
+    store.handleWorkerMessage({
+      type: "task-cancelled",
+      requestId: 28,
+      task: "selection",
+    });
+
+    await expect(analyzed).rejects.toThrow(/取消/);
+    expect(store.selectionStatus).toBe("cancelled");
+    expect(store.info?.documentId).toBe("brush-selection");
+  });
+
   it("prioritizes missing visible previews and cancels export cooperatively", async () => {
     const store = usePdfDocumentStore();
     store.requestId = 12;

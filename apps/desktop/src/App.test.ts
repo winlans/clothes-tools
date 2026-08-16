@@ -39,10 +39,9 @@ describe("App", () => {
   it("offers local import and the required legal notice", async () => {
     setActivePinia(createPinia());
     const wrapper = mount(App, { global: { plugins: [createPinia()] } });
-    expect(wrapper.findAll("button").slice(0, 4).map((button) => button.text())).toEqual([
+    expect(wrapper.findAll("button").slice(0, 3).map((button) => button.text())).toEqual([
       "打开 PDF",
       "导出 ⌄",
-      "关闭标签",
       "更多 ⌄",
     ]);
     const emptyImport = wrapper.get('[aria-label="选择 PDF 文件导入"]');
@@ -54,7 +53,8 @@ describe("App", () => {
     expect(wrapper.text()).not.toContain("打开工程");
     expect(wrapper.text()).not.toContain("保存工程");
     expect(wrapper.text()).toContain("不会上传到网络");
-    await wrapper.findAll("button")[3]?.trigger("click");
+    const more = wrapper.findAll("button").find((button) => button.text().includes("更多"));
+    await more?.trigger("click");
     const about = wrapper.findAll("button").find((button) =>
       button.text().includes("关于与许可证"),
     );

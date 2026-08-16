@@ -14,6 +14,7 @@ import {
   type LayoutGrid,
   type PageSizePt,
   type QuarterTurn,
+  type VectorObjectExclusionRule,
 } from "@pdf2plt/core";
 import { createHash } from "node:crypto";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
@@ -41,6 +42,7 @@ interface ProjectData {
   keepBackground: boolean;
   allowUnusedPages: boolean;
   rotation: QuarterTurn;
+  objectExclusions: VectorObjectExclusionRule[];
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -115,6 +117,7 @@ async function readProject(projectPath: string): Promise<ProjectData> {
     keepBackground: parsed.output.keepBackground,
     allowUnusedPages: parsed.output.allowUnusedPages,
     rotation: parsed.output.rotation ?? 0,
+    objectExclusions: parsed.output.objectExclusions ?? [],
   };
 }
 
@@ -293,7 +296,9 @@ export async function runCli(options: CliOptions, output: CliOutput): Promise<nu
     )].filter(Boolean);
     const pages = pageNumbers.map((pageNumber) => ({
       pageNumber,
-      svg: document.renderSvgPage(pageNumber),
+      svg: document.renderSvgPage(pageNumber, {
+        objectExclusions: project?.objectExclusions ?? [],
+      }),
     }));
     const result = buildCombinedSvg(
       pages,

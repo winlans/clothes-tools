@@ -29,11 +29,13 @@ const exportPercent = computed(() =>
 watch(
   () => [
     projectStore.outputSettings.keepGuides,
+    projectStore.outputSettings.objectExclusions,
     projectStore.guideSettings.detection,
     documentStore.guideDetection,
+    documentStore.info?.documentId,
   ] as const,
-  ([keepGuides, detection]) => {
-    documentStore.setPreviewGuideRemoval(!keepGuides, detection);
+  ([keepGuides, objectExclusions, detection]) => {
+    documentStore.setPreviewGuideRemoval(!keepGuides, detection, objectExclusions ?? []);
   },
   { deep: true, immediate: true },
 );

@@ -118,6 +118,58 @@ describe("pattern layout project schema", () => {
     })).toThrow(/0、90、180 或 270/);
   });
 
+  it("persists brush object-exclusion rules without changing legacy projects", () => {
+    const value = project();
+    value.output.objectExclusions = [{
+      id: "watermark",
+      sourcePageNumber: 1,
+      scope: "all-pages",
+      objectKinds: ["text"],
+      strokes: [
+        {
+          operation: "add",
+          radiusPt: 12,
+          points: [{ x: 60, y: 80 }, { x: 140, y: 180 }],
+        },
+        {
+          operation: "subtract",
+          radiusPt: 4,
+          points: [{ x: 90, y: 100 }],
+        },
+      ],
+    }];
+
+    const parsed = parsePatternLayoutProject(serializePatternLayoutProject(value));
+    expect(parsed.output.objectExclusions).toEqual(value.output.objectExclusions);
+    expect(parsePatternLayoutProject(project()).output.objectExclusions).toBeUndefined();
+  });
+
+  it("rejects malformed or out-of-page brush rules", () => {
+    const invalid = project();
+    invalid.output.objectExclusions = [{
+      id: "bad",
+      sourcePageNumber: 1,
+      scope: "all-pages",
+      strokes: [{ operation: "subtract", radiusPt: 4, points: [{ x: 20, y: 20 }] }],
+    }];
+    expect(() => parsePatternLayoutProject(invalid)).toThrow(/至少需要一笔 add/);
+
+    invalid.output.objectExclusions[0]!.strokes = [{
+      operation: "add",
+      radiusPt: 4,
+      points: [{ x: 201, y: 20 }],
+    }];
+    expect(() => parsePatternLayoutProject(invalid)).toThrow(/页面范围/);
+
+    invalid.output.objectExclusions[0]!.strokes = [{
+      operation: "add",
+      radiusPt: 4,
+      points: [{ x: 20, y: 20 }],
+    }];
+    invalid.output.objectExclusions[0]!.objectKinds = ["text", "text"];
+    expect(() => parsePatternLayoutProject(invalid)).toThrow(/不能重复/);
+  });
+
   it("rejects out-of-page seams, inverted outer bounds, and incomplete manual mode", () => {
     expect(() => parsePatternLayoutProject({
       ...project(),

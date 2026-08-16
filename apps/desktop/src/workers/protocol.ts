@@ -9,6 +9,8 @@ import type {
   PdfRegionRenderOptions,
   PltExportOptions,
   SvgExportOptions,
+  VectorObjectExclusionRule,
+  VectorSelectionPreview,
 } from "@pdf2plt/core";
 
 export type VectorExportFormat = "svg" | "plt";
@@ -45,19 +47,27 @@ export type PdfWorkerRequest =
       removeGuides: boolean;
       options: GuideDetectionOptions;
       guides?: GuideCoordinates;
+      objectExclusions?: VectorObjectExclusionRule[];
       previewGeneration: number;
       pageNumbers: number[];
     }
   | {
       type: "cancel-task";
       requestId: number;
-      task: "preview" | "detection" | "export";
+      task: "preview" | "detection" | "export" | "selection";
     }
   | {
       type: "detect-guides";
       requestId: number;
       options: GuideDetectionOptions;
       stitchingMode: GuideStitchingMode;
+    }
+  | {
+      type: "analyze-vector-exclusion";
+      requestId: number;
+      selectionRequestId: number;
+      rule: VectorObjectExclusionRule;
+      pageNumbers: number[];
     }
   | {
       type: "export-vector";
@@ -158,6 +168,26 @@ export type PdfWorkerResponse =
       phase?: GuideDetectionPhase;
     }
   | {
+      type: "selection-progress";
+      requestId: number;
+      selectionRequestId: number;
+      completed: number;
+      total: number;
+    }
+  | {
+      type: "selection-result";
+      requestId: number;
+      selectionRequestId: number;
+      results: VectorSelectionPreview[];
+    }
+  | {
+      type: "selection-error";
+      requestId: number;
+      selectionRequestId: number;
+      code: string;
+      message: string;
+    }
+  | {
       type: "complete";
       requestId: number;
       previewGeneration?: number;
@@ -197,7 +227,7 @@ export type PdfWorkerResponse =
   | {
       type: "task-cancelled";
       requestId: number;
-      task: "preview" | "detection" | "export";
+      task: "preview" | "detection" | "export" | "selection";
     }
   | {
       type: "error";

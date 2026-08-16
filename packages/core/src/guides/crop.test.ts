@@ -59,4 +59,26 @@ describe("layout crop geometry", () => {
       [30, 290],
     ]);
   });
+
+  it("accepts integer-rounded outer page edges and clamps them precisely", () => {
+    const geometry = createLayoutCropGeometry(
+      createAutomaticLayout(1, 1),
+      { width: 841.92, height: 1190.52 },
+      {
+        left: 0,
+        right: 841.92,
+        top: 0,
+        bottom: 1190.52,
+        outerLeft: 0,
+        outerRight: 842,
+        outerTop: 0,
+        outerBottom: 1191,
+      },
+    );
+
+    expect(geometry.width).toBe(841.92);
+    expect(geometry.height).toBe(1190.52);
+    expect(geometry.columns[0]?.sourceEnd).toBe(841.92);
+    expect(geometry.rows[0]?.sourceEnd).toBe(1190.52);
+  });
 });

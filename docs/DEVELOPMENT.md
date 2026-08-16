@@ -50,6 +50,8 @@ Vue 可以完整替代原方案中的 React。共享转换核心、CLI、工程�
 - **US-11 CLI 批处理**：已有 `-i/-o/-c/-p` 调用方式在新 CLI 中继续工作。
 - **US-12 可诊断失败**：缺页、重复页、尺寸不一致、接缝检测失败和覆盖输出
   均提供可操作的中文错误。
+- **US-13 区域消除**：用户可在参考页用画笔选择页码、水印等完整矢量对象，查看
+  自动高亮结果，以加选/减选修正，并选择仅参考页或全部页面后写入工程与导出。
 
 ## 4. 范围边界
 
@@ -246,6 +248,20 @@ interface GuideSettings {
 预览 PNG 永远不作为整页图片写入最终 SVG。源 PDF 中原本存在的图片对象可以
 继续作为图片存在。
 
+### 7.4.1 画笔矢量对象消除
+
+- 画板把屏幕坐标反算为未裁切 PDF 的页面本地 point 坐标，并把连续拖动保存为
+  带半径的 `add` 或 `subtract` 笔画；旋转、缩放和接缝裁切不改变规则坐标；
+- MuPDF 设备包装器在 `fillPath`、`strokePath`、文字绘制和渐变绘制调用处进行命中，
+  笔画接触对象即选中整个绘制操作；图片不参与选择，接近整页的填充背景也会忽略；
+- 一条规则先在参考页识别对象并返回红色 SVG 覆盖层。跨页应用时只匹配参考页已
+  命中的对象类型，防止同一坐标偶然经过的其他纸样路径被删除；
+- `add` 命中集合减去 `subtract` 命中集合得到最终对象集合。范围为 `all-pages` 时
+  每页使用相同页面本地笔画，为 `current-page` 时仅应用参考页；
+- 已确认规则由预览、局部放大、SVG 页渲染和 PLT 的 SVG 前置阶段共用。辅助线检测
+  始终读取未过滤原页，因此画笔规则不会改变既有辅助线或内容匹配方案；
+- Worker 为跨页高亮返回逐页进度并支持取消，Store 使用独立请求编号忽略过期结果。
+
 ### 7.5 CorelDRAW PLT 输出
 
 桌面端先生成与 SVG 导出完全相同的组合 SVG，再由共享 Core 转换器生成基础
@@ -312,7 +328,22 @@ CLI 保持现有 SVG 行为，不增加 PLT 参数。
   "output": {
     "keepGuides": false,
     "keepBackground": false,
-    "allowUnusedPages": false
+    "allowUnusedPages": false,
+    "objectExclusions": [
+      {
+        "id": "watermark-1",
+        "sourcePageNumber": 1,
+        "scope": "all-pages",
+        "objectKinds": ["text"],
+        "strokes": [
+          {
+            "operation": "add",
+            "radiusPt": 8,
+            "points": [{ "x": 300, "y": 420 }]
+          }
+        ]
+      }
+    ]
   },
   "view": {
     "zoom": 1,

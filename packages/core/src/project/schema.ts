@@ -10,6 +10,11 @@ import { Pdf2PltError } from "../pdf/errors";
 import type { GuideCropSettings } from "../guides/settings";
 import { resolveGuideGeometry } from "../guides/settings";
 import { isQuarterTurn, type QuarterTurn } from "../rotation";
+import type {
+  VectorBrushStroke,
+  VectorObjectExclusionRule,
+  VectorPaintKind,
+} from "../pdf/vector-exclusion";
 
 export interface ProjectSource {
   absolutePath: string;
@@ -30,6 +35,7 @@ export interface ProjectOutputSettings {
   keepBackground: boolean;
   allowUnusedPages: boolean;
   rotation?: QuarterTurn;
+  objectExclusions?: VectorObjectExclusionRule[];
 }
 
 export interface ProjectView {
@@ -77,6 +83,111 @@ function booleanValue(value: unknown, label: string): boolean {
     throw new Pdf2PltError("invalid-project", `${label} 必须是布尔值。`);
   }
   return value;
+}
+
+function parseObjectExclusions(
+  value: unknown,
+  pageCount: number,
+  pageSize: PageSizePt,
+): VectorObjectExclusionRule[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new Pdf2PltError("invalid-project", "output.objectExclusions 必须是数组。");
+  }
+  const ids = new Set<string>();
+  return value.map((rawRule, ruleIndex) => {
+    const label = `output.objectExclusions[${ruleIndex}]`;
+    const rule = record(rawRule, label);
+    const id = text(rule.id, `${label}.id`).trim();
+    if (!id || ids.has(id)) {
+      throw new Pdf2PltError("invalid-project", `${label}.id 必须非空且不能重复。`);
+    }
+    ids.add(id);
+    const sourcePageNumber = finite(rule.sourcePageNumber, `${label}.sourcePageNumber`);
+    if (
+      !Number.isInteger(sourcePageNumber) ||
+      sourcePageNumber < 1 ||
+      sourcePageNumber > pageCount
+    ) {
+      throw new Pdf2PltError(
+        "invalid-project",
+        `${label}.sourcePageNumber 必须位于 1..${pageCount}。`,
+      );
+    }
+    if (rule.scope !== "all-pages" && rule.scope !== "current-page") {
+      throw new Pdf2PltError(
+        "invalid-project",
+        `${label}.scope 仅支持 all-pages 或 current-page。`,
+      );
+    }
+    if (!Array.isArray(rule.strokes) || rule.strokes.length === 0) {
+      throw new Pdf2PltError("invalid-project", `${label}.strokes 至少需要一笔。`);
+    }
+    let hasAddStroke = false;
+    const strokes: VectorBrushStroke[] = rule.strokes.map((rawStroke, strokeIndex) => {
+      const strokeLabel = `${label}.strokes[${strokeIndex}]`;
+      const stroke = record(rawStroke, strokeLabel);
+      if (stroke.operation !== "add" && stroke.operation !== "subtract") {
+        throw new Pdf2PltError(
+          "invalid-project",
+          `${strokeLabel}.operation 仅支持 add 或 subtract。`,
+        );
+      }
+      if (stroke.operation === "add") hasAddStroke = true;
+      const radiusPt = finite(stroke.radiusPt, `${strokeLabel}.radiusPt`);
+      if (radiusPt <= 0 || radiusPt > Math.max(pageSize.width, pageSize.height) * 2) {
+        throw new Pdf2PltError("invalid-project", `${strokeLabel}.radiusPt 超出有效范围。`);
+      }
+      if (!Array.isArray(stroke.points) || stroke.points.length === 0 || stroke.points.length > 10_000) {
+        throw new Pdf2PltError(
+          "invalid-project",
+          `${strokeLabel}.points 必须包含 1..10000 个坐标。`,
+        );
+      }
+      const points = stroke.points.map((rawPoint, pointIndex) => {
+        const pointLabel = `${strokeLabel}.points[${pointIndex}]`;
+        const point = record(rawPoint, pointLabel);
+        const x = finite(point.x, `${pointLabel}.x`);
+        const y = finite(point.y, `${pointLabel}.y`);
+        if (x < 0 || x > pageSize.width || y < 0 || y > pageSize.height) {
+          throw new Pdf2PltError("invalid-project", `${pointLabel} 必须位于 PDF 页面范围内。`);
+        }
+        return { x, y };
+      });
+      return { operation: stroke.operation, radiusPt, points };
+    });
+    if (!hasAddStroke) {
+      throw new Pdf2PltError("invalid-project", `${label}.strokes 至少需要一笔 add。`);
+    }
+    let objectKinds: VectorPaintKind[] | undefined;
+    if (rule.objectKinds !== undefined) {
+      if (!Array.isArray(rule.objectKinds) || rule.objectKinds.length === 0) {
+        throw new Pdf2PltError(
+          "invalid-project",
+          `${label}.objectKinds 必须是非空数组。`,
+        );
+      }
+      objectKinds = rule.objectKinds.map((kind, kindIndex) => {
+        if (kind !== "path" && kind !== "text" && kind !== "shade") {
+          throw new Pdf2PltError(
+            "invalid-project",
+            `${label}.objectKinds[${kindIndex}] 不是支持的矢量对象类型。`,
+          );
+        }
+        return kind;
+      });
+      if (new Set(objectKinds).size !== objectKinds.length) {
+        throw new Pdf2PltError("invalid-project", `${label}.objectKinds 不能重复。`);
+      }
+    }
+    return {
+      id,
+      sourcePageNumber,
+      scope: rule.scope,
+      strokes,
+      ...(objectKinds ? { objectKinds } : {}),
+    };
+  });
 }
 
 function parseLayout(value: unknown, pageCount: number): LayoutGrid {
@@ -214,11 +325,17 @@ export function parsePatternLayoutProject(value: string | unknown): PatternLayou
   if (!isQuarterTurn(rotation)) {
     throw new Pdf2PltError("invalid-project", "output.rotation 必须是 0、90、180 或 270。");
   }
+  const objectExclusions = parseObjectExclusions(
+    rawOutput.objectExclusions,
+    pageCount,
+    pageSizePt,
+  );
   const output: ProjectOutputSettings = {
     keepGuides: booleanValue(rawOutput.keepGuides, "output.keepGuides"),
     keepBackground: booleanValue(rawOutput.keepBackground, "output.keepBackground"),
     allowUnusedPages: booleanValue(rawOutput.allowUnusedPages, "output.allowUnusedPages"),
     rotation,
+    ...(objectExclusions.length > 0 ? { objectExclusions } : {}),
   };
   const layout = parseLayout(root.layout, pageCount);
   for (const [name, value, limit] of [

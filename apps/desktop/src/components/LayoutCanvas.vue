@@ -9,6 +9,8 @@ import {
   type PageSizePt,
   type PdfRegionRenderOptions,
   type QuarterTurn,
+  type VectorBrushStroke,
+  type VectorPoint,
 } from "@pdf2plt/core";
 import Konva from "konva";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
@@ -66,6 +68,13 @@ const props = withDefaults(defineProps<{
     pageNumber: number,
     options: PdfRegionRenderOptions,
   ) => Promise<DesktopPdfRegion>;
+  brushEnabled?: boolean;
+  brushLocked?: boolean;
+  brushOperation?: VectorBrushStroke["operation"];
+  brushRadiusPt?: number;
+  brushStrokes?: readonly VectorBrushStroke[];
+  brushSourcePageNumber?: number | undefined;
+  selectionOverlays?: PreviewState[];
 }>(), {
   editable: true,
   showGrid: true,
@@ -73,6 +82,12 @@ const props = withDefaults(defineProps<{
   backgroundColor: "#ffffff",
   lineWeight: 5,
   rotation: 0,
+  brushEnabled: false,
+  brushLocked: false,
+  brushOperation: "add",
+  brushRadiusPt: 12,
+  brushStrokes: () => [],
+  selectionOverlays: () => [],
 });
 
 const emit = defineEmits<{
@@ -83,6 +98,7 @@ const emit = defineEmits<{
   moveSpacer: [spacerId: string, target: GridPosition];
   deleteSpacer: [spacerId: string];
   canvasPreviewRequest: [pageNumbers: number[], maxLongEdge?: number];
+  brushStroke: [pageNumber: number, stroke: VectorBrushStroke];
 }>();
 
 type DragItem =
@@ -120,6 +136,9 @@ let panning = false;
 let lastPointer: Point | undefined;
 let activeDrag: ActiveDrag | undefined;
 let dropHighlight: Konva.Rect | undefined;
+let activeBrushPageNumber: number | undefined;
+let activeBrushPoints: VectorPoint[] = [];
+let activeBrushLine: Konva.Line | undefined;
 interface PreviewImageEntry {
   image: HTMLImageElement;
   loaded: boolean;
@@ -134,10 +153,104 @@ const geometry = computed(() =>
 
 function updateCursor() {
   if (!host.value) return;
+  if (props.brushEnabled) {
+    host.value.style.cursor = props.brushLocked
+      ? "wait"
+      : activeBrushLine ? "crosshair" : "cell";
+    return;
+  }
   host.value.style.cursor = canvasCursor(
     magnifierActive,
     panning || Boolean(activeDrag),
   );
+}
+
+function pagePointAtCanvasPoint(pointer: Point): {
+  pageNumber: number;
+  pagePoint: VectorPoint;
+  worldPoint: Point;
+} | undefined {
+  const worldPoint = canvasPointToWorld(
+    pointer,
+    camera,
+    getSourceContentSize(),
+    props.rotation,
+  );
+  const column = axisIndex(geometry.value.columns, worldPoint.x);
+  const row = axisIndex(geometry.value.rows, worldPoint.y);
+  if (row < 0 || column < 0) return undefined;
+  const cell = props.layout.cells[row]?.[column];
+  if (cell?.kind !== "page") return undefined;
+  const frame = frameForCell({ row, column });
+  return {
+    pageNumber: cell.pageNumber,
+    pagePoint: {
+      x: Math.max(0, Math.min(props.pageSize.width,
+        worldPoint.x - frame.x + frame.sourceX)),
+      y: Math.max(0, Math.min(props.pageSize.height,
+        worldPoint.y - frame.y + frame.sourceY)),
+    },
+    worldPoint,
+  };
+}
+
+function startBrush(pointer: Point | null) {
+  if (!pointer || !contentLayer || !props.brushEnabled || props.brushLocked) return;
+  const located = pagePointAtCanvasPoint(pointer);
+  if (!located) return;
+  activeBrushPageNumber = located.pageNumber;
+  activeBrushPoints = [located.pagePoint];
+  activeBrushLine = new Konva.Line({
+    points: [located.worldPoint.x, located.worldPoint.y],
+    stroke: props.brushOperation === "add" ? "#e15b35" : "#287c9f",
+    strokeWidth: props.brushRadiusPt * 2,
+    opacity: 0.34,
+    lineCap: "round",
+    lineJoin: "round",
+    listening: false,
+  });
+  contentLayer.add(activeBrushLine);
+  activeBrushLine.moveToTop();
+  contentLayer.batchDraw();
+  updateCursor();
+}
+
+function appendBrush(pointer: Point | undefined) {
+  if (!pointer || !activeBrushLine || !activeBrushPageNumber) return;
+  const located = pagePointAtCanvasPoint(pointer);
+  if (!located || located.pageNumber !== activeBrushPageNumber) {
+    finishBrush(true);
+    return;
+  }
+  const previous = activeBrushPoints.at(-1);
+  if (
+    previous &&
+    Math.hypot(previous.x - located.pagePoint.x, previous.y - located.pagePoint.y) < 0.5
+  ) return;
+  activeBrushPoints.push(located.pagePoint);
+  activeBrushLine.points([
+    ...activeBrushLine.points(),
+    located.worldPoint.x,
+    located.worldPoint.y,
+  ]);
+  contentLayer?.batchDraw();
+}
+
+function finishBrush(commit = true) {
+  const pageNumber = activeBrushPageNumber;
+  const points = activeBrushPoints;
+  activeBrushLine?.destroy();
+  activeBrushLine = undefined;
+  activeBrushPageNumber = undefined;
+  activeBrushPoints = [];
+  contentLayer?.batchDraw();
+  updateCursor();
+  if (!commit || !pageNumber || points.length === 0) return;
+  emit("brushStroke", pageNumber, {
+    operation: props.brushOperation,
+    radiusPt: props.brushRadiusPt,
+    points,
+  });
 }
 
 function hideMagnifier() {
@@ -666,6 +779,7 @@ function createPageGroup(
   pageNumber: number,
   source: GridPosition,
   preview?: PreviewState,
+  selectionOverlay?: PreviewState,
 ): Konva.Group {
   const frame = frameForCell(source);
   const group = new Konva.Group({
@@ -677,7 +791,7 @@ function createPageGroup(
     clipY: 0,
     clipWidth: frame.width,
     clipHeight: frame.height,
-    draggable: props.editable,
+    draggable: props.editable && !props.brushEnabled,
     name: "layout-item layout-page",
   });
   group.setAttr("pageNumber", pageNumber);
@@ -752,6 +866,41 @@ function createPageGroup(
     }
   }
 
+  if (selectionOverlay) {
+    const image = new window.Image();
+    image.decoding = "async";
+    const overlayNode = new Konva.Image({
+      x: -frame.sourceX,
+      y: -frame.sourceY,
+      width: props.pageSize.width,
+      height: props.pageSize.height,
+      image,
+      opacity: 0.9,
+      listening: false,
+    });
+    image.onload = () => overlayNode.getLayer()?.batchDraw();
+    image.src = selectionOverlay.url;
+    group.add(overlayNode);
+  }
+
+  if (pageNumber === props.brushSourcePageNumber) {
+    for (const stroke of props.brushStrokes) {
+      group.add(new Konva.Line({
+        points: stroke.points.flatMap((point) => [
+          point.x - frame.sourceX,
+          point.y - frame.sourceY,
+        ]),
+        stroke: stroke.operation === "add" ? "#e15b35" : "#287c9f",
+        strokeWidth: stroke.radiusPt * 2,
+        opacity: 0.2,
+        lineCap: "round",
+        lineJoin: "round",
+        ...(stroke.operation === "subtract" ? { dash: [8, 5] } : {}),
+        listening: false,
+      }));
+    }
+  }
+
   if (props.showGrid) {
     group.add(
       new Konva.Rect({
@@ -784,7 +933,9 @@ function createPageGroup(
     );
   }
 
-  if (props.editable) bindCellDrag(group, { kind: "page", pageNumber }, source);
+  if (props.editable && !props.brushEnabled) {
+    bindCellDrag(group, { kind: "page", pageNumber }, source);
+  }
 
   return group;
 }
@@ -796,7 +947,7 @@ function createSpacerGroup(spacerId: string, source: GridPosition): Konva.Group 
     y: frame.y,
     width: frame.width,
     height: frame.height,
-    draggable: props.editable,
+    draggable: props.editable && !props.brushEnabled,
     name: "layout-item layout-spacer",
   });
   group.add(
@@ -824,7 +975,7 @@ function createSpacerGroup(spacerId: string, source: GridPosition): Konva.Group 
       }),
     );
   }
-  if (props.editable) {
+  if (props.editable && !props.brushEnabled) {
     group.on("dblclick dbltap", () => emit("deleteSpacer", spacerId));
     bindCellDrag(group, { kind: "spacer", spacerId }, source);
   }
@@ -856,21 +1007,21 @@ function positionFromClient(clientX: number, clientY: number): GridPosition | un
 }
 
 function handleExternalDragOver(event: DragEvent) {
-  if (!props.editable) return;
+  if (!props.editable || props.brushEnabled) return;
   if (!event.dataTransfer?.types.includes("application/x-pdf2plt-spacer")) return;
   event.dataTransfer.dropEffect = "copy";
   showDropTarget(positionFromClient(event.clientX, event.clientY));
 }
 
 function handleExternalDragLeave(event: DragEvent) {
-  if (!props.editable) return;
+  if (!props.editable || props.brushEnabled) return;
   const related = event.relatedTarget;
   if (related instanceof Node && host.value?.contains(related)) return;
   showDropTarget();
 }
 
 function handleExternalDrop(event: DragEvent) {
-  if (!props.editable) return;
+  if (!props.editable || props.brushEnabled) return;
   if (!event.dataTransfer?.types.includes("application/x-pdf2plt-spacer")) return;
   const target = positionFromClient(event.clientX, event.clientY);
   showDropTarget();
@@ -888,6 +1039,9 @@ function renderScene() {
   }
   const previewByPage = new Map(
     props.previews.map((preview) => [preview.pageNumber, preview]),
+  );
+  const selectionOverlayByPage = new Map(
+    props.selectionOverlays.map((preview) => [preview.pageNumber, preview]),
   );
   if (host.value) {
     host.value.dataset.layoutCells = flattenLayout(props.layout)
@@ -943,6 +1097,7 @@ function renderScene() {
             cell.pageNumber,
             { row, column },
             previewByPage.get(cell.pageNumber),
+            selectionOverlayByPage.get(cell.pageNumber),
           ),
         );
       } else if (cell?.kind === "spacer") {
@@ -989,6 +1144,11 @@ function stopPan() {
 }
 
 function handleKeyDown(event: KeyboardEvent) {
+  if (event.code === "Escape" && activeBrushLine) {
+    event.preventDefault();
+    finishBrush(false);
+    return;
+  }
   if (isCanvasMagnifierShortcut(
     event.code,
     pointerInside,
@@ -1071,6 +1231,11 @@ onMounted(() => {
   stage.on("mousedown", (event) => {
     host.value?.focus();
     const button = event.evt.button;
+    if (props.brushEnabled && button === 0) {
+      event.evt.preventDefault();
+      startBrush(stage?.getPointerPosition() ?? null);
+      return;
+    }
     if (isCanvasPanGesture(button)) {
       event.evt.preventDefault();
       startPan(stage?.getPointerPosition() ?? null);
@@ -1081,6 +1246,10 @@ onMounted(() => {
   });
   stage.on("mousemove", () => {
     const pointer = stage?.getPointerPosition();
+    if (activeBrushLine) {
+      appendBrush(pointer ?? undefined);
+      return;
+    }
     if (pointer) scheduleMagnifier(pointer);
     if (!panning || !pointer || !lastPointer) return;
     applyCamera(
@@ -1091,7 +1260,10 @@ onMounted(() => {
     );
     lastPointer = pointer;
   });
-  stage.on("mouseup", stopPan);
+  stage.on("mouseup", () => {
+    if (activeBrushLine) finishBrush(true);
+    else stopPan();
+  });
   stage.on("mouseenter", () => {
     pointerInside = true;
     updateCursor();
@@ -1099,6 +1271,7 @@ onMounted(() => {
   stage.on("mouseleave", () => {
     pointerInside = false;
     hideMagnifier();
+    if (activeBrushLine) finishBrush(true);
     stopPan();
   });
 
@@ -1120,6 +1293,13 @@ watch(
     props.backgroundColor,
     props.lineWeight,
     props.rotation,
+    props.brushEnabled,
+    props.brushLocked,
+    props.brushOperation,
+    props.brushRadiusPt,
+    props.brushStrokes,
+    props.brushSourcePageNumber,
+    props.selectionOverlays,
   ] as const,
   async (values, previousValues) => {
     const layout = values[0];
@@ -1130,6 +1310,7 @@ watch(
     const previousPageSize = previousValues[1];
     const previousGuides = previousValues[3];
     const previousRotation = previousValues[8];
+    if ((!values[9] || values[10]) && activeBrushLine) finishBrush(false);
     renderScene();
     applyCamera(camera);
     if (shouldFitCameraAfterSceneChange(
@@ -1162,6 +1343,7 @@ onBeforeUnmount(() => {
   resizeObserver?.disconnect();
   if (detailPreviewTimer !== undefined) window.clearTimeout(detailPreviewTimer);
   hideMagnifier();
+  finishBrush(false);
   window.removeEventListener("keydown", handleKeyDown);
   window.removeEventListener("keyup", handleKeyUp);
   window.removeEventListener("blur", handleBlur);

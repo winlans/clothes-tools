@@ -25,6 +25,8 @@ vi.mock("@tauri-apps/api/window", () => ({
 const fitContent = vi.fn();
 const setZoom = vi.fn();
 const requestElementFullscreen = vi.fn(() => Promise.resolve());
+const createObjectURL = vi.fn(() => "blob:selection-overlay");
+const revokeObjectURL = vi.fn();
 const LayoutCanvasStub = defineComponent({
   name: "LayoutCanvas",
   props: {
@@ -35,8 +37,15 @@ const LayoutCanvasStub = defineComponent({
     lineWeight: { type: Number, default: 1 },
     rotation: { type: Number, default: 0 },
     renderRegion: { type: Function, default: undefined },
+    brushEnabled: { type: Boolean, default: false },
+    brushLocked: { type: Boolean, default: false },
+    brushOperation: { type: String, default: "add" },
+    brushRadiusPt: { type: Number, default: 12 },
+    brushStrokes: { type: Array, default: () => [] },
+    brushSourcePageNumber: { type: Number, default: undefined },
+    selectionOverlays: { type: Array, default: () => [] },
   },
-  emits: ["canvasPreviewRequest"],
+  emits: ["canvasPreviewRequest", "brushStroke"],
   setup(props, { expose }) {
     expose({ fitContent, setZoom });
     return () => h("div", {
@@ -47,6 +56,8 @@ const LayoutCanvasStub = defineComponent({
       "data-background-color": props.backgroundColor,
       "data-line-weight": String(props.lineWeight),
       "data-rotation": String(props.rotation),
+      "data-brush-enabled": String(props.brushEnabled),
+      "data-brush-locked": String(props.brushLocked),
     });
   },
 });
@@ -66,6 +77,12 @@ describe("LayoutEditor", () => {
     Object.defineProperty(HTMLElement.prototype, "requestFullscreen", {
       configurable: true,
       value: requestElementFullscreen,
+    });
+    createObjectURL.mockClear();
+    revokeObjectURL.mockClear();
+    Object.defineProperties(URL, {
+      createObjectURL: { configurable: true, value: createObjectURL },
+      revokeObjectURL: { configurable: true, value: revokeObjectURL },
     });
   });
 
@@ -164,6 +181,128 @@ describe("LayoutEditor", () => {
     await nextTick();
 
     expect(requestCanvasPreviews).toHaveBeenCalledWith([2, 3], 3200);
+  });
+
+  it("selects complete vector objects with a brush and saves an all-page rule", async () => {
+    const documentStore = usePdfDocumentStore();
+    documentStore.info = {
+      documentId: "pdf-1",
+      pageCount: 3,
+      pageSizePt: { width: 841.89, height: 1190.551 },
+      pages: Array.from({ length: 3 }, (_, index) => ({
+        pageNumber: index + 1,
+        width: 841.89,
+        height: 1190.551,
+      })),
+    };
+    const analyze = vi.spyOn(documentStore, "analyzeVectorExclusion")
+      .mockImplementation(async (_rule, pageNumbers) => pageNumbers.map((pageNumber) => ({
+        pageNumber,
+        selectedObjects: [{
+          objectId: pageNumber,
+          kind: "text" as const,
+          bounds: { x: 260, y: 400, width: 120, height: 24 },
+        }],
+        overlaySvg: '<svg xmlns="http://www.w3.org/2000/svg"/>',
+      })));
+    const { wrapper } = mountEditor();
+    const projectStore = useProjectStore();
+
+    await wrapper.get('[aria-label="画笔消除"]').trigger("click");
+    expect(wrapper.get('[data-testid="layout-canvas"]')
+      .attributes("data-brush-enabled")).toBe("true");
+    wrapper.getComponent(LayoutCanvasStub).vm.$emit("brushStroke", 1, {
+      operation: "add",
+      radiusPt: 8,
+      points: [{ x: 280, y: 420 }, { x: 320, y: 420 }],
+    });
+    await flushPromises();
+
+    expect(analyze).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      sourcePageNumber: 1,
+      scope: "all-pages",
+    }), [1]);
+    expect(wrapper.get('[aria-label="画笔消除工具"]').text())
+      .toContain("参考页 1 · 已标记 1 个对象");
+
+    const previewAll = wrapper.get('[aria-label="预览全部页面匹配结果"]');
+    expect(previewAll.text()).toBe("预览匹配");
+    await previewAll.trigger("click");
+    await flushPromises();
+    expect(analyze).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      objectKinds: ["text"],
+    }), [1, 2, 3]);
+
+    const confirm = wrapper.findAll("button").find(
+      (button) => button.text() === "确认消除",
+    );
+    await confirm?.trigger("click");
+
+    expect(projectStore.outputSettings.objectExclusions).toEqual([
+      expect.objectContaining({
+        sourcePageNumber: 1,
+        scope: "all-pages",
+        objectKinds: ["text"],
+        strokes: [{
+          operation: "add",
+          radiusPt: 8,
+          points: [{ x: 280, y: 420 }, { x: 320, y: 420 }],
+        }],
+      }),
+    ]);
+    expect(wrapper.find('[aria-label="画笔消除工具"]').exists()).toBe(false);
+    expect(wrapper.text()).toContain("已保存消除规则");
+    expect(revokeObjectURL).toHaveBeenCalled();
+  });
+
+  it("saves the brush rule without requiring an all-page preview first", async () => {
+    const documentStore = usePdfDocumentStore();
+    documentStore.info = {
+      documentId: "pdf-1",
+      pageCount: 3,
+      pageSizePt: { width: 841.89, height: 1190.551 },
+      pages: Array.from({ length: 3 }, (_, index) => ({
+        pageNumber: index + 1,
+        width: 841.89,
+        height: 1190.551,
+      })),
+    };
+    const analyze = vi.spyOn(documentStore, "analyzeVectorExclusion")
+      .mockImplementation(async (_rule, pageNumbers) => pageNumbers.map((pageNumber) => ({
+        pageNumber,
+        selectedObjects: [{
+          objectId: pageNumber,
+          kind: "text" as const,
+          bounds: { x: 260, y: 400, width: 120, height: 24 },
+        }],
+        overlaySvg: '<svg xmlns="http://www.w3.org/2000/svg"/>',
+      })));
+    const { wrapper } = mountEditor();
+    const projectStore = useProjectStore();
+
+    await wrapper.get('[aria-label="画笔消除"]').trigger("click");
+    wrapper.getComponent(LayoutCanvasStub).vm.$emit("brushStroke", 1, {
+      operation: "add",
+      radiusPt: 8,
+      points: [{ x: 280, y: 420 }, { x: 320, y: 420 }],
+    });
+    await flushPromises();
+
+    const confirm = wrapper.findAll("button").find(
+      (button) => button.text() === "确认消除",
+    );
+    expect(confirm?.attributes("disabled")).toBeUndefined();
+    await confirm?.trigger("click");
+
+    expect(analyze).toHaveBeenCalledTimes(1);
+    expect(projectStore.outputSettings.objectExclusions).toEqual([
+      expect.objectContaining({
+        sourcePageNumber: 1,
+        scope: "all-pages",
+        objectKinds: ["text"],
+      }),
+    ]);
+    expect(wrapper.find('[aria-label="画笔消除工具"]').exists()).toBe(false);
   });
 
   it("reflows the layout and reports invalid row counts", async () => {
