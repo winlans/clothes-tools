@@ -107,12 +107,28 @@ exportSvg(documentId: string, project: ExportProject): Promise<ExportResult>
 ### 5.2 `apps/desktop`
 
 - Vue 3 Composition API + `<script setup lang="ts">`；
+- Tailwind CSS v4 + shadcn-vue（`reka-mira`）提供标准控件、弹层和设计令牌；
 - Pinia 保存当前文档、布局、选择和历史记录；
 - Konva 负责画板渲染、拖拽、命中检测、缩放和平移；
 - MuPDF 放入专用 Web Worker，避免 PDF 解析和 SVG 导出阻塞界面；
 - Tauri dialog/fs/persisted-scope 插件处理文件选择、写入和工程重开；
 - Rust 代码初始化 Tauri 与插件，并为工程中记录的单个 PDF 路径授予最小读取
   权限；排版、解析与导出业务逻辑仍全部位于共享 TypeScript 核心。
+
+#### 5.2.1 界面组件约定
+
+- shadcn-vue 组件源码位于 `apps/desktop/src/components/ui`，配置保存在
+  `apps/desktop/components.json`；图标统一使用 Lucide；
+- 主题变量与现有画板布局样式集中在 `apps/desktop/src/styles.css`。桌面端固定使用
+  紧凑深色主题，主操作使用蓝色，组件业务代码不得重新定义一套按钮或表单视觉；
+- 新增标准控件时，从 `apps/desktop` 目录运行
+  `pnpm dlx shadcn-vue@latest add <component>`，再通过 `@/components/ui` 引用；
+- 图标按钮使用 `IconButton.vue`，同时提供可访问名称、原生 `title` 和
+  shadcn Tooltip；
+- PDF 文件选择器与系统颜色选择器保留原生控件，Konva 画板继续使用自身事件和
+  渲染模型，这些不应包装成 shadcn 表单组件；
+- 官方生成的 Reka 属性转发类型与仓库根级 `exactOptionalPropertyTypes` 不完全兼容，
+  因此仅桌面应用的 `tsconfig.json` 关闭该选项；共享 Core 与 CLI 继续保持根级严格设置。
 
 ### 5.3 `packages/cli`
 
@@ -299,6 +315,8 @@ CLI 保持现有 SVG 行为，不增加 PLT 参数。
 ### 8.3 导入与导出
 
 - 导入后先以每列 3 页显示，辅助线模式检测确认列边界后自动更新每列页数；
+- 图片拼接检测运行期间，普通与全屏画布显示当前检测阶段和逐页进度遮罩，完成或
+  失败后自动移除；
 - 用户可接受自动布局或修改数值；一旦修改布局，迟到的检测结果不再覆盖；
 - 导出前显示页数使用情况、成品毫米尺寸、接缝来源和输出路径；
 - 默认阻止存在未使用页面的导出；高级选项可显式允许；

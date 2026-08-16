@@ -1,8 +1,53 @@
 <script setup lang="ts">
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import {
+  ChevronDownIcon,
+  DownloadIcon,
+  FileDownIcon,
+  FolderOpenIcon,
+  Grid2X2Icon,
+  InfoIcon,
+  MoreHorizontalIcon,
+  PlusIcon,
+  XIcon,
+} from "@lucide/vue";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 
 import DocumentWorkspace from "./components/DocumentWorkspace.vue";
+import IconButton from "./components/IconButton.vue";
+import { Alert, AlertDescription } from "./components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./components/ui/alert-dialog";
+import { Badge } from "./components/ui/badge";
+import { Button } from "./components/ui/button";
+import { Checkbox } from "./components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "./components/ui/dropdown-menu";
+import { Input } from "./components/ui/input";
+import { Separator } from "./components/ui/separator";
 import { usePdfImport } from "./composables/use-pdf-import";
 import { useResolvedSettings } from "./composables/use-resolved-settings";
 import {
@@ -18,7 +63,6 @@ import { useWorkspaceStore } from "./stores/workspace";
 
 const fileInput = ref<HTMLInputElement>();
 const showLegalNotice = ref(false);
-const openCommandMenu = ref<"export" | "more" | undefined>();
 const closeRequest = ref<{ kind: "tab"; id: string } | { kind: "application" }>();
 const exportDialogOpen = ref(false);
 const batchExporting = ref(false);
@@ -71,7 +115,6 @@ function hasUnsafeTabs() {
 }
 
 async function choosePdf() {
-  openCommandMenu.value = undefined;
   if (pdfImport.isDesktop) {
     await pdfImport.choosePdfs();
   } else {
@@ -86,7 +129,6 @@ async function handleBrowserFiles(event: Event) {
 }
 
 function requestCloseTab(session: DocumentSession) {
-  openCommandMenu.value = undefined;
   if (session.ui.dirty || session.documentStore.exportStatus === "running") {
     closeRequest.value = { kind: "tab", id: session.id };
     return;
@@ -107,7 +149,6 @@ async function confirmClose() {
 }
 
 async function handleExportAction(format: VectorExportFormat) {
-  openCommandMenu.value = undefined;
   const documentStore = activeDocument.value;
   if (!documentStore) return;
   if (documentStore.exportStatus === "running") {
@@ -155,7 +196,6 @@ function openBatchExportDialog(format: VectorExportFormat) {
 }
 
 async function handleExportCommand(format: VectorExportFormat) {
-  openCommandMenu.value = undefined;
   if (activeDocument.value?.exportStatus === "running") {
     activeDocument.value.cancelExport();
     return;
@@ -165,15 +205,6 @@ async function handleExportCommand(format: VectorExportFormat) {
     return;
   }
   await handleExportAction(format);
-}
-
-function toggleExportMenu() {
-  if (activeDocument.value?.exportStatus === "running") {
-    activeDocument.value.cancelExport();
-    openCommandMenu.value = undefined;
-    return;
-  }
-  openCommandMenu.value = openCommandMenu.value === "export" ? undefined : "export";
 }
 
 function closeExportDialog() {
@@ -266,11 +297,9 @@ function selectPreviewMode(mode: "cropped" | "full") {
     mode,
     mode === "full" || Boolean(resolvedSettings.resolved.value.value),
   );
-  openCommandMenu.value = undefined;
 }
 
 function openAbout() {
-  openCommandMenu.value = undefined;
   showLegalNotice.value = true;
 }
 
@@ -289,11 +318,6 @@ function handleApplicationKeyDown(event: KeyboardEvent) {
     }
     return;
   }
-  if (event.code === "Escape" && openCommandMenu.value) {
-    event.preventDefault();
-    openCommandMenu.value = undefined;
-    return;
-  }
   if (!(event.ctrlKey || event.metaKey)) return;
   if (event.key.toLowerCase() === "o") {
     event.preventDefault();
@@ -302,10 +326,6 @@ function handleApplicationKeyDown(event: KeyboardEvent) {
     event.preventDefault();
     closeActiveTab();
   }
-}
-
-function closeCommandMenus() {
-  openCommandMenu.value = undefined;
 }
 
 function handleBeforeUnload(event: BeforeUnloadEvent) {
@@ -344,7 +364,6 @@ onMounted(async () => {
   await pdfImport.startNativeDragDrop();
   window.addEventListener("beforeunload", handleBeforeUnload);
   window.addEventListener("keydown", handleApplicationKeyDown);
-  window.addEventListener("pointerdown", closeCommandMenus);
   if (pdfImport.isDesktop) {
     unlistenCloseRequested = await getCurrentWindow().onCloseRequested((event) => {
       if (!hasUnsafeTabs()) return;
@@ -359,7 +378,6 @@ onBeforeUnmount(() => {
   unlistenCloseRequested?.();
   window.removeEventListener("beforeunload", handleBeforeUnload);
   window.removeEventListener("keydown", handleApplicationKeyDown);
-  window.removeEventListener("pointerdown", closeCommandMenus);
   workspace.disposeAll();
 });
 </script>
@@ -372,113 +390,98 @@ onBeforeUnmount(() => {
     @drop="pdfImport.handleBrowserDrop"
   >
     <div class="app-top-chrome">
-      <header class="app-commandbar" @pointerdown.stop>
+      <header class="app-commandbar">
       <strong class="app-commandbar__brand">pdf2plt</strong>
-      <span class="app-commandbar__separator" />
+      <Separator orientation="vertical" class="app-commandbar__separator" />
       <nav class="app-commandbar__commands" aria-label="应用命令">
-        <button type="button" class="app-command" title="打开 PDF（Ctrl+O）" @click="choosePdf">
-          <svg class="app-command__icon" viewBox="0 0 16 16" aria-hidden="true">
-            <path d="M2.25 4.25h4l1.2 1.5h6.3v7.5H2.25z" />
-          </svg>
+        <Button variant="ghost" class="app-command" title="打开 PDF（Ctrl+O）" @click="choosePdf">
+          <FolderOpenIcon data-icon="inline-start" />
           打开 PDF
-        </button>
-        <div class="app-command-menu">
-          <button
-            type="button"
-            class="app-command"
-            :class="{ active: openCommandMenu === 'export' }"
-            :disabled="
-              batchExporting ||
-              (activeDocument?.exportStatus !== 'running' &&
+        </Button>
+
+        <Button
+          v-if="activeDocument?.exportStatus === 'running'"
+          variant="ghost"
+          class="app-command"
+          @click="activeDocument.cancelExport()"
+        >
+          <DownloadIcon data-icon="inline-start" />
+          取消导出
+        </Button>
+        <DropdownMenu v-else>
+          <DropdownMenuTrigger as-child>
+            <Button
+              variant="ghost"
+              class="app-command"
+              :disabled="
+                batchExporting ||
                 (workspace.tabs.length > 1
                   ? !canExportAnySession
-                  : !activeDocument?.info || !resolvedSettings.canExport.value))
-            "
-            :title="
-              workspace.tabs.length > 1
-                ? '选择标签并导出矢量文件'
-                : resolvedSettings.validationError.value || '导出矢量文件'
-            "
-            aria-haspopup="menu"
-            :aria-expanded="openCommandMenu === 'export'"
-            @click="toggleExportMenu"
-          >
-            <svg class="app-command__icon" viewBox="0 0 16 16" aria-hidden="true">
-              <path d="M8 2.25v7.5m-3-3 3 3 3-3M2.5 12.75h11" />
-            </svg>
-            {{ activeDocument?.exportStatus === 'running' ? '取消导出' : '导出' }}
-            <span v-if="activeDocument?.exportStatus !== 'running'" aria-hidden="true">⌄</span>
-          </button>
-          <div v-if="openCommandMenu === 'export'" class="app-command-menu__panel" role="menu">
-            <button
-              type="button"
-              class="app-command-menu__item"
-              role="menuitem"
-              @click="handleExportCommand('svg')"
+                  : !activeDocument?.info || !resolvedSettings.canExport.value)
+              "
+              :title="
+                workspace.tabs.length > 1
+                  ? '选择标签并导出矢量文件'
+                  : resolvedSettings.validationError.value || '导出矢量文件'
+              "
             >
-              <span class="app-command-menu__mark">◇</span>
+              <DownloadIcon data-icon="inline-start" />
+              导出
+              <ChevronDownIcon data-icon="inline-end" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent class="w-52">
+            <DropdownMenuLabel>矢量导出</DropdownMenuLabel>
+            <DropdownMenuItem @select="handleExportCommand('svg')">
+              <FileDownIcon />
               导出 SVG
-            </button>
-            <button
-              type="button"
-              class="app-command-menu__item"
-              role="menuitem"
-              @click="handleExportCommand('plt')"
-            >
-              <span class="app-command-menu__mark">⌁</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem @select="handleExportCommand('plt')">
+              <FileDownIcon />
               导出 PLT（CorelDRAW）
-            </button>
-          </div>
-        </div>
-        <div class="app-command-menu">
-          <button
-            type="button"
-            class="app-command"
-            :class="{ active: openCommandMenu === 'more' }"
-            aria-haspopup="menu"
-            :aria-expanded="openCommandMenu === 'more'"
-            @click="openCommandMenu = openCommandMenu === 'more' ? undefined : 'more'"
-          >
-            更多 <span aria-hidden="true">⌄</span>
-          </button>
-          <div v-if="openCommandMenu === 'more'" class="app-command-menu__panel" role="menu">
-            <button
-              type="button"
-              class="app-command-menu__item"
-              role="menuitemcheckbox"
-              :aria-checked="activeSession?.ui.showGrid ?? false"
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger as-child>
+            <Button variant="ghost" class="app-command">
+              <MoreHorizontalIcon data-icon="inline-start" />
+              更多
+              <ChevronDownIcon data-icon="inline-end" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent class="w-52">
+            <DropdownMenuCheckboxItem
+              :model-value="activeSession?.ui.showGrid ?? false"
               :disabled="!activeSession"
-              @click="toggleGrid"
+              @select.prevent="toggleGrid"
             >
-              <span class="app-command-menu__mark">{{ activeSession?.ui.showGrid ? '✓' : '' }}</span>
+              <Grid2X2Icon />
               显示栅格
-            </button>
-            <div class="app-command-menu__separator" />
-            <button
-              type="button"
-              class="app-command-menu__item"
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
               :disabled="!activeSession || !resolvedSettings.resolved.value.value"
-              @click="selectPreviewMode('cropped')"
+              @select="selectPreviewMode('cropped')"
             >
-              <span class="app-command-menu__mark">{{ activeSession?.guideStore.previewMode === 'cropped' ? '●' : '' }}</span>
               成品裁切
-            </button>
-            <button
-              type="button"
-              class="app-command-menu__item"
+              <Badge v-if="activeSession?.guideStore.previewMode === 'cropped'" variant="secondary" class="ml-auto">当前</Badge>
+            </DropdownMenuItem>
+            <DropdownMenuItem
               :disabled="!activeSession"
-              @click="selectPreviewMode('full')"
+              @select="selectPreviewMode('full')"
             >
-              <span class="app-command-menu__mark">{{ activeSession?.guideStore.previewMode === 'full' ? '●' : '' }}</span>
               完整页面
-            </button>
-            <div class="app-command-menu__separator" />
-            <button type="button" class="app-command-menu__item" @click="openAbout">
-              <span class="app-command-menu__mark">ⓘ</span>
+              <Badge v-if="activeSession?.guideStore.previewMode === 'full'" variant="secondary" class="ml-auto">当前</Badge>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem @select="openAbout">
+              <InfoIcon />
               关于与许可证
-            </button>
-          </div>
-        </div>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </nav>
       <div v-if="activeDocument?.info" class="topbar__document">
         <strong :title="activeDocument.fileName">{{ activeDocument.fileName }}</strong>
@@ -504,105 +507,121 @@ onBeforeUnmount(() => {
         aria-label="打开的 PDF"
         @wheel="scrollDocumentTabs"
       >
-        <button
+        <div
           v-for="tab in workspace.tabs"
           :key="tab.id"
-          type="button"
           class="document-tab"
           :class="{ active: tab.id === workspace.activeTabId }"
-          :title="tab.source.fileName"
-          @click="workspace.activate(tab.id)"
         >
-          <span class="document-tab__title">{{ tab.source.fileName }}</span>
-          <span v-if="tab.ui.dirty" class="document-tab__dirty" aria-label="已修改">●</span>
-          <span v-if="tabStatus(tab)" class="document-tab__status">{{ tabStatus(tab) }}</span>
-          <span
+          <Button
+            variant="ghost"
+            class="document-tab__trigger"
+            :title="tab.source.fileName"
+            @click="workspace.activate(tab.id)"
+          >
+            <span class="document-tab__title">{{ tab.source.fileName }}</span>
+            <span v-if="tab.ui.dirty" class="document-tab__dirty" aria-label="已修改">●</span>
+            <Badge v-if="tabStatus(tab)" variant="secondary" class="document-tab__status">{{ tabStatus(tab) }}</Badge>
+          </Button>
+          <IconButton
+            variant="ghost"
+            size="icon-xs"
             class="document-tab__close"
-            role="button"
-            :aria-label="'关闭 ' + tab.source.fileName"
+            :tooltip="'关闭 ' + tab.source.fileName"
             @click.stop="requestCloseTab(tab)"
-          >×</span>
-        </button>
-        <button type="button" class="document-tabs__add" aria-label="打开更多 PDF" @click="choosePdf">
-          ＋
-        </button>
+          >
+            <XIcon />
+          </IconButton>
+        </div>
+        <IconButton variant="ghost" size="icon" class="document-tabs__add" tooltip="打开更多 PDF" @click="choosePdf">
+          <PlusIcon />
+        </IconButton>
       </nav>
     </div>
 
-    <p v-if="pdfImport.importNotice.value" class="import-notice" role="status">
-      {{ pdfImport.importNotice.value }}
-      <button type="button" aria-label="关闭导入提示" @click="pdfImport.importNotice.value = ''">×</button>
-    </p>
+    <Alert v-if="pdfImport.importNotice.value" class="import-notice" role="status">
+      <AlertDescription>{{ pdfImport.importNotice.value }}</AlertDescription>
+      <IconButton variant="ghost" size="icon-sm" tooltip="关闭导入提示" @click="pdfImport.importNotice.value = ''">
+        <XIcon />
+      </IconButton>
+    </Alert>
 
-    <div
-      v-if="showLegalNotice"
-      class="legal-backdrop"
-      @click.self="showLegalNotice = false"
-    >
-      <section class="legal-dialog" role="dialog" aria-modal="true" aria-labelledby="legal-title">
-        <span class="eyebrow">pdf2plt 0.1.6</span>
-        <h2 id="legal-title">关于与许可证</h2>
-        <p>
+    <Dialog v-model:open="showLegalNotice">
+      <DialogContent class="legal-dialog">
+        <DialogHeader>
+          <Badge variant="secondary" class="w-fit">pdf2plt 0.1.7</Badge>
+          <DialogTitle>关于与许可证</DialogTitle>
+        </DialogHeader>
+        <DialogDescription>
           pdf2plt 与内含的 MuPDF.js 按 GNU Affero General Public License
           v3.0 或更高版本发布。
-        </p>
-        <p>
+        </DialogDescription>
+        <DialogDescription>
           Copyright © 2004–2026 Artifex Software, Inc.；Copyright © 2026
           pdf2plt contributors。
-        </p>
-        <p>
+        </DialogDescription>
+        <DialogDescription>
           本软件不提供任何担保。你可以依照 AGPL-3.0-or-later 复制、修改和再发布。
           完整条款、第三方声明与对应源码说明随安装包提供在 LICENSE、
           THIRD_PARTY_NOTICES.md 和 SOURCE_OFFER.md 中。
-        </p>
-        <button type="button" class="primary-button" @click="showLegalNotice = false">关闭</button>
-      </section>
-    </div>
+        </DialogDescription>
+        <DialogFooter>
+          <Button @click="showLegalNotice = false">关闭</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
-    <div v-if="closeRequest" class="legal-backdrop" @click.self="closeRequest = undefined">
-      <section class="legal-dialog close-dialog" role="alertdialog" aria-modal="true">
-        <span class="eyebrow">确认关闭</span>
-        <h2>{{ closeRequest.kind === 'application' ? '退出 pdf2plt？' : '关闭标签？' }}</h2>
-        <p>{{ closeMessage }}</p>
-        <div class="dialog-actions">
-          <button type="button" class="ghost-button" @click="closeRequest = undefined">取消</button>
-          <button type="button" class="danger-button" @click="confirmClose">
-            {{ closeRequest.kind === 'application' ? '放弃并退出' : '放弃并关闭' }}
-          </button>
-        </div>
-      </section>
-    </div>
-
-    <div
-      v-if="exportDialogOpen"
-      class="legal-backdrop"
-      @click.self="closeExportDialog"
+    <AlertDialog
+      :open="Boolean(closeRequest)"
+      @update:open="(open) => { if (!open) closeRequest = undefined }"
     >
-      <section
-        class="export-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="export-dialog-title"
+      <AlertDialogContent class="close-dialog">
+        <AlertDialogHeader>
+          <Badge variant="secondary" class="w-fit">确认关闭</Badge>
+          <AlertDialogTitle>{{ closeRequest?.kind === 'application' ? '退出 pdf2plt？' : '关闭标签？' }}</AlertDialogTitle>
+          <AlertDialogDescription>{{ closeMessage }}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel @click="closeRequest = undefined">取消</AlertDialogCancel>
+          <AlertDialogAction as-child>
+            <Button variant="destructive" @click="confirmClose">
+            {{ closeRequest?.kind === 'application' ? '放弃并退出' : '放弃并关闭' }}
+            </Button>
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
+    <Dialog
+      :open="exportDialogOpen"
+      @update:open="(open) => { if (!open) closeExportDialog() }"
+    >
+      <DialogContent
+        class="export-dialog sm:max-w-3xl"
+        :show-close-button="false"
+        @escape-key-down="(event) => { if (batchExporting) event.preventDefault() }"
+        @pointer-down-outside="(event) => { if (batchExporting) event.preventDefault() }"
       >
-        <header class="export-dialog__header">
+        <DialogHeader class="export-dialog__header">
           <div>
-            <span class="eyebrow">批量导出</span>
-            <h2 id="export-dialog-title">
+            <Badge variant="secondary" class="mb-2 w-fit">批量导出</Badge>
+            <DialogTitle>
               选择要导出的标签 · {{ exportFormatLabel(exportFormat) }}
-            </h2>
+            </DialogTitle>
           </div>
-          <button
-            type="button"
+          <IconButton
+            variant="ghost"
+            size="icon"
             class="export-dialog__close"
-            aria-label="关闭批量导出"
+            tooltip="关闭批量导出"
             :disabled="batchExporting"
             @click="closeExportDialog"
-          >×</button>
-        </header>
-        <p class="export-dialog__description">
+          ><XIcon /></IconButton>
+        </DialogHeader>
+        <DialogDescription class="export-dialog__description">
           默认选择所有可导出的标签。你可以取消选择或修改文件名，确认后再选择
           {{ exportFormatLabel(exportFormat) }} 输出目录。
-        </p>
+        </DialogDescription>
 
         <div class="export-tab-list">
           <div
@@ -611,13 +630,12 @@ onBeforeUnmount(() => {
             class="export-tab-row"
             :class="{ 'export-tab-row--disabled': row.validationError }"
           >
-            <input
-              v-model="row.selected"
+            <Checkbox
               class="export-tab-row__checkbox"
-              type="checkbox"
+              :model-value="row.selected"
               :aria-label="`导出 ${row.title}`"
               :disabled="Boolean(row.validationError) || batchExporting"
-              @change="exportDialogError = ''"
+              @update:model-value="row.selected = Boolean($event); exportDialogError = ''"
             />
             <div class="export-tab-row__meta">
               <strong :title="row.title">{{ row.title }}</strong>
@@ -626,7 +644,7 @@ onBeforeUnmount(() => {
             </div>
             <label class="export-tab-row__filename">
               <span>文件名</span>
-              <input
+              <Input
                 v-model="row.fileName"
                 type="text"
                 spellcheck="false"
@@ -638,31 +656,28 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <p v-if="exportDialogError" class="inline-error export-dialog__error" role="alert">
-          {{ exportDialogError }}
-        </p>
-        <div class="dialog-actions">
-          <button
-            type="button"
-            class="ghost-button"
+        <Alert v-if="exportDialogError" variant="destructive" class="export-dialog__error" role="alert">
+          <AlertDescription class="whitespace-pre-line">{{ exportDialogError }}</AlertDescription>
+        </Alert>
+        <DialogFooter>
+          <Button
+            variant="outline"
             :disabled="batchExporting"
             @click="closeExportDialog"
-          >取消</button>
-          <button
-            type="button"
-            class="primary-button"
+          >取消</Button>
+          <Button
             :disabled="selectedExportCount === 0 || batchExporting"
             @click="confirmBatchExport"
           >
             {{ batchExporting ? '正在导出…' : `选择目录并导出（${selectedExportCount}）` }}
-          </button>
-        </div>
-      </section>
-    </div>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
-    <button
+    <Button
       v-if="!activeSession"
-      type="button"
+      variant="outline"
       class="empty-state empty-state--import"
       aria-label="选择 PDF 文件导入"
       @click="choosePdf"
@@ -672,7 +687,7 @@ onBeforeUnmount(() => {
       <span class="empty-state__description">
         可选择或一次拖入多个 PDF；页面只在本机解析，不会上传到网络。
       </span>
-    </button>
+    </Button>
 
     <DocumentWorkspace
       v-else

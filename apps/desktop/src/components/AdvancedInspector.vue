@@ -20,6 +20,13 @@ import {
   guideSettingsFromLines,
 } from "../project/guide-settings";
 import { useDocumentSession } from "../stores/document-session";
+import { Alert, AlertDescription } from "./ui/alert";
+import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
+import { Checkbox } from "./ui/checkbox";
+import { Input } from "./ui/input";
+import { NativeSelect, NativeSelectOption } from "./ui/native-select";
+import { Separator } from "./ui/separator";
 
 const props = defineProps<{ pageSize: PageSizePt }>();
 const session = useDocumentSession();
@@ -156,8 +163,8 @@ async function redetect() {
   }
 }
 
-function setStitchingMode(event: Event) {
-  const stitchingMode = (event.target as HTMLSelectElement).value as GuideStitchingMode;
+function setStitchingMode(value?: unknown) {
+  const stitchingMode = String(value) as GuideStitchingMode;
   projectStore.setGuideSettings(withStitchingMode(currentSettings(), stitchingMode));
   localError.value = "";
   session.markDirty();
@@ -172,9 +179,8 @@ function handleDetectionAction() {
   void redetect();
 }
 
-function setSeamCropping(event: Event) {
+function setSeamCropping(enabled: boolean) {
   localError.value = "";
-  const enabled = (event.target as HTMLInputElement).checked;
   const mode = enabled
     ? hasManualGuides.value
       ? "manual"
@@ -271,14 +277,12 @@ function applyOuterBoundaries() {
   }
 }
 
-function setOutputOption(key: keyof ProjectOutputSettings, event: Event) {
-  const checked = (event.target as HTMLInputElement).checked;
+function setOutputOption(key: keyof ProjectOutputSettings, checked: boolean) {
   projectStore.setOutputSettings({ ...projectStore.outputSettings, [key]: checked });
   session.markDirty();
 }
 
-function setRemoveGuides(event: Event) {
-  const removeGuides = (event.target as HTMLInputElement).checked;
+function setRemoveGuides(removeGuides: boolean) {
   projectStore.setOutputSettings({
     ...projectStore.outputSettings,
     keepGuides: !removeGuides,
@@ -347,12 +351,11 @@ watch(
       <div class="inspector-heading-row">
         <span class="eyebrow">接缝裁切</span>
         <label class="check-row">
-          <input
-            type="checkbox"
+          <Checkbox
             aria-label="裁切页间接缝"
-            :checked="projectStore.guideSettings.mode !== 'none'"
+            :model-value="projectStore.guideSettings.mode !== 'none'"
             :disabled="documentStore.detectionStatus === 'running'"
-            @change="setSeamCropping"
+            @update:model-value="setSeamCropping(Boolean($event))"
           />
           应用
         </label>
@@ -360,47 +363,48 @@ watch(
 
       <label class="stitching-mode-field">
         <span>拼接模式</span>
-        <select
+        <NativeSelect
           aria-label="拼接模式"
-          :value="selectedStitchingMode"
+          class="w-full"
+          :model-value="selectedStitchingMode"
           :disabled="documentStore.detectionStatus === 'running'"
-          @change="setStitchingMode"
+          @update:model-value="setStitchingMode"
         >
-          <option value="auto">自动识别</option>
-          <option value="red-guides">辅助线拼接</option>
-          <option value="content-overlap">内容匹配</option>
-        </select>
+          <NativeSelectOption value="auto">自动识别</NativeSelectOption>
+          <NativeSelectOption value="red-guides">辅助线拼接</NativeSelectOption>
+          <NativeSelectOption value="content-overlap">内容匹配</NativeSelectOption>
+        </NativeSelect>
         <small v-if="selectedStitchingMode === 'auto' && detectedStitchingModeText">
           自动识别结果：{{ detectedStitchingModeText }}
         </small>
       </label>
 
-      <p v-if="projectStore.guideSettings.mode === 'none'" class="guide-success">
-        未裁切页间接缝，仅应用外边界。
-      </p>
-      <p
+      <Alert v-if="projectStore.guideSettings.mode === 'none'" class="guide-success">
+        <AlertDescription>未裁切页间接缝，仅应用外边界。</AlertDescription>
+      </Alert>
+      <Alert
         v-else-if="documentStore.guideDetection?.contentOverlap?.applied"
         class="guide-success"
         role="status"
       >
-        已按页面重复内容自动拼接<span
+        <AlertDescription>已按页面重复内容自动拼接<span
           v-if="documentStore.guideDetection.contentOverlap.rasterDpi && documentStore.guideDetection.contentOverlap.rasterDpi !== projectStore.guideSettings.detection.dpi"
-        >（已自动改用 {{ documentStore.guideDetection.contentOverlap.rasterDpi }} DPI）</span>，可继续调整四边裁切量。
-      </p>
-      <p v-else-if="guideStore.missing.length" class="guide-warning" role="status">
-        {{ usesEdgeInsets ? `内容匹配置信度不足；缺少${missingGuideText}方向裁切量，可直接填写。` : `缺少${missingGuideText}方向辅助线，可直接填写或重新检测。` }}
-      </p>
-      <p v-else-if="hasManualGuides" class="guide-success" role="status">
-        拼接线已微调，可继续编辑或重新检测。
-      </p>
-      <p v-else class="guide-success" role="status">
-        四条拼接线已检测，可直接微调。
-      </p>
+        >（已自动改用 {{ documentStore.guideDetection.contentOverlap.rasterDpi }} DPI）</span>，可继续调整四边裁切量。</AlertDescription>
+      </Alert>
+      <Alert v-else-if="guideStore.missing.length" class="guide-warning" role="status">
+        <AlertDescription>{{ usesEdgeInsets ? `内容匹配置信度不足；缺少${missingGuideText}方向裁切量，可直接填写。` : `缺少${missingGuideText}方向辅助线，可直接填写或重新检测。` }}</AlertDescription>
+      </Alert>
+      <Alert v-else-if="hasManualGuides" class="guide-success" role="status">
+        <AlertDescription>拼接线已微调，可继续编辑或重新检测。</AlertDescription>
+      </Alert>
+      <Alert v-else class="guide-success" role="status">
+        <AlertDescription>四条拼接线已检测，可直接微调。</AlertDescription>
+      </Alert>
 
       <div class="inspector-grid inspector-grid--two">
         <label v-for="direction in GUIDE_DIRECTIONS" :key="direction">
           <span>{{ seamFieldLabel(direction) }}</span>
-          <input
+          <Input
             v-model="seamDrafts[direction]"
             type="number"
             :min="usesEdgeInsets ? undefined : 0"
@@ -416,10 +420,10 @@ watch(
         </label>
       </div>
       <label v-if="usesEdgeInsets" class="check-row">
-        <input
-          v-model="syncSeamInsets"
-          type="checkbox"
+        <Checkbox
+          :model-value="syncSeamInsets"
           aria-label="同步修改四个方向裁切量"
+          @update:model-value="syncSeamInsets = Boolean($event)"
         />
         同步修改四个方向
       </label>
@@ -430,7 +434,7 @@ watch(
       <div class="inspector-grid inspector-grid--two">
         <label v-for="entry in ([['left', '左'], ['right', '右'], ['top', '上'], ['bottom', '下']] as const)" :key="entry[0]">
           <span>{{ entry[1] }}</span>
-          <input
+          <Input
             v-model="outerDrafts[entry[0]]"
             type="number"
             :min="usesEdgeInsets ? undefined : 0"
@@ -446,13 +450,12 @@ watch(
     <section class="inspector-section">
       <div class="inspector-heading-row">
         <span class="eyebrow">检测参数</span>
-        <button
-          type="button"
-          class="compact-button"
+        <Button
+          variant="outline"
           @click="handleDetectionAction"
         >
           {{ documentStore.detectionStatus === 'running' ? '取消识别' : '重新识别' }}
-        </button>
+        </Button>
       </div>
       <small v-if="documentStore.detectionStatus === 'running'" class="task-progress-text">
         {{ detectionPhaseText }} ·
@@ -461,7 +464,7 @@ watch(
       <div class="inspector-grid inspector-grid--two">
         <label v-for="entry in ([['dpi', 'DPI'], ['redMin', '红色下限'], ['otherMax', '绿蓝上限'], ['redDelta', '红色差值'], ['minimumFraction', '最小跨度']] as const)" :key="entry[0]">
           <span>{{ entry[1] }}</span>
-          <input
+          <Input
             v-model="detectionDrafts[entry[0]]"
             type="number"
             min="0"
@@ -476,36 +479,36 @@ watch(
 
     <section class="inspector-section">
       <span class="eyebrow">导出</span>
-      <strong class="output-size" aria-label="成品尺寸">{{ outputSizeText }}</strong>
+      <Badge variant="secondary" class="output-size" aria-label="成品尺寸">{{ outputSizeText }}</Badge>
+      <Separator />
       <label class="check-row">
-        <input
-          type="checkbox"
+        <Checkbox
           aria-label="删除辅助线"
-          :checked="!projectStore.outputSettings.keepGuides"
-          @change="setRemoveGuides"
+          :model-value="!projectStore.outputSettings.keepGuides"
+          @update:model-value="setRemoveGuides(Boolean($event))"
         />
         删除辅助线
       </label>
       <label class="check-row">
-        <input
-          type="checkbox"
+        <Checkbox
           aria-label="保留白色背景"
-          :checked="projectStore.outputSettings.keepBackground"
-          @change="setOutputOption('keepBackground', $event)"
+          :model-value="projectStore.outputSettings.keepBackground"
+          @update:model-value="setOutputOption('keepBackground', Boolean($event))"
         />
         保留白色背景
       </label>
       <label class="check-row">
-        <input
-          type="checkbox"
+        <Checkbox
           aria-label="允许未使用 PDF 页"
-          :checked="projectStore.outputSettings.allowUnusedPages"
-          @change="setOutputOption('allowUnusedPages', $event)"
+          :model-value="projectStore.outputSettings.allowUnusedPages"
+          @update:model-value="setOutputOption('allowUnusedPages', Boolean($event))"
         />
         允许未使用 PDF 页
       </label>
     </section>
 
-    <p v-if="displayedError" class="inline-error" role="alert">{{ displayedError }}</p>
+    <Alert v-if="displayedError" variant="destructive" role="alert">
+      <AlertDescription>{{ displayedError }}</AlertDescription>
+    </Alert>
   </aside>
 </template>

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils";
+import { DOMWrapper, enableAutoUnmount, flushPromises, mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { defineComponent, h, nextTick } from "vue";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -12,6 +12,7 @@ import {
   usePreviewAppearanceStore,
 } from "../stores/preview-appearance";
 import { useProjectStore } from "../stores/project";
+import { Slider } from "./ui/slider";
 import LayoutEditor from "./LayoutEditor.vue";
 
 const { setWindowFullscreen } = vi.hoisted(() => ({
@@ -107,6 +108,26 @@ describe("LayoutEditor", () => {
     );
     expect(wrapper.text()).toContain("5 列 × 3 行");
     expect(wrapper.find('[data-testid="layout-canvas"]').exists()).toBe(true);
+  });
+
+  it("shows stitching calculation progress over the canvas", async () => {
+    const documentStore = usePdfDocumentStore();
+    documentStore.detectionStatus = "running";
+    documentStore.detectionProgress = {
+      completed: 3,
+      total: 15,
+      phase: "content-overlap",
+    };
+    const { wrapper } = mountEditor();
+
+    const overlay = wrapper.get('[aria-label="图片拼接计算中"]');
+    expect(overlay.text()).toContain("正在计算图片拼接");
+    expect(overlay.text()).toContain("正在匹配相邻页面内容");
+    expect(overlay.text()).toContain("已处理 3/15 页");
+
+    documentStore.detectionStatus = "idle";
+    await nextTick();
+    expect(wrapper.find('[aria-label="图片拼接计算中"]').exists()).toBe(false);
   });
 
   it("rotates the complete preview left or right in 90-degree steps", async () => {
@@ -391,6 +412,10 @@ describe("LayoutEditor", () => {
     await zoomInput.trigger("change");
     expect(setZoom).toHaveBeenLastCalledWith(0.6238);
 
+    await preview.get('[aria-label="自动计算缩放比例"]').trigger("click");
+    const body = new DOMWrapper(document.body);
+    expect(body.get(".zoom-calculator").text()).toContain("自动计算缩放比例");
+
     await preview.get(".fullscreen-preview__close").trigger("click");
     await flushPromises();
     expect(wrapper.find(".fullscreen-preview").exists()).toBe(false);
@@ -400,11 +425,11 @@ describe("LayoutEditor", () => {
 
   it("shares the clean-preview grid switch with fullscreen", async () => {
     const { wrapper } = mountEditor();
-    const gridToggle = wrapper.get('.canvas-preview-actions input[type="checkbox"]');
+    const gridToggle = wrapper.get('.canvas-preview-actions [role="checkbox"]');
     expect(wrapper.get('[data-testid="layout-canvas"]').attributes("data-show-grid"))
       .toBe("false");
 
-    await gridToggle.setValue(true);
+    await gridToggle.trigger("click");
     expect(wrapper.get('[data-testid="layout-canvas"]').attributes("data-show-grid"))
       .toBe("true");
 
@@ -415,8 +440,8 @@ describe("LayoutEditor", () => {
     await flushPromises();
     expect(wrapper.get('.fullscreen-preview [data-testid="layout-canvas"]')
       .attributes("data-show-grid")).toBe("true");
-    expect((wrapper.get('.fullscreen-preview .grid-visibility-toggle input')
-      .element as HTMLInputElement).checked).toBe(true);
+    expect(wrapper.get('.fullscreen-preview .grid-visibility-toggle [role="checkbox"]')
+      .attributes("data-state")).toBe("checked");
   });
 
   it("applies one global preview appearance and can reset its defaults", async () => {
@@ -424,11 +449,14 @@ describe("LayoutEditor", () => {
     const appearance = usePreviewAppearanceStore();
     const foreground = wrapper.get<HTMLInputElement>('input[aria-label="预览前景色"]');
     const background = wrapper.get<HTMLInputElement>('input[aria-label="预览背景色"]');
-    const lineWeight = wrapper.get<HTMLInputElement>('input[aria-label="预览线条粗细"]');
+    const lineWeight = wrapper.findAllComponents(Slider).find((slider) =>
+      slider.attributes("aria-label") === "预览线条粗细",
+    );
 
     await foreground.setValue("#123456");
     await background.setValue("#f0e0d0");
-    await lineWeight.setValue("2.4");
+    lineWeight?.vm.$emit("update:modelValue", [2.4]);
+    await nextTick();
 
     expect(appearance.$state).toEqual({
       foregroundColor: "#123456",
@@ -442,7 +470,10 @@ describe("LayoutEditor", () => {
         "data-line-weight": "2.4",
       });
 
-    await wrapper.get(".preview-appearance-control .compact-button").trigger("click");
+    const reset = wrapper.findAll("button").find((button) =>
+      button.text() === "重置默认值",
+    );
+    await reset?.trigger("click");
     expect(appearance.$state).toEqual(DEFAULT_PREVIEW_APPEARANCE);
   });
 
@@ -630,7 +661,7 @@ describe("LayoutEditor", () => {
     });
     await nextTick();
 
-    await wrapper.get('[aria-label="同步修改四个方向裁切量"]').setValue(true);
+    await wrapper.get('[aria-label="同步修改四个方向裁切量"]').trigger("click");
     const left = wrapper.get<HTMLInputElement>('[aria-label="左拼接线 point 坐标"]');
     await left.setValue("12.5");
     await left.trigger("change");
@@ -718,8 +749,8 @@ describe("LayoutEditor", () => {
   it("toggles seam cropping and updates output size after valid outer bounds", async () => {
     const { wrapper } = mountEditor();
     const seamCropping = wrapper.get('[aria-label="裁切页间接缝"]');
-    expect((seamCropping.element as HTMLInputElement).checked).toBe(true);
-    await seamCropping.setValue(false);
+    expect(seamCropping.attributes("data-state")).toBe("checked");
+    await seamCropping.trigger("click");
 
     expect(wrapper.get('[aria-label="成品尺寸"]').text()).toBe("1485.00 × 1260.00 mm");
     const outerLeft = wrapper.get('[aria-label="左外边界 point 坐标"]');
@@ -738,11 +769,11 @@ describe("LayoutEditor", () => {
   it("persists advanced output switches in the shared project store", async () => {
     const { wrapper } = mountEditor();
     const projectStore = useProjectStore();
-    const removeGuides = wrapper.get<HTMLInputElement>('[aria-label="删除辅助线"]');
-    expect(removeGuides.element.checked).toBe(true);
-    await removeGuides.setValue(false);
-    await wrapper.get('[aria-label="保留白色背景"]').setValue(true);
-    await wrapper.get('[aria-label="允许未使用 PDF 页"]').setValue(true);
+    const removeGuides = wrapper.get('[aria-label="删除辅助线"]');
+    expect(removeGuides.attributes("data-state")).toBe("checked");
+    await removeGuides.trigger("click");
+    await wrapper.get('[aria-label="保留白色背景"]').trigger("click");
+    await wrapper.get('[aria-label="允许未使用 PDF 页"]').trigger("click");
 
     expect(projectStore.outputSettings).toEqual({
       keepGuides: true,

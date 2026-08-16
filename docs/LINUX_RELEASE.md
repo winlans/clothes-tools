@@ -31,16 +31,16 @@ dist/release/
     SOURCE_OFFER.md
     USER_GUIDE.md
 apps/desktop/src-tauri/target/release/bundle/
-  appimage/pdf2plt_0.1.6_amd64.AppImage
-  deb/pdf2plt_0.1.6_amd64.deb
+  appimage/pdf2plt_0.1.7_amd64.AppImage
+  deb/pdf2plt_0.1.7_amd64.deb
 ```
 
 每次二进制发布还必须从同一 Git 提交生成并发布对应源码：
 
 ```bash
 git archive --format=tar.gz \
-  --prefix=pdf2plt-0.1.6-source/ \
-  --output=dist/release/pdf2plt-0.1.6-source.tar.gz HEAD
+  --prefix=pdf2plt-0.1.7-source/ \
+  --output=dist/release/pdf2plt-0.1.7-source.tar.gz HEAD
 sha256sum dist/release/*
 ```
 

@@ -3,6 +3,10 @@ import { computed, ref, watch } from "vue";
 
 import type { DocumentSession } from "../stores/document-session";
 import { provideDocumentSession } from "../stores/document-session";
+import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
+import { Button } from "./ui/button";
+import { Card, CardContent } from "./ui/card";
+import { Progress } from "./ui/progress";
 import LayoutEditor from "./LayoutEditor.vue";
 import PageSidebar from "./PageSidebar.vue";
 
@@ -47,73 +51,73 @@ function startSpacerDrag(event: DragEvent) {
 </script>
 
 <template>
-  <section v-if="props.session.ui.loadStatus === 'queued'" class="empty-state session-waiting">
-    <div class="empty-state__mark">PDF</div>
-    <h2>等待解析</h2>
-    <p>后台同时处理两个文件，当前标签会优先进入队列。</p>
-  </section>
+  <Card v-if="props.session.ui.loadStatus === 'queued'" class="empty-state session-waiting">
+    <CardContent class="grid place-items-center gap-2">
+      <div class="empty-state__mark">PDF</div>
+      <h2>等待解析</h2>
+      <p>后台同时处理两个文件，当前标签会优先进入队列。</p>
+    </CardContent>
+  </Card>
 
-  <section
+  <Alert
     v-else-if="props.session.ui.loadStatus === 'error' || documentStore.status === 'error'"
+    variant="destructive"
     class="error-state"
   >
-    <strong>无法打开 PDF</strong>
-    <p>{{ documentStore.errorMessage }}</p>
-    <button type="button" class="primary-button" @click="emit('retry')">重试</button>
-  </section>
+    <AlertTitle>无法打开 PDF</AlertTitle>
+    <AlertDescription>{{ documentStore.errorMessage }}</AlertDescription>
+    <Button class="mt-3 w-fit" @click="emit('retry')">重试</Button>
+  </Alert>
 
   <section v-else class="document-view">
     <div v-if="documentStore.status === 'loading'" class="progress-row">
-      <div class="progress-track">
-        <span :style="{ width: progressPercent + '%' }" />
-      </div>
+      <Progress :model-value="progressPercent" />
       <span>
         正在生成初始预览 {{ documentStore.progress.completed }}/{{ documentStore.progress.total || '…' }}
       </span>
-      <button type="button" class="compact-button" @click="documentStore.cancelPreview()">
+      <Button variant="outline" @click="documentStore.cancelPreview()">
         取消预览
-      </button>
+      </Button>
     </div>
 
     <div v-if="documentStore.exportStatus === 'running'" class="progress-row export-progress">
-      <div class="progress-track">
-        <span :style="{ width: exportPercent + '%' }" />
-      </div>
+      <Progress :model-value="exportPercent" />
       <span>
         正在导出矢量页面 {{ documentStore.exportProgress.completed }}/{{ documentStore.exportProgress.total }}
       </span>
     </div>
-    <p v-if="documentStore.exportErrorMessage" class="inline-error" role="alert">
-      {{ documentStore.exportErrorMessage }}
-    </p>
-    <p v-if="documentStore.exportStatus === 'cancelled'" class="guide-warning" role="status">
-      矢量导出已取消，未写入输出文件。
-    </p>
-    <p
+    <Alert v-if="documentStore.exportErrorMessage" variant="destructive" role="alert">
+      <AlertDescription>{{ documentStore.exportErrorMessage }}</AlertDescription>
+    </Alert>
+    <Alert v-if="documentStore.exportStatus === 'cancelled'" role="status">
+      <AlertDescription>矢量导出已取消，未写入输出文件。</AlertDescription>
+    </Alert>
+    <Alert
       v-if="documentStore.exportStatus === 'complete' && documentStore.exportSummary"
       class="export-summary"
       role="status"
     >
-      {{ documentStore.exportSummary.format.toUpperCase() }} 已生成：
-      {{ documentStore.exportSummary.pageInstances }} 个页面实例，
-      {{ ((documentStore.exportSummary.widthPt * 25.4) / 72).toFixed(2) }} ×
-      {{ ((documentStore.exportSummary.heightPt * 25.4) / 72).toFixed(2) }} mm，
-      <template v-if="documentStore.exportSummary.format === 'plt'">
-        {{ documentStore.exportSummary.paths }} 条刀路、
-        {{ documentStore.exportSummary.segments }} 条线段。
-      </template>
-      <template v-else>
-        {{ documentStore.exportSummary.visibleObjects }} 个矢量/图像对象。
-      </template>
-    </p>
-    <p
+      <AlertDescription>
+        {{ documentStore.exportSummary.format.toUpperCase() }} 已生成：
+        {{ documentStore.exportSummary.pageInstances }} 个页面实例，
+        {{ ((documentStore.exportSummary.widthPt * 25.4) / 72).toFixed(2) }} ×
+        {{ ((documentStore.exportSummary.heightPt * 25.4) / 72).toFixed(2) }} mm，
+        <template v-if="documentStore.exportSummary.format === 'plt'">
+          {{ documentStore.exportSummary.paths }} 条刀路、
+          {{ documentStore.exportSummary.segments }} 条线段。
+        </template>
+        <template v-else>
+          {{ documentStore.exportSummary.visibleObjects }} 个矢量/图像对象。
+        </template>
+      </AlertDescription>
+    </Alert>
+    <Alert
       v-for="warning in documentStore.exportSummary?.warnings ?? []"
       :key="warning"
-      class="guide-warning"
       role="status"
     >
-      {{ warning }}
-    </p>
+      <AlertDescription>{{ warning }}</AlertDescription>
+    </Alert>
 
     <div
       v-if="documentStore.info"

@@ -5,6 +5,8 @@ import {
   usePreviewAppearanceStore,
 } from "../stores/preview-appearance";
 import { formatUiNumber } from "../numbers";
+import { Button } from "./ui/button";
+import { Slider } from "./ui/slider";
 
 const appearance = usePreviewAppearanceStore();
 
@@ -35,24 +37,22 @@ function inputValue(event: Event): string {
     </label>
     <label class="preview-line-weight-control">
       <span>线条粗细</span>
-      <input
-        type="range"
+      <Slider
         :min="MIN_PREVIEW_LINE_WEIGHT"
         :max="MAX_PREVIEW_LINE_WEIGHT"
-        step="0.1"
+        :step="0.1"
         aria-label="预览线条粗细"
-        :value="appearance.lineWeight"
-        @input="appearance.setLineWeight(Number(inputValue($event)))"
+        :model-value="[appearance.lineWeight]"
+        @update:model-value="appearance.setLineWeight($event?.[0] ?? appearance.lineWeight)"
       />
       <output>{{ formatUiNumber(appearance.lineWeight) }}×</output>
     </label>
-    <button
-      type="button"
-      class="compact-button"
+    <Button
+      variant="outline"
       :disabled="appearance.isDefault"
       @click="appearance.reset"
     >
       重置默认值
-    </button>
+    </Button>
   </div>
 </template>

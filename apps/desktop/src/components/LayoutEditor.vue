@@ -9,6 +9,15 @@ import {
   type VectorSelectionPreview,
 } from "@pdf2plt/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import {
+  Maximize2Icon,
+  PaintbrushIcon,
+  Redo2Icon,
+  RefreshCwIcon,
+  RotateCcwIcon,
+  RotateCwIcon,
+  Undo2Icon,
+} from "@lucide/vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import { useResolvedSettings } from "../composables/use-resolved-settings";
@@ -16,8 +25,20 @@ import { useDocumentSession } from "../stores/document-session";
 import type { PreviewState } from "../stores/pdf-document";
 import { usePreviewAppearanceStore } from "../stores/preview-appearance";
 import AdvancedInspector from "./AdvancedInspector.vue";
+import IconButton from "./IconButton.vue";
 import LayoutCanvas from "./LayoutCanvas.vue";
 import PreviewAppearanceControl from "./PreviewAppearanceControl.vue";
+import StitchingCalculationOverlay from "./StitchingCalculationOverlay.vue";
+import { Alert, AlertDescription } from "./ui/alert";
+import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
+import { ButtonGroup, ButtonGroupText } from "./ui/button-group";
+import { Checkbox } from "./ui/checkbox";
+import { Input } from "./ui/input";
+import { NativeSelect, NativeSelectOption } from "./ui/native-select";
+import { Separator } from "./ui/separator";
+import { Slider } from "./ui/slider";
+import { ToggleGroup, ToggleGroupItem } from "./ui/toggle-group";
 import ZoomControl from "./ZoomControl.vue";
 
 const props = defineProps<{
@@ -275,6 +296,25 @@ function displayZoom(scale: number): string {
   return (scale * 100).toFixed(2);
 }
 
+function setPreviewMode(value: unknown) {
+  if (value === "cropped") {
+    guideStore.setPreviewModeValidated(
+      "cropped",
+      Boolean(resolvedSettings.resolved.value.value),
+    );
+  } else if (value === "full") {
+    guideStore.setPreviewModeValidated("full", true);
+  }
+}
+
+function setBrushOperation(value: unknown) {
+  if (value === "add" || value === "subtract") brushOperation.value = value;
+}
+
+function setBrushScope(value?: unknown) {
+  if (value === "all-pages" || value === "current-page") brushScope.value = value;
+}
+
 function applyLayoutMutation(change: () => boolean) {
   if (change()) session.markDirty();
 }
@@ -378,16 +418,17 @@ onBeforeUnmount(() => {
         <div class="layout-toolbar">
           <label>
             <span>每列页数</span>
-            <div class="pages-per-column-stepper">
-              <button
-                type="button"
+            <ButtonGroup class="pages-per-column-stepper">
+              <Button
+                variant="outline"
+                size="icon"
                 aria-label="减少每列页数"
                 :disabled="Number(draftPagesPerColumn) <= 1"
                 @click="stepPagesPerColumn(-1)"
               >
                 −
-              </button>
-              <input
+              </Button>
+              <Input
                 v-model="draftPagesPerColumn"
                 type="number"
                 min="1"
@@ -398,162 +439,151 @@ onBeforeUnmount(() => {
                 @change="applyAutomaticLayout"
                 @keydown.enter="applyAutomaticLayout"
               />
-              <button
-                type="button"
+              <Button
+                variant="outline"
+                size="icon"
                 aria-label="增加每列页数"
                 @click="stepPagesPerColumn(1)"
               >
                 ＋
-              </button>
-            </div>
+              </Button>
+            </ButtonGroup>
           </label>
-          <button
-            type="button"
-            class="ghost-button layout-refresh-button"
+          <IconButton
+            variant="outline"
+            size="icon"
+            class="layout-refresh-button"
             aria-label="重新自动排列"
-            title="重新打开 PDF 并自动排列"
+            tooltip="重新打开 PDF 并自动排列"
             @click="emit('reload')"
           >
-            <svg class="refresh-icon" viewBox="0 0 16 16" aria-hidden="true">
-              <path d="M13.5 5.8A5.8 5.8 0 0 0 3.1 3.7L1.8 5" />
-              <path d="M1.8 2.3V5h2.7" />
-              <path d="M2.5 10.2a5.8 5.8 0 0 0 10.4 2.1l1.3-1.3" />
-              <path d="M14.2 13.7V11h-2.7" />
-            </svg>
-          </button>
+            <RefreshCwIcon />
+          </IconButton>
           <span class="layout-toolbar__summary">{{ layoutSummary }}</span>
-          <span v-if="layoutStore.detectedPagesPerColumn" class="guide-success">
+          <Badge v-if="layoutStore.detectedPagesPerColumn" variant="secondary" class="guide-success">
             {{ documentStore.guideDetection?.contentOverlap?.applied ? '内容匹配' : '辅助线识别' }}：每列 {{ layoutStore.detectedPagesPerColumn }} 页
-          </span>
+          </Badge>
         </div>
 
-        <div class="layout-commandbar" aria-label="布局编辑命令">
-          <button
-            type="button"
-            class="compact-button"
+        <ButtonGroup class="layout-commandbar" aria-label="布局编辑命令">
+          <Button
+            variant="outline"
             :disabled="!layoutStore.canUndo"
             @click="applyLayoutMutation(() => layoutStore.undo())"
           >
+            <Undo2Icon />
             撤销
-          </button>
-          <button
-            type="button"
-            class="compact-button"
+          </Button>
+          <Button
+            variant="outline"
             :disabled="!layoutStore.canRedo"
             @click="applyLayoutMutation(() => layoutStore.redo())"
           >
+            <Redo2Icon />
             重做
-          </button>
-          <span class="command-separator" />
-          <button
-            type="button"
-            class="compact-button"
+          </Button>
+          <Separator orientation="vertical" class="command-separator" />
+          <Button
+            variant="outline"
             aria-label="增加一行"
             @click="applyLayoutMutation(() => layoutStore.addRow())"
           >
             + 行
-          </button>
-          <button
-            type="button"
-            class="compact-button"
+          </Button>
+          <Button
+            variant="outline"
             aria-label="删除最后一行"
             @click="applyLayoutMutation(() => layoutStore.removeLastRow())"
           >
             − 行
-          </button>
-          <button
-            type="button"
-            class="compact-button"
+          </Button>
+          <Button
+            variant="outline"
             aria-label="增加一列"
             @click="applyLayoutMutation(() => layoutStore.addColumn())"
           >
             + 列
-          </button>
-          <button
-            type="button"
-            class="compact-button"
+          </Button>
+          <Button
+            variant="outline"
             aria-label="删除最后一列"
             @click="applyLayoutMutation(() => layoutStore.removeLastColumn())"
           >
             − 列
-          </button>
-        </div>
+          </Button>
+        </ButtonGroup>
       </div>
 
       <div class="workspace-control-row workspace-control-row--preview">
         <div class="canvas-preview-switch">
           <span class="eyebrow">画板预览</span>
           <div class="canvas-preview-actions">
-            <div class="mode-switch" role="group" aria-label="预览模式">
-              <button
-                type="button"
-                :class="{ active: guideStore.previewMode === 'cropped' }"
+            <ToggleGroup
+              type="single"
+              variant="outline"
+              :model-value="guideStore.previewMode"
+              aria-label="预览模式"
+              @update:model-value="setPreviewMode"
+            >
+              <ToggleGroupItem
+                value="cropped"
                 :disabled="!resolvedSettings.resolved.value.value"
-                @click="guideStore.setPreviewModeValidated('cropped', Boolean(resolvedSettings.resolved.value.value))"
               >
                 成品裁切
-              </button>
-              <button
-                type="button"
-                :class="{ active: guideStore.previewMode === 'full' }"
-                @click="guideStore.setPreviewModeValidated('full', true)"
-              >
+              </ToggleGroupItem>
+              <ToggleGroupItem value="full">
                 完整页面
-              </button>
-            </div>
+              </ToggleGroupItem>
+            </ToggleGroup>
             <label class="check-row grid-visibility-toggle">
-              <input v-model="session.ui.showGrid" type="checkbox" />
+              <Checkbox
+                :model-value="session.ui.showGrid"
+                @update:model-value="session.ui.showGrid = Boolean($event)"
+              />
               显示栅格
             </label>
-            <div class="mode-switch rotation-switch" role="group" aria-label="成品旋转">
-              <button
-                type="button"
-                class="rotation-icon-button"
+            <ButtonGroup class="rotation-switch" aria-label="成品旋转">
+              <IconButton
+                variant="outline"
+                size="icon"
                 aria-label="向左旋转 90 度"
-                title="向左旋转 90°"
+                tooltip="向左旋转 90°"
                 @click="rotateOutput(-1)"
               >
-                <svg class="rotation-icon" viewBox="0 0 16 16" aria-hidden="true">
-                  <path d="M4.1 5.3H1.7V2.9" />
-                  <path d="M2 5.1a6 6 0 1 1-.1 5.6" />
-                </svg>
-              </button>
-              <span class="rotation-angle" aria-live="polite">
+                <RotateCcwIcon />
+              </IconButton>
+              <ButtonGroupText class="rotation-angle" aria-live="polite">
                 {{ projectStore.outputSettings.rotation ?? 0 }}°
-              </span>
-              <button
-                type="button"
-                class="rotation-icon-button"
+              </ButtonGroupText>
+              <IconButton
+                variant="outline"
+                size="icon"
                 aria-label="向右旋转 90 度"
-                title="向右旋转 90°"
+                tooltip="向右旋转 90°"
                 @click="rotateOutput(1)"
               >
-                <svg class="rotation-icon" viewBox="0 0 16 16" aria-hidden="true">
-                  <path d="M11.9 5.3h2.4V2.9" />
-                  <path d="M14 5.1a6 6 0 1 0 .1 5.6" />
-                </svg>
-              </button>
-            </div>
-            <button
-              type="button"
-              class="compact-button"
-              :class="{ active: brushEnabled }"
+                <RotateCwIcon />
+              </IconButton>
+            </ButtonGroup>
+            <Button
+              :variant="brushEnabled ? 'secondary' : 'outline'"
               aria-label="画笔消除"
               @click="brushEnabled ? cancelBrushMode() : startBrushMode()"
             >
+              <PaintbrushIcon />
               {{ brushEnabled ? '退出画笔' : '画笔消除' }}
-            </button>
+            </Button>
             <ZoomControl :scale="zoom" @set-zoom="canvas?.setZoom($event)" />
-            <button type="button" class="compact-button" @click="canvas?.fitContent()">
+            <Button variant="outline" @click="canvas?.fitContent()">
               适合内容
-            </button>
-            <button
-              type="button"
-              class="compact-button"
+            </Button>
+            <Button
+              variant="outline"
               @click="openFullscreenPreview"
             >
+              <Maximize2Icon />
               全屏预览
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -562,46 +592,49 @@ onBeforeUnmount(() => {
     </div>
 
     <div v-if="brushEnabled" class="brush-removal-toolbar" aria-label="画笔消除工具">
-      <div class="mode-switch" role="group" aria-label="画笔操作">
-        <button
-          type="button"
-          :class="{ active: brushOperation === 'add' }"
+      <ToggleGroup
+        type="single"
+        variant="outline"
+        :model-value="brushOperation"
+        aria-label="画笔操作"
+        @update:model-value="setBrushOperation"
+      >
+        <ToggleGroupItem
+          value="add"
           :disabled="documentStore.selectionStatus === 'running'"
-          @click="brushOperation = 'add'"
         >
           加选
-        </button>
-        <button
-          type="button"
-          :class="{ active: brushOperation === 'subtract' }"
+        </ToggleGroupItem>
+        <ToggleGroupItem
+          value="subtract"
           :disabled="documentStore.selectionStatus === 'running'"
-          @click="brushOperation = 'subtract'"
         >
           减选
-        </button>
-      </div>
+        </ToggleGroupItem>
+      </ToggleGroup>
       <label class="brush-size-control">
         <span>笔刷半径</span>
-        <input
-          v-model.number="brushRadiusPt"
-          type="range"
-          min="2"
-          max="40"
-          step="1"
+        <Slider
+          :min="2"
+          :max="40"
+          :step="1"
+          :model-value="[brushRadiusPt]"
           :disabled="documentStore.selectionStatus === 'running'"
+          @update:model-value="brushRadiusPt = $event?.[0] ?? brushRadiusPt"
         />
         <output>{{ brushRadiusPt }} pt</output>
       </label>
       <label>
         <span>生效范围</span>
-        <select
-          v-model="brushScope"
+        <NativeSelect
+          :model-value="brushScope"
           aria-label="画笔消除生效范围"
           :disabled="documentStore.selectionStatus === 'running'"
+          @update:model-value="setBrushScope"
         >
-          <option value="all-pages">全部页面</option>
-          <option value="current-page">仅参考页</option>
-        </select>
+          <NativeSelectOption value="all-pages">全部页面</NativeSelectOption>
+          <NativeSelectOption value="current-page">仅参考页</NativeSelectOption>
+        </NativeSelect>
       </label>
       <span class="brush-selection-summary" role="status">
         <template v-if="documentStore.selectionStatus === 'running'">
@@ -612,104 +645,108 @@ onBeforeUnmount(() => {
           已标记 {{ selectedObjectCount }} 个对象
         </template>
       </span>
-      <button
-        type="button"
-        class="compact-button"
+      <Button
+        variant="outline"
         :disabled="brushStrokes.length === 0 || documentStore.selectionStatus === 'running'"
         @click="undoBrushStroke"
       >
         撤销一笔
-      </button>
-      <button
+      </Button>
+      <Button
         v-if="documentStore.selectionStatus === 'running'"
-        type="button"
-        class="compact-button"
+        variant="outline"
         @click="documentStore.cancelSelection()"
       >
         取消识别
-      </button>
-      <button
+      </Button>
+      <Button
         v-else
-        type="button"
-        class="compact-button"
+        variant="outline"
         :aria-label="brushScope === 'all-pages' ? '预览全部页面匹配结果' : '预览参考页匹配结果'"
         :title="brushScope === 'all-pages' ? '预览全部页面匹配结果' : '预览参考页匹配结果'"
         :disabled="!brushSourcePageNumber"
         @click="previewBrushMatches"
       >
         预览匹配
-      </button>
-      <button
-        type="button"
-        class="primary-button"
+      </Button>
+      <Button
         :disabled="!selectionReady || selectedObjectCount === 0 || documentStore.selectionStatus === 'running'"
         @click="confirmBrushRule"
       >
         确认消除
-      </button>
-      <button type="button" class="ghost-button" @click="cancelBrushMode">取消</button>
+      </Button>
+      <Button variant="outline" @click="cancelBrushMode">取消</Button>
     </div>
 
     <div v-if="savedExclusionRules.length" class="saved-exclusion-rules" aria-label="已保存消除规则">
       <span class="eyebrow">已保存消除规则</span>
-      <button
+      <Button
         v-for="(rule, index) in savedExclusionRules"
         :key="rule.id"
-        type="button"
-        class="compact-button"
+        variant="outline"
         :aria-label="`删除消除规则 ${index + 1}`"
         @click="removeExclusionRule(rule.id)"
       >
         规则 {{ index + 1 }} · {{ rule.scope === 'all-pages' ? '全部页面' : `第 ${rule.sourcePageNumber} 页` }} ×
-      </button>
+      </Button>
     </div>
 
-    <p v-if="brushError" class="inline-error" role="alert">{{ brushError }}</p>
+    <Alert v-if="brushError" variant="destructive" role="alert">
+      <AlertDescription>{{ brushError }}</AlertDescription>
+    </Alert>
 
-    <p
+    <Alert
       v-if="layoutStore.errorMessage"
       id="layout-input-error"
-      class="inline-error"
+      variant="destructive"
       role="alert"
     >
-      {{ layoutStore.errorMessage }}
-    </p>
-    <p v-if="guideStore.errorMessage" class="inline-error" role="alert">
-      {{ guideStore.errorMessage }}
-    </p>
+      <AlertDescription>{{ layoutStore.errorMessage }}</AlertDescription>
+    </Alert>
+    <Alert v-if="guideStore.errorMessage" variant="destructive" role="alert">
+      <AlertDescription>{{ guideStore.errorMessage }}</AlertDescription>
+    </Alert>
 
     <div class="layout-editor__body">
       <div class="canvas-column">
-        <LayoutCanvas
-          v-if="layoutStore.layout"
-          ref="canvas"
-          :layout="layoutStore.layout"
-          :page-size="props.pageSize"
-          :previews="props.previews"
-          :guides="activeGuides"
-          :show-grid="session.ui.showGrid"
-          :foreground-color="previewAppearance.foregroundColor"
-          :background-color="previewAppearance.backgroundColor"
-          :line-weight="previewAppearance.lineWeight"
-          :rotation="projectStore.outputSettings.rotation ?? 0"
-          :render-region="documentStore.renderRegion"
-          :initial-camera="initialCamera"
-          :brush-enabled="brushEnabled"
-          :brush-locked="documentStore.selectionStatus === 'running'"
-          :brush-operation="brushOperation"
-          :brush-radius-pt="brushRadiusPt"
-          :brush-strokes="brushStrokes"
-          :brush-source-page-number="brushSourcePageNumber"
-          :selection-overlays="selectionOverlays"
-          @zoom-change="zoom = $event"
-          @view-change="projectStore.setView"
-          @move-page="(pageNumber, target) => applyLayoutMutation(() => layoutStore.movePageTo(pageNumber, target))"
-          @insert-spacer="(target) => applyLayoutMutation(() => layoutStore.insertSpacer(target))"
-          @move-spacer="(spacerId, target) => applyLayoutMutation(() => layoutStore.moveSpacerTo(spacerId, target))"
-          @delete-spacer="(spacerId) => applyLayoutMutation(() => layoutStore.deleteSpacer(spacerId))"
-          @canvas-preview-request="documentStore.requestCanvasPreviews"
-          @brush-stroke="handleBrushStroke"
-        />
+        <div class="layout-canvas-shell">
+          <LayoutCanvas
+            v-if="layoutStore.layout"
+            ref="canvas"
+            :layout="layoutStore.layout"
+            :page-size="props.pageSize"
+            :previews="props.previews"
+            :guides="activeGuides"
+            :show-grid="session.ui.showGrid"
+            :foreground-color="previewAppearance.foregroundColor"
+            :background-color="previewAppearance.backgroundColor"
+            :line-weight="previewAppearance.lineWeight"
+            :rotation="projectStore.outputSettings.rotation ?? 0"
+            :render-region="documentStore.renderRegion"
+            :initial-camera="initialCamera"
+            :brush-enabled="brushEnabled"
+            :brush-locked="documentStore.selectionStatus === 'running'"
+            :brush-operation="brushOperation"
+            :brush-radius-pt="brushRadiusPt"
+            :brush-strokes="brushStrokes"
+            :brush-source-page-number="brushSourcePageNumber"
+            :selection-overlays="selectionOverlays"
+            @zoom-change="zoom = $event"
+            @view-change="projectStore.setView"
+            @move-page="(pageNumber, target) => applyLayoutMutation(() => layoutStore.movePageTo(pageNumber, target))"
+            @insert-spacer="(target) => applyLayoutMutation(() => layoutStore.insertSpacer(target))"
+            @move-spacer="(spacerId, target) => applyLayoutMutation(() => layoutStore.moveSpacerTo(spacerId, target))"
+            @delete-spacer="(spacerId) => applyLayoutMutation(() => layoutStore.deleteSpacer(spacerId))"
+            @canvas-preview-request="documentStore.requestCanvasPreviews"
+            @brush-stroke="handleBrushStroke"
+          />
+          <StitchingCalculationOverlay
+            v-if="documentStore.detectionStatus === 'running'"
+            :phase="documentStore.detectionProgress.phase"
+            :completed="documentStore.detectionProgress.completed"
+            :total="documentStore.detectionProgress.total"
+          />
+        </div>
 
         <footer class="canvas-status">
           <span>缩放 {{ displayZoom(zoom) }}%</span>
@@ -738,95 +775,98 @@ onBeforeUnmount(() => {
           <strong>{{ layoutSummary }}</strong>
         </div>
         <div class="fullscreen-preview__actions">
-          <div class="mode-switch" role="group" aria-label="全屏预览模式">
-            <button
-              type="button"
-              :class="{ active: guideStore.previewMode === 'cropped' }"
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            :model-value="guideStore.previewMode"
+            aria-label="全屏预览模式"
+            @update:model-value="setPreviewMode"
+          >
+            <ToggleGroupItem
+              value="cropped"
               :disabled="!resolvedSettings.resolved.value.value"
-              @click="guideStore.setPreviewModeValidated('cropped', Boolean(resolvedSettings.resolved.value.value))"
             >
               成品裁切
-            </button>
-            <button
-              type="button"
-              :class="{ active: guideStore.previewMode === 'full' }"
-              @click="guideStore.setPreviewModeValidated('full', true)"
-            >
+            </ToggleGroupItem>
+            <ToggleGroupItem value="full">
               完整页面
-            </button>
-          </div>
+            </ToggleGroupItem>
+          </ToggleGroup>
           <label class="check-row grid-visibility-toggle">
-            <input v-model="session.ui.showGrid" type="checkbox" />
+            <Checkbox
+              :model-value="session.ui.showGrid"
+              @update:model-value="session.ui.showGrid = Boolean($event)"
+            />
             显示栅格
           </label>
-          <div class="mode-switch rotation-switch" role="group" aria-label="全屏成品旋转">
-            <button
-              type="button"
-              class="rotation-icon-button"
+          <ButtonGroup class="rotation-switch" aria-label="全屏成品旋转">
+            <IconButton
+              variant="outline"
+              size="icon"
               aria-label="全屏向左旋转 90 度"
-              title="向左旋转 90°"
+              tooltip="向左旋转 90°"
               @click="rotateOutput(-1)"
             >
-              <svg class="rotation-icon" viewBox="0 0 16 16" aria-hidden="true">
-                <path d="M4.1 5.3H1.7V2.9" />
-                <path d="M2 5.1a6 6 0 1 1-.1 5.6" />
-              </svg>
-            </button>
-            <span class="rotation-angle" aria-live="polite">
+              <RotateCcwIcon />
+            </IconButton>
+            <ButtonGroupText class="rotation-angle" aria-live="polite">
               {{ projectStore.outputSettings.rotation ?? 0 }}°
-            </span>
-            <button
-              type="button"
-              class="rotation-icon-button"
+            </ButtonGroupText>
+            <IconButton
+              variant="outline"
+              size="icon"
               aria-label="全屏向右旋转 90 度"
-              title="向右旋转 90°"
+              tooltip="向右旋转 90°"
               @click="rotateOutput(1)"
             >
-              <svg class="rotation-icon" viewBox="0 0 16 16" aria-hidden="true">
-                <path d="M11.9 5.3h2.4V2.9" />
-                <path d="M14 5.1a6 6 0 1 0 .1 5.6" />
-              </svg>
-            </button>
-          </div>
+              <RotateCwIcon />
+            </IconButton>
+          </ButtonGroup>
           <ZoomControl
             :scale="fullscreenZoom"
             @set-zoom="fullscreenCanvas?.setZoom($event)"
           />
-          <button
-            type="button"
-            class="compact-button"
+          <Button
+            variant="outline"
             @click="fullscreenCanvas?.fitContent()"
           >
             适合内容
-          </button>
-          <button
-            type="button"
-            class="primary-button fullscreen-preview__close"
+          </Button>
+          <Button
+            class="fullscreen-preview__close"
             @click="closeFullscreenPreview"
           >
             退出全屏
-          </button>
+          </Button>
         </div>
       </header>
 
-      <LayoutCanvas
-        ref="fullscreenCanvas"
-        class="fullscreen-preview__canvas"
-        :layout="layoutStore.layout"
-        :page-size="props.pageSize"
-        :previews="props.previews"
-        :guides="activeGuides"
-        :show-grid="session.ui.showGrid"
-        :foreground-color="previewAppearance.foregroundColor"
-        :background-color="previewAppearance.backgroundColor"
-        :line-weight="previewAppearance.lineWeight"
-        :rotation="projectStore.outputSettings.rotation ?? 0"
-        :render-region="documentStore.renderRegion"
-        :initial-camera="undefined"
-        :editable="false"
-        @zoom-change="fullscreenZoom = $event"
-        @canvas-preview-request="documentStore.requestCanvasPreviews"
-      />
+      <div class="fullscreen-preview__canvas-shell">
+        <LayoutCanvas
+          ref="fullscreenCanvas"
+          class="fullscreen-preview__canvas"
+          :layout="layoutStore.layout"
+          :page-size="props.pageSize"
+          :previews="props.previews"
+          :guides="activeGuides"
+          :show-grid="session.ui.showGrid"
+          :foreground-color="previewAppearance.foregroundColor"
+          :background-color="previewAppearance.backgroundColor"
+          :line-weight="previewAppearance.lineWeight"
+          :rotation="projectStore.outputSettings.rotation ?? 0"
+          :render-region="documentStore.renderRegion"
+          :initial-camera="undefined"
+          :editable="false"
+          @zoom-change="fullscreenZoom = $event"
+          @canvas-preview-request="documentStore.requestCanvasPreviews"
+        />
+        <StitchingCalculationOverlay
+          v-if="documentStore.detectionStatus === 'running'"
+          :phase="documentStore.detectionProgress.phase"
+          :completed="documentStore.detectionProgress.completed"
+          :total="documentStore.detectionProgress.total"
+        />
+      </div>
 
       <footer class="fullscreen-preview__status">
         <span>缩放 {{ displayZoom(fullscreenZoom) }}%</span>

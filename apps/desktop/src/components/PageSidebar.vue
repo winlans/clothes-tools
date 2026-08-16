@@ -3,6 +3,8 @@ import type { PdfPageInfo } from "@pdf2plt/core";
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import type { PreviewState } from "../stores/pdf-document";
+import IconButton from "./IconButton.vue";
+import { Button } from "./ui/button";
 
 const props = defineProps<{
   collapsed: boolean;
@@ -57,32 +59,28 @@ onBeforeUnmount(() => observer?.disconnect());
     :class="{ 'page-sidebar--collapsed': props.collapsed }"
     aria-label="PDF 页码列表"
   >
-    <button
+    <IconButton
       v-if="props.collapsed"
-      type="button"
+      variant="outline"
+      size="icon-lg"
       class="page-sidebar__toggle"
-      aria-label="展开页面栏"
-      title="展开页面栏"
+      tooltip="展开页面栏"
       @click="emit('toggle')"
-    >
-      ›
-    </button>
+    >›</IconButton>
     <template v-else>
       <div class="page-sidebar__header">
         <span class="eyebrow">页面</span>
-        <button
-          type="button"
+        <IconButton
+          variant="outline"
+          size="icon-lg"
           class="page-sidebar__toggle"
-          aria-label="收起页面栏"
-          title="收起页面栏"
+          tooltip="收起页面栏"
           @click="emit('toggle')"
-        >
-          ‹
-        </button>
+        >‹</IconButton>
       </div>
       <div ref="scrollRoot" class="page-sidebar__content">
-        <button
-          type="button"
+        <Button
+          variant="outline"
           class="spacer-tool"
           draggable="true"
           title="拖到画板格子中插入空白占位"
@@ -90,7 +88,7 @@ onBeforeUnmount(() => observer?.disconnect());
         >
           <span class="spacer-tool__mark">＋</span>
           拖入空白块
-        </button>
+        </Button>
         <article
           v-for="page in props.pages"
           :key="page.pageNumber"

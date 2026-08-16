@@ -1,7 +1,18 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { CalculatorIcon, MinusIcon, PlusIcon } from "@lucide/vue";
+import { computed, ref, watch } from "vue";
 
 import { MAX_CANVAS_ZOOM, MIN_CANVAS_ZOOM } from "../canvas/camera";
+import IconButton from "./IconButton.vue";
+import { Button } from "./ui/button";
+import { ButtonGroup } from "./ui/button-group";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+  InputGroupText,
+} from "./ui/input-group";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 
 const props = defineProps<{
   scale: number;
@@ -11,8 +22,6 @@ const emit = defineEmits<{
   setZoom: [scale: number];
 }>();
 
-const controlRoot = ref<HTMLElement>();
-const calibrationInput = ref<HTMLInputElement>();
 const draftPercent = ref(formatPercent(props.scale));
 const invalid = ref(false);
 const calculatorOpen = ref(false);
@@ -99,13 +108,6 @@ function stepPercent(delta: number) {
   commitDraft();
 }
 
-function toggleCalculator() {
-  calculatorOpen.value = !calculatorOpen.value;
-  if (calculatorOpen.value) {
-    void nextTick(() => calibrationInput.value?.focus());
-  }
-}
-
 function closeCalculator() {
   calculatorOpen.value = false;
 }
@@ -118,38 +120,28 @@ function applyCalculatedZoom() {
   closeCalculator();
 }
 
-function handleOutsidePointerDown(event: PointerEvent) {
-  if (!calculatorOpen.value || !(event.target instanceof Node)) return;
-  if (!controlRoot.value?.contains(event.target)) closeCalculator();
-}
-
 watch(
   () => props.scale,
   (scale) => {
     if (!invalid.value) draftPercent.value = formatPercent(scale);
   },
 );
-
-onMounted(() => document.addEventListener("pointerdown", handleOutsidePointerDown));
-onBeforeUnmount(() => document.removeEventListener("pointerdown", handleOutsidePointerDown));
 </script>
 
 <template>
-  <div ref="controlRoot" class="zoom-control-shell">
-    <div class="zoom-control" role="group" aria-label="缩放百分比">
-      <button
-        type="button"
-        aria-label="缩小 0.1%"
-        title="缩小 0.1%"
+  <Popover v-model:open="calculatorOpen">
+    <ButtonGroup class="zoom-control" aria-label="缩放百分比">
+      <IconButton
+        variant="outline"
+        size="icon"
+        tooltip="缩小 0.1%"
         @click="stepPercent(-0.1)"
       >
-        −
-      </button>
-      <label>
-        <span class="visually-hidden">缩放百分比</span>
-        <input
+        <MinusIcon />
+      </IconButton>
+      <InputGroup class="zoom-control__input-group">
+        <InputGroupInput
           v-model="draftPercent"
-          type="text"
           inputmode="decimal"
           aria-label="缩放百分比"
           :aria-invalid="invalid || undefined"
@@ -159,101 +151,82 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", handleOutsideP
           @keydown.escape.prevent="restoreDraft"
           @blur="restoreDraft"
         />
-        <span>%</span>
-      </label>
-      <button
-        type="button"
-        aria-label="放大 0.1%"
-        title="放大 0.1%"
+        <InputGroupAddon align="inline-end"><InputGroupText>%</InputGroupText></InputGroupAddon>
+      </InputGroup>
+      <IconButton
+        variant="outline"
+        size="icon"
+        tooltip="放大 0.1%"
         @click="stepPercent(0.1)"
       >
-        ＋
-      </button>
-      <button
-        type="button"
-        class="zoom-control__calculator-button"
-        aria-label="自动计算缩放比例"
-        title="自动计算缩放比例"
-        :aria-expanded="calculatorOpen"
-        @click="toggleCalculator"
-      >
-        <svg viewBox="0 0 16 16" aria-hidden="true">
-          <rect x="2.5" y="1.5" width="11" height="13" rx="1.5" />
-          <path d="M5 4.5h6M5 7.5h1M8 7.5h1M11 7.5h.1M5 10.5h1M8 10.5h1M11 10.5h.1" />
-        </svg>
-      </button>
-    </div>
-
-    <form
-      v-if="calculatorOpen"
-      class="zoom-calculator"
-      role="dialog"
-      aria-label="自动计算缩放比例"
-      @submit.prevent="applyCalculatedZoom"
-      @keydown.escape.stop.prevent="closeCalculator"
-    >
-      <div class="zoom-calculator__heading">
-        <strong>自动计算缩放比例</strong>
-        <span>当前 {{ formatPercent(props.scale) }}%</span>
-      </div>
-
-      <div class="zoom-calculator__fields">
-        <label>
-          <span>校对块尺寸</span>
-          <span class="zoom-calculator__input">
-            <input
-              ref="calibrationInput"
-              v-model="calibrationSize"
-              type="text"
-              inputmode="decimal"
-              aria-label="校对块尺寸"
-              placeholder="0"
-            />
-            <span>cm</span>
-          </span>
-        </label>
-        <label>
-          <span>投放尺寸</span>
-          <span class="zoom-calculator__input">
-            <input
-              v-model="placementSize"
-              type="text"
-              inputmode="decimal"
-              aria-label="投放尺寸"
-              placeholder="0"
-            />
-            <span>cm</span>
-          </span>
-        </label>
-      </div>
-
-      <div class="zoom-calculator__formula">
-        目标比例 = 当前比例 × 投放尺寸 ÷ 校对块尺寸
-      </div>
-      <div
-        class="zoom-calculator__result"
-        :class="{ 'zoom-calculator__result--error': calculatorError }"
-        aria-live="polite"
-      >
-        <template v-if="calculatorError">{{ calculatorError }}</template>
-        <template v-else-if="targetPercent !== undefined">
-          目标比例 <strong>{{ targetPercent.toFixed(2) }}%</strong>
-        </template>
-        <template v-else>输入尺寸后自动计算</template>
-      </div>
-
-      <div class="zoom-calculator__actions">
-        <button type="button" class="compact-button" @click="closeCalculator">
-          取消
-        </button>
-        <button
-          type="submit"
-          class="primary-button"
-          :disabled="!canApplyCalculatedZoom"
+        <PlusIcon />
+      </IconButton>
+      <PopoverTrigger as-child>
+        <IconButton
+          variant="outline"
+          size="icon"
+          class="zoom-control__calculator-button"
+          tooltip="自动计算缩放比例"
         >
-          应用
-        </button>
-      </div>
-    </form>
-  </div>
+          <CalculatorIcon />
+        </IconButton>
+      </PopoverTrigger>
+    </ButtonGroup>
+
+    <PopoverContent align="end" class="zoom-calculator">
+      <form @submit.prevent="applyCalculatedZoom">
+        <div class="zoom-calculator__heading">
+          <strong>自动计算缩放比例</strong>
+          <span>当前 {{ formatPercent(props.scale) }}%</span>
+        </div>
+
+        <div class="zoom-calculator__fields">
+          <label>
+            <span>校对块尺寸</span>
+            <InputGroup>
+              <InputGroupInput
+                v-model="calibrationSize"
+                inputmode="decimal"
+                aria-label="校对块尺寸"
+                placeholder="0"
+              />
+              <InputGroupAddon align="inline-end"><InputGroupText>cm</InputGroupText></InputGroupAddon>
+            </InputGroup>
+          </label>
+          <label>
+            <span>投放尺寸</span>
+            <InputGroup>
+              <InputGroupInput
+                v-model="placementSize"
+                inputmode="decimal"
+                aria-label="投放尺寸"
+                placeholder="0"
+              />
+              <InputGroupAddon align="inline-end"><InputGroupText>cm</InputGroupText></InputGroupAddon>
+            </InputGroup>
+          </label>
+        </div>
+
+        <div class="zoom-calculator__formula">
+          目标比例 = 当前比例 × 投放尺寸 ÷ 校对块尺寸
+        </div>
+        <div
+          class="zoom-calculator__result"
+          :class="{ 'zoom-calculator__result--error': calculatorError }"
+          aria-live="polite"
+        >
+          <template v-if="calculatorError">{{ calculatorError }}</template>
+          <template v-else-if="targetPercent !== undefined">
+            目标比例 <strong>{{ targetPercent.toFixed(2) }}%</strong>
+          </template>
+          <template v-else>输入尺寸后自动计算</template>
+        </div>
+
+        <div class="zoom-calculator__actions">
+          <Button type="button" variant="outline" @click="closeCalculator">取消</Button>
+          <Button type="submit" :disabled="!canApplyCalculatedZoom">应用</Button>
+        </div>
+      </form>
+    </PopoverContent>
+  </Popover>
 </template>
