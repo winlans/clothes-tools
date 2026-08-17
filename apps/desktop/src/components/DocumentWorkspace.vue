@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, watch } from "vue";
 
 import type { DocumentSession } from "../stores/document-session";
 import { provideDocumentSession } from "../stores/document-session";
@@ -8,14 +8,12 @@ import { Button } from "./ui/button";
 import { Card, CardContent } from "./ui/card";
 import { Progress } from "./ui/progress";
 import LayoutEditor from "./LayoutEditor.vue";
-import PageSidebar from "./PageSidebar.vue";
 
 const props = defineProps<{ session: DocumentSession }>();
 const emit = defineEmits<{ retry: []; reload: [] }>();
 provideDocumentSession(props.session);
 
 const { documentStore, projectStore } = props.session;
-const sidebarExpanded = ref(false);
 const progressPercent = computed(() => {
   if (documentStore.progress.total === 0) return 0;
   return Math.round(
@@ -44,10 +42,6 @@ watch(
   { deep: true, immediate: true },
 );
 
-function startSpacerDrag(event: DragEvent) {
-  event.dataTransfer?.setData("application/x-pdf2plt-spacer", "new");
-  if (event.dataTransfer) event.dataTransfer.effectAllowed = "copy";
-}
 </script>
 
 <template>
@@ -119,20 +113,7 @@ function startSpacerDrag(event: DragEvent) {
       <AlertDescription>{{ warning }}</AlertDescription>
     </Alert>
 
-    <div
-      v-if="documentStore.info"
-      class="editor-workspace"
-      :class="{ 'editor-workspace--sidebar-collapsed': !sidebarExpanded }"
-    >
-      <PageSidebar
-        :collapsed="!sidebarExpanded"
-        :pages="documentStore.info.pages"
-        :previews="documentStore.previews"
-        @toggle="sidebarExpanded = !sidebarExpanded"
-        @spacer-drag-start="startSpacerDrag"
-        @visible-pages="documentStore.prioritizePreviews"
-      />
-
+    <div v-if="documentStore.info" class="editor-workspace">
       <LayoutEditor
         :page-size="documentStore.info.pageSizePt"
         :previews="documentStore.previewList"

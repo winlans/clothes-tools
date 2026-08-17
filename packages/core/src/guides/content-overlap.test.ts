@@ -18,7 +18,12 @@ const PAGE_WIDTH = 60;
 const PAGE_HEIGHT = 80;
 const OVERLAP = 10;
 
-function paintPixel(pixels: Uint8Array, width: number, x: number, y: number) {
+function paintPixel(
+  pixels: GuidePixelPage["pixels"],
+  width: number,
+  x: number,
+  y: number,
+) {
   if (x < 0 || y < 0 || x >= width || y >= pixels.length / width / 3) return;
   const offset = (y * width + x) * 3;
   pixels[offset] = 0;
@@ -75,6 +80,84 @@ function syntheticPages(): GuidePixelPage[] {
   });
 }
 
+function blankSyntheticPages(count: number): GuidePixelPage[] {
+  return Array.from({ length: count }, (_, index) => ({
+    pageNumber: index + 1,
+    width: PAGE_WIDTH,
+    height: PAGE_HEIGHT,
+    stride: PAGE_WIDTH * 3,
+    components: 3,
+    pixels: new Uint8Array(PAGE_WIDTH * PAGE_HEIGHT * 3).fill(255),
+  }));
+}
+
+function paintVerticalSeam(
+  first: GuidePixelPage,
+  second: GuidePixelPage,
+  seed: number,
+  matchingPoints: number,
+) {
+  for (let index = 0; index < 24; index += 1) {
+    const distance = 1 + ((index * 5 + seed) % 8);
+    const sourceX = 14 + ((index * 11 + seed * 7) % 17);
+    const targetX = index < matchingPoints
+      ? sourceX
+      : 35 + ((index * 5 + seed) % 11);
+    paintPixel(first.pixels, first.width, sourceX, first.height - 1 - distance);
+    paintPixel(second.pixels, second.width, targetX, OVERLAP - 1 - distance);
+  }
+}
+
+function paintHorizontalSeam(
+  first: GuidePixelPage,
+  second: GuidePixelPage,
+  seed: number,
+  matchingPoints: number,
+) {
+  for (let index = 0; index < 24; index += 1) {
+    const distance = 1 + ((index * 5 + seed) % 8);
+    const sourceY = 14 + ((index * 13 + seed * 7) % 23);
+    const targetY = index < matchingPoints
+      ? sourceY
+      : 43 + ((index * 5 + seed) % 23);
+    paintPixel(first.pixels, first.width, first.width - 1 - distance, sourceY);
+    paintPixel(second.pixels, second.width, OVERLAP - 1 - distance, targetY);
+  }
+}
+
+function syntheticFullGridWithWeakMiddleColumn(): GuidePixelPage[] {
+  const rows = 5;
+  const columns = 4;
+  const pages = blankSyntheticPages(rows * columns);
+
+  for (let column = 0; column < columns; column += 1) {
+    for (let row = 0; row < rows - 1; row += 1) {
+      const firstIndex = column * rows + row;
+      paintVerticalSeam(
+        pages[firstIndex]!,
+        pages[firstIndex + 1]!,
+        column * rows + row,
+        column === 2 ? 17 : 24,
+      );
+    }
+  }
+
+  for (let column = 0; column < columns - 1; column += 1) {
+    for (let row = 0; row < rows; row += 1) {
+      const firstIndex = column * rows + row;
+      const secondIndex = firstIndex + rows;
+      paintHorizontalSeam(
+        pages[firstIndex]!,
+        pages[secondIndex]!,
+        column * rows + row + 50,
+        column === 0 ? 24 : column === 1 ? 15 : row === 0 ? 12 : 24,
+      );
+    }
+  }
+
+  return pages;
+}
+
 function missingRedResult(): GuideDetectionResult {
   return {
     lines: {},
@@ -87,6 +170,8 @@ describe("content overlap detection", () => {
   it("retries alternate raster DPIs until content matching succeeds", async () => {
     expect(contentOverlapDpiCandidates(72)).toEqual([72, 120, 48]);
     expect(contentOverlapDpiCandidates(48)).toEqual([48, 120]);
+    expect(contentOverlapDpiCandidates(72, "speed-first")).toEqual([48, 72, 120]);
+    expect(contentOverlapDpiCandidates(120, "speed-first")).toEqual([48, 120]);
 
     const attempts: number[] = [];
     const result = runContentOverlapDpiFallback(72, (dpi) => {
@@ -109,6 +194,39 @@ describe("content overlap detection", () => {
     });
     expect(asyncAttempts).toEqual([120, 48]);
     expect(asyncResult.contentOverlap).toMatchObject({ applied: true, rasterDpi: 48 });
+
+    const fastAttempts: number[] = [];
+    const fastResult = runContentOverlapDpiFallback(
+      72,
+      (dpi) => {
+        fastAttempts.push(dpi);
+        return {
+          ...missingRedResult(),
+          contentOverlap: { applied: dpi === 48, confidence: dpi === 48 ? 0.93 : 0 },
+        };
+      },
+      "speed-first",
+    );
+    expect(fastAttempts).toEqual([48]);
+    expect(fastResult.contentOverlap).toMatchObject({ applied: true, rasterDpi: 48 });
+
+    const fastAsyncAttempts: number[] = [];
+    const fastAsyncResult = await runContentOverlapDpiFallbackAsync(
+      72,
+      async (dpi) => {
+        fastAsyncAttempts.push(dpi);
+        return {
+          ...missingRedResult(),
+          contentOverlap: { applied: dpi === 48, confidence: dpi === 48 ? 0.93 : 0 },
+        };
+      },
+      "speed-first",
+    );
+    expect(fastAsyncAttempts).toEqual([48]);
+    expect(fastAsyncResult.contentOverlap).toMatchObject({
+      applied: true,
+      rasterDpi: 48,
+    });
   });
 
   it("recovers a column-major layout with top padding and shared overlap", () => {
@@ -135,6 +253,25 @@ describe("content overlap detection", () => {
       right: { coordinatePt: 55, source: "auto" },
       top: { coordinatePt: 5, source: "auto" },
       bottom: { coordinatePt: 75, source: "auto" },
+    });
+  });
+
+  it("does not invent blank cells to avoid weak matches inside a full grid", () => {
+    const result = detectContentOverlap(
+      syntheticFullGridWithWeakMiddleColumn(),
+      { width: PAGE_WIDTH, height: PAGE_HEIGHT },
+      { minimumOverlapPt: 6, maximumOverlapPt: 14 },
+    );
+
+    expect(result.applied).toBe(true);
+    expect(result.inferredLayout).toEqual({
+      pagesPerColumn: 5,
+      columns: [
+        [1, 2, 3, 4, 5],
+        [6, 7, 8, 9, 10],
+        [11, 12, 13, 14, 15],
+        [16, 17, 18, 19, 20],
+      ],
     });
   });
 

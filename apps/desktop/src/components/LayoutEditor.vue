@@ -16,6 +16,7 @@ import {
   RefreshCwIcon,
   RotateCcwIcon,
   RotateCwIcon,
+  SquareDashedIcon,
   Undo2Icon,
 } from "@lucide/vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
@@ -296,6 +297,11 @@ function displayZoom(scale: number): string {
   return (scale * 100).toFixed(2);
 }
 
+function startSpacerDrag(event: DragEvent) {
+  event.dataTransfer?.setData("application/x-pdf2plt-spacer", "new");
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = "copy";
+}
+
 function setPreviewMode(value: unknown) {
   if (value === "cropped") {
     guideStore.setPreviewModeValidated(
@@ -485,6 +491,17 @@ onBeforeUnmount(() => {
           <Separator orientation="vertical" class="command-separator" />
           <Button
             variant="outline"
+            class="spacer-tool-button"
+            draggable="true"
+            aria-label="拖动插入空白块"
+            title="拖到画板格子中插入空白占位"
+            @dragstart="startSpacerDrag"
+          >
+            <SquareDashedIcon />
+            空白块
+          </Button>
+          <Button
+            variant="outline"
             aria-label="增加一行"
             @click="applyLayoutMutation(() => layoutStore.addRow())"
           >
@@ -584,10 +601,9 @@ onBeforeUnmount(() => {
               <Maximize2Icon />
               全屏预览
             </Button>
+            <PreviewAppearanceControl />
           </div>
         </div>
-
-        <PreviewAppearanceControl />
       </div>
     </div>
 

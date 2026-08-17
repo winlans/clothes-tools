@@ -34,11 +34,11 @@ describe("ZoomControl", () => {
     await body.get('input[aria-label="校对块尺寸"]').setValue("100");
     await body.get('input[aria-label="投放尺寸"]').setValue("120");
 
-    expect(body.get(".zoom-calculator__result").text()).toContain("96.00%");
+    expect(body.get(".zoom-calculator__result").text()).toContain("66.67%");
     expect(wrapper.emitted("setZoom")).toBeUndefined();
 
     await body.get('.zoom-calculator__actions button[type="submit"]').trigger("submit");
-    expect(wrapper.emitted("setZoom")?.at(-1)).toEqual([0.96]);
+    expect(wrapper.emitted("setZoom")?.at(-1)).toEqual([0.6667]);
     expect(body.find(".zoom-calculator").exists()).toBe(false);
     wrapper.unmount();
   });
@@ -52,18 +52,18 @@ describe("ZoomControl", () => {
 
     const body = new DOMWrapper(document.body);
     const calibration = body.get('input[aria-label="校对块尺寸"]');
-    const placement = body.get('input[aria-label="投放尺寸"]');
+    const currentPlacement = body.get('input[aria-label="投放尺寸"]');
     const apply = body.get<HTMLButtonElement>(
       '.zoom-calculator__actions button[type="submit"]',
     );
 
     await calibration.setValue("0");
-    await placement.setValue("10");
+    await currentPlacement.setValue("10");
     expect(body.get(".zoom-calculator__result").text()).toContain("大于 0");
     expect(apply.element.disabled).toBe(true);
 
-    await calibration.setValue("1");
-    await placement.setValue("5");
+    await calibration.setValue("5");
+    await currentPlacement.setValue("1");
     expect(body.get(".zoom-calculator__result").text()).toContain("10% 至 400%");
     expect(apply.element.disabled).toBe(true);
     wrapper.unmount();

@@ -9,7 +9,7 @@ target_dir="${PDF2PLT_WINDOWS_TARGET_DIR:-/tmp/pdf2plt-windows-target}"
 xwin_cache_dir="${PDF2PLT_XWIN_CACHE_DIR:-/tmp/pdf2plt-xwin-cache}"
 tauri_cache_dir="${PDF2PLT_TAURI_CACHE_DIR:-/tmp/pdf2plt-tauri-cache}"
 target_triple="x86_64-pc-windows-msvc"
-installer_name="pdf2plt_0.1.7_x64-setup.exe"
+installer_name="pdf2plt_0.1.8_x64-setup.exe"
 
 mkdir -p "$target_dir" "$xwin_cache_dir" "$tauri_cache_dir"
 

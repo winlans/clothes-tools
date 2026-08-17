@@ -116,6 +116,22 @@ function sameGuideCoordinates(
     first.top === second.top && first.bottom === second.bottom;
 }
 
+function contentMatchingPageProgress(
+  completed: number,
+  total: number,
+  pageCount: number | undefined,
+  phase: GuideDetectionPhase,
+): { completed: number; total: number; phase: GuideDetectionPhase } {
+  if (phase !== "content-overlap" || !pageCount || pageCount < 1) {
+    return { completed, total, phase };
+  }
+  return {
+    completed: completed > 0 ? ((completed - 1) % pageCount) + 1 : 0,
+    total: pageCount,
+    phase,
+  };
+}
+
 function cloneObjectExclusions(
   rules: readonly VectorObjectExclusionRule[],
 ): VectorObjectExclusionRule[] {
@@ -383,11 +399,12 @@ export const usePdfDocumentStore = defineStore("pdf-document", {
         return;
       }
       if (message.type === "detection-progress") {
-        this.detectionProgress = {
-          completed: message.completed,
-          total: message.total,
-          phase: message.phase ?? "red-guides",
-        };
+        this.detectionProgress = contentMatchingPageProgress(
+          message.completed,
+          message.total,
+          this.info?.pageCount,
+          message.phase ?? "red-guides",
+        );
         return;
       }
       if (message.type === "selection-progress") {

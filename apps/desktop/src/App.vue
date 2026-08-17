@@ -516,10 +516,12 @@ onBeforeUnmount(() => {
           <Button
             variant="ghost"
             class="document-tab__trigger"
-            :title="tab.source.fileName"
+            :aria-label="`切换到 ${tab.source.fileName}`"
             @click="workspace.activate(tab.id)"
           >
-            <span class="document-tab__title">{{ tab.source.fileName }}</span>
+            <span class="document-tab__title" :title="tab.source.fileName">
+              {{ tab.source.fileName }}
+            </span>
             <span v-if="tab.ui.dirty" class="document-tab__dirty" aria-label="已修改">●</span>
             <Badge v-if="tabStatus(tab)" variant="secondary" class="document-tab__status">{{ tabStatus(tab) }}</Badge>
           </Button>
@@ -549,7 +551,7 @@ onBeforeUnmount(() => {
     <Dialog v-model:open="showLegalNotice">
       <DialogContent class="legal-dialog">
         <DialogHeader>
-          <Badge variant="secondary" class="w-fit">pdf2plt 0.1.7</Badge>
+          <Badge variant="secondary" class="w-fit">pdf2plt 0.1.8</Badge>
           <DialogTitle>关于与许可证</DialogTitle>
         </DialogHeader>
         <DialogDescription>

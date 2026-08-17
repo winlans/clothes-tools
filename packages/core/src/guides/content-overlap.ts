@@ -70,10 +70,19 @@ const DEFAULT_OPTIONS = {
   orthogonalShiftPx: 2,
 } satisfies Required<ContentOverlapOptions>;
 
-export const CONTENT_OVERLAP_FALLBACK_DPIS = [120, 48] as const;
+const INFERRED_BLANK_CELL_PENALTY = 0.3;
 
-export function contentOverlapDpiCandidates(requestedDpi: number): number[] {
-  return [requestedDpi, ...CONTENT_OVERLAP_FALLBACK_DPIS].filter(
+export const CONTENT_OVERLAP_FALLBACK_DPIS = [120, 48] as const;
+export type ContentOverlapDpiStrategy = "quality-first" | "speed-first";
+
+export function contentOverlapDpiCandidates(
+  requestedDpi: number,
+  strategy: ContentOverlapDpiStrategy = "quality-first",
+): number[] {
+  const candidates = strategy === "speed-first"
+    ? [Math.min(requestedDpi, 48), requestedDpi, ...CONTENT_OVERLAP_FALLBACK_DPIS]
+    : [requestedDpi, ...CONTENT_OVERLAP_FALLBACK_DPIS];
+  return candidates.filter(
     (dpi, index, values) => values.indexOf(dpi) === index,
   );
 }
@@ -93,8 +102,9 @@ function withRasterDpi(
 export function runContentOverlapDpiFallback(
   requestedDpi: number,
   attempt: (dpi: number, attemptIndex: number, attemptCount: number) => GuideDetectionResult,
+  strategy: ContentOverlapDpiStrategy = "quality-first",
 ): GuideDetectionResult {
-  const candidates = contentOverlapDpiCandidates(requestedDpi);
+  const candidates = contentOverlapDpiCandidates(requestedDpi, strategy);
   let latest: GuideDetectionResult | undefined;
   for (const [index, dpi] of candidates.entries()) {
     latest = withRasterDpi(attempt(dpi, index, candidates.length), dpi);
@@ -110,8 +120,9 @@ export async function runContentOverlapDpiFallbackAsync(
     attemptIndex: number,
     attemptCount: number,
   ) => Promise<GuideDetectionResult>,
+  strategy: ContentOverlapDpiStrategy = "quality-first",
 ): Promise<GuideDetectionResult> {
-  const candidates = contentOverlapDpiCandidates(requestedDpi);
+  const candidates = contentOverlapDpiCandidates(requestedDpi, strategy);
   let latest: GuideDetectionResult | undefined;
   for (const [index, dpi] of candidates.entries()) {
     latest = withRasterDpi(await attempt(dpi, index, candidates.length), dpi);
@@ -286,7 +297,7 @@ function internalColumnScore(
   verticalMatches: Map<string, EdgeMatch>,
   minimumSimilarity: number,
 ): number {
-  let score = -0.06 * (rows - choice.length);
+  let score = -INFERRED_BLANK_CELL_PENALTY * (rows - choice.length);
   for (let page = choice.start; page < choice.start + choice.length - 1; page += 1) {
     score += expectedMatchScore(
       verticalMatches.get(matchKey(page, page + 1)),

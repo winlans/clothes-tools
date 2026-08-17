@@ -495,12 +495,16 @@ export async function openMuPdfDocument(
       }
     }
 
-    return runContentOverlapDpiFallback(options.dpi, (contentDpi) => {
-      const overlapPages = contentDpi === options.dpi && patternPages
-        ? patternPages
-        : renderGuidePixelPages(contentDpi);
-      return applyGuideStitchingMode(stitchingMode, redResult, overlapPages, pageSizePt);
-    });
+    return runContentOverlapDpiFallback(
+      options.dpi,
+      (contentDpi) => {
+        const overlapPages = contentDpi === options.dpi && patternPages
+          ? patternPages
+          : renderGuidePixelPages(contentDpi);
+        return applyGuideStitchingMode(stitchingMode, redResult, overlapPages, pageSizePt);
+      },
+      stitchingMode === "content-overlap" ? "speed-first" : "quality-first",
+    );
   };
 
   const detectGuidesAsync: OpenDocumentResult["detectGuidesAsync"] = async (
@@ -623,6 +627,7 @@ export async function openMuPdfDocument(
         }
         return applyGuideStitchingMode(stitchingMode, redResult, overlapPages, pageSizePt);
       },
+      stitchingMode === "content-overlap" ? "speed-first" : "quality-first",
     );
   };
 

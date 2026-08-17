@@ -369,6 +369,22 @@ describe("LayoutEditor", () => {
     expect(store.pagesPerColumn).toBe(3);
   });
 
+  it("exposes the blank spacer as a draggable toolbar button", async () => {
+    const { wrapper } = mountEditor();
+    const setData = vi.fn();
+    const dataTransfer = {
+      setData,
+      effectAllowed: "none",
+    };
+
+    await wrapper.get('[aria-label="拖动插入空白块"]').trigger("dragstart", {
+      dataTransfer,
+    });
+
+    expect(setData).toHaveBeenCalledWith("application/x-pdf2plt-spacer", "new");
+    expect(dataTransfer.effectAllowed).toBe("copy");
+  });
+
   it("delegates fit-content to the canvas", async () => {
     const { wrapper } = mountEditor();
     const fitButton = wrapper.findAll("button").find((button) =>
@@ -470,10 +486,7 @@ describe("LayoutEditor", () => {
         "data-line-weight": "2.4",
       });
 
-    const reset = wrapper.findAll("button").find((button) =>
-      button.text() === "重置默认值",
-    );
-    await reset?.trigger("click");
+    await wrapper.get('[aria-label="重置预览样式"]').trigger("click");
     expect(appearance.$state).toEqual(DEFAULT_PREVIEW_APPEARANCE);
   });
 

@@ -1,28 +1,28 @@
-# pdf2plt 0.1.7 使用说明
+# pdf2plt 0.1.8 使用说明
 
 ## 桌面应用
 
 ### Windows 10/11 x64
 
-普通用户运行 `pdf2plt_0.1.7_x64-setup.exe` 安装；需要 MSI 部署时使用
-`pdf2plt_0.1.7_x64_en-US.msi`。应用依赖 Microsoft Edge WebView2，系统缺失时
+普通用户运行 `pdf2plt_0.1.8_x64-setup.exe` 安装；需要 MSI 部署时使用
+`pdf2plt_0.1.8_x64_en-US.msi`。应用依赖 Microsoft Edge WebView2，系统缺失时
 安装器会联网安装。当前未签名的自动构建包可能显示“未知发布者”，请先核对
 发布页提供的 SHA-256；正式发行版应使用有效的 Authenticode 签名。
 
 ### Linux AppImage
 
 ```bash
-chmod +x pdf2plt_0.1.7_amd64.AppImage
-./pdf2plt_0.1.7_amd64.AppImage
+chmod +x pdf2plt_0.1.8_amd64.AppImage
+./pdf2plt_0.1.8_amd64.AppImage
 ```
 
 如果系统没有 FUSE，可用
-`APPIMAGE_EXTRACT_AND_RUN=1 ./pdf2plt_0.1.7_amd64.AppImage` 启动。
+`APPIMAGE_EXTRACT_AND_RUN=1 ./pdf2plt_0.1.8_amd64.AppImage` 启动。
 
 ### Linux Debian / Ubuntu
 
 ```bash
-sudo apt install ./pdf2plt_0.1.7_amd64.deb
+sudo apt install ./pdf2plt_0.1.8_amd64.deb
 pdf2plt
 ```
 
@@ -35,12 +35,12 @@ librsvg、Node.js 或 Bun。
    直接拖到应用窗口。每个文件会在独立标签中打开；重复导入同一个文件时会切换
    到已有标签。
 2. 后台最多同时初始化两个文件，等待中的标签会显示“排队”；切换到等待标签会
-   提高它的处理优先级。页面缩略图会在需要显示时按需生成。
+   提高它的处理优先级。画板中的页面预览会按需生成。
 3. 应用会根据逐页辅助线的几何模式自动识别每列页数，辅助线可以是红色、蓝色或
    其他清晰颜色；没有可靠辅助线模式时，会继续尝试匹配相邻页面重复内容。右侧
    “拼接模式”可选择“自动识别”“辅助线拼接”或“内容匹配”；
-   手动选择后会只运行指定方案，选择会随工程保存。可修改识别结果，并使用拖拽、
-   空白占位、撤销/重做调整布局。
+   手动选择后会只运行指定方案，选择会随工程保存。可修改识别结果，并从顶部工具栏
+   拖入空白块，或使用拖拽、撤销/重做调整布局。
    不等长列会自动添加空白占位，例如 530 的第二列会在顶部补一个空白。
 4. 辅助线方案继续显示四条拼接线的页面绝对坐标；内容匹配方案显示从左、右、上、
    下边缘分别裁掉的距离。两种方案内部使用相同导出坐标，旧工程和有辅助线 PDF
@@ -119,7 +119,7 @@ PDF point，`72 pt = 1 inch`。
 ## 故障排查
 
 - `pdf-pattern-svg.exe` 是命令行转换器，不会打开图形界面；Windows 图形版请运行
-  `pdf2plt_0.1.7_x64-setup.exe` 或安装 `.msi`。
+  `pdf2plt_0.1.8_x64-setup.exe` 或安装 `.msi`。
 - 自动辅助线检测失败：应用会在颜色与跨页几何模式均无法形成可靠布局时尝试内容匹配；置信度不足时，
   直接填写缺少的四边裁切量，或关闭“裁切页间接缝”。
 - 开启“删除辅助线”时，预览和 SVG/PLT 导出会按检测坐标移除红色、蓝色等线型元素；

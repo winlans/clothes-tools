@@ -9,7 +9,7 @@ import { createDocumentSession } from "./stores/document-session";
 import { useWorkspaceStore } from "./stores/workspace";
 
 describe("App", () => {
-  it("does not treat an internal sidebar drag as a PDF file import", async () => {
+  it("does not treat an internal spacer-tool drag as a PDF file import", async () => {
     const pinia = createPinia();
     setActivePinia(pinia);
     const wrapper = mount(App, { attachTo: document.body, global: { plugins: [pinia] } });
@@ -33,6 +33,34 @@ describe("App", () => {
       },
     });
     expect(wrapper.find(".file-drop-overlay").exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("truncates long tab names while keeping the full name and close action accessible", async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const wrapper = mount(App, { attachTo: document.body, global: { plugins: [pinia] } });
+    const workspace = useWorkspaceStore(pinia);
+    const fileName = "这是一个非常长的儿童开襟家居服睡衣纸样文件名称80.pdf";
+    const session = createDocumentSession("long-name-tab", {
+      fileName,
+      sourceKey: `path:/tmp/${fileName}`,
+      sourcePath: `/tmp/${fileName}`,
+      load: () => Promise.reject(new Error("not used")),
+    });
+    session.ui.loadStatus = "error";
+    workspace.tabs = [session];
+    workspace.activate(session.id);
+    await nextTick();
+
+    const tab = wrapper.get(".document-tab");
+    const title = tab.get(".document-tab__title");
+    const close = tab.get(".document-tab__close");
+    expect(title.attributes("title")).toBe(fileName);
+    expect(tab.get(".document-tab__trigger").attributes("aria-label"))
+      .toBe(`切换到 ${fileName}`);
+    expect(close.attributes("aria-label")).toBe(`关闭 ${fileName}`);
+    expect(tab.element.lastElementChild).toBe(close.element);
     wrapper.unmount();
   });
 

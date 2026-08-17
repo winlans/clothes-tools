@@ -203,6 +203,47 @@ describe("pdf document store", () => {
     expect(store.detectionStatus).toBe("idle");
   });
 
+  it("shows actual PDF page progress during cumulative content matching passes", () => {
+    const store = usePdfDocumentStore();
+    store.requestId = 10;
+    store.info = {
+      documentId: "pdf-progress",
+      pageCount: 20,
+      pageSizePt: { width: 200, height: 300 },
+      pages: Array.from({ length: 20 }, (_, index) => ({
+        pageNumber: index + 1,
+        width: 200,
+        height: 300,
+      })),
+    };
+
+    store.handleWorkerMessage({
+      type: "detection-progress",
+      requestId: 10,
+      completed: 21,
+      total: 60,
+      phase: "content-overlap",
+    });
+    expect(store.detectionProgress).toEqual({
+      completed: 1,
+      total: 20,
+      phase: "content-overlap",
+    });
+
+    store.handleWorkerMessage({
+      type: "detection-progress",
+      requestId: 10,
+      completed: 40,
+      total: 60,
+      phase: "content-overlap",
+    });
+    expect(store.detectionProgress).toEqual({
+      completed: 20,
+      total: 20,
+      phase: "content-overlap",
+    });
+  });
+
   it("keeps a bounded LRU preview cache while pinning visible pages", () => {
     const store = usePdfDocumentStore();
     store.requestId = 11;

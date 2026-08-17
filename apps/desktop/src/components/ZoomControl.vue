@@ -26,7 +26,7 @@ const draftPercent = ref(formatPercent(props.scale));
 const invalid = ref(false);
 const calculatorOpen = ref(false);
 const calibrationSize = ref("");
-const placementSize = ref("");
+const currentPlacementSize = ref("");
 
 function formatPercent(scale: number): string {
   return (scale * 100).toFixed(2);
@@ -57,15 +57,15 @@ function parsePositiveDecimal(value: string): number | undefined {
 
 const targetPercent = computed(() => {
   const calibration = parsePositiveDecimal(calibrationSize.value);
-  const placement = parsePositiveDecimal(placementSize.value);
-  if (calibration === undefined || placement === undefined) return undefined;
+  const currentPlacement = parsePositiveDecimal(currentPlacementSize.value);
+  if (calibration === undefined || currentPlacement === undefined) return undefined;
 
-  const target = props.scale * 100 * placement / calibration;
+  const target = props.scale * 100 * calibration / currentPlacement;
   return Number.isFinite(target) ? roundPercent(target) : undefined;
 });
 
 const calculatorError = computed(() => {
-  if (!calibrationSize.value && !placementSize.value) return "";
+  if (!calibrationSize.value && !currentPlacementSize.value) return "";
   if (targetPercent.value === undefined) {
     return "请输入大于 0 的校对块尺寸和投放尺寸。";
   }
@@ -197,7 +197,7 @@ watch(
             <span>投放尺寸</span>
             <InputGroup>
               <InputGroupInput
-                v-model="placementSize"
+                v-model="currentPlacementSize"
                 inputmode="decimal"
                 aria-label="投放尺寸"
                 placeholder="0"
@@ -208,7 +208,7 @@ watch(
         </div>
 
         <div class="zoom-calculator__formula">
-          目标比例 = 当前比例 × 投放尺寸 ÷ 校对块尺寸
+          目标比例 = 当前比例 × 校对块尺寸 ÷ 投放尺寸
         </div>
         <div
           class="zoom-calculator__result"
