@@ -10,7 +10,7 @@
 
 ## Acceptance criteria
 
-- [x] CI 在兼容基线系统构建 AppImage、deb 和 CLI 发布包。
+- [x] CI 在兼容基线系统构建 AppImage、deb 和 CLI 发布包，并与 Windows 产物合并发布。
 - [x] 安装后的桌面应用不依赖 Python、Poppler、librsvg、Node 或 Bun。
 - [x] CLI 发布包内嵌 MuPDF WASM，单独复制可执行文件后仍能完成真实 PDF 转换。
 - [x] 发布物包含 AGPL-3.0-or-later、MuPDF 版权声明和对应源码说明。

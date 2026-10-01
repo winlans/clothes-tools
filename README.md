@@ -70,6 +70,11 @@ pnpm release:cli
 pnpm release:desktop
 ```
 
+推送 `v0.1.9` 形式的版本标签后，GitHub Actions 会在 Ubuntu 22.04 x86_64
+上构建并发布 Linux AppImage、deb 和独立 CLI，同时与 Windows 产物合并到同一个
+GitHub Release。Linux 桌面更新使用发布页中的 AppImage 签名包；构建要求、检查项
+和人工验收流程见 [`docs/LINUX_RELEASE.md`](docs/LINUX_RELEASE.md)。
+
 发布物位于 `dist/release/` 与
 `apps/desktop/src-tauri/target/release/bundle/`。发布时必须同时提供由
 `git archive` 生成的同版本源码包。安装和命令行用法见

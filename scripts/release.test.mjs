@@ -32,11 +32,15 @@ test("verifies update signatures and rejects modified final artifacts or a diffe
   assert.throws(() => verifyArtifact(bytes, signature, signingKey().encodedPublicKey), /signing key/);
 });
 
-test("generates Windows NSIS and MSI update entries only after validating every signature", (t) => {
+test("generates Windows and Linux update entries only after validating every signature", (t) => {
   const directory = mkdtempSync(join(tmpdir(), "pdf2plt-manifest-test-"));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const key = signingKey();
-  const artifacts = ["pdf2plt_0.1.9_x64-setup.exe", "pdf2plt_0.1.9_x64_en-US.msi"];
+  const artifacts = [
+    "pdf2plt_0.1.9_x64-setup.exe",
+    "pdf2plt_0.1.9_x64_en-US.msi",
+    "pdf2plt_0.1.9_amd64.AppImage",
+  ];
   for (const name of artifacts) {
     const bytes = Buffer.from(name);
     writeFileSync(join(directory, name), bytes);
@@ -46,7 +50,8 @@ test("generates Windows NSIS and MSI update entries only after validating every 
   const manifest = generateManifest(options);
   assert.equal(manifest.version, "0.1.9");
   assert.equal(manifest.notes, "修复导出");
-  assert.equal(Object.keys(manifest.platforms).length, 3);
+  assert.equal(Object.keys(manifest.platforms).length, 4);
+  assert.match(manifest.platforms["linux-x86_64"].url, /\/v0\.1\.9\/pdf2plt_0\.1\.9_amd64\.AppImage$/);
   assert.match(manifest.platforms["windows-x86_64-msi"].url, /\/v0\.1\.9\/pdf2plt_0\.1\.9_x64_en-US\.msi$/);
   assert.deepEqual(manifest.platforms["windows-x86_64"], manifest.platforms["windows-x86_64-nsis"]);
   const original = readFileSync(join(directory, artifacts[0]));

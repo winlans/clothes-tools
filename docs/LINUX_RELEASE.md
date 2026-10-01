@@ -3,8 +3,9 @@
 ## 构建基线
 
 正式 Linux 发布使用 Ubuntu 22.04 x86_64、Node.js 22、pnpm 11.17.0、
-Bun 1.3.14 和稳定版 Rust。Linux 只提供本地构建，当前 CI 仅发布 Windows；
-版本依赖由 `pnpm-lock.yaml` 和 Rust `Cargo.lock` 固定。
+Bun 1.3.14 和稳定版 Rust。推送 `v*` 标签后，GitHub Actions 会自动构建 Linux
+产物并与 Windows 产物合并发布；版本依赖由 `pnpm-lock.yaml` 和 Rust `Cargo.lock`
+固定。
 
 ```bash
 pnpm install --frozen-lockfile
@@ -31,16 +32,31 @@ dist/release/
     SOURCE_OFFER.md
     USER_GUIDE.md
 apps/desktop/src-tauri/target/release/bundle/
-  appimage/pdf2plt_0.1.8_amd64.AppImage
-  deb/pdf2plt_0.1.8_amd64.deb
+  appimage/pdf2plt_0.1.9_amd64.AppImage
+  deb/pdf2plt_0.1.9_amd64.deb
 ```
+
+GitHub Release 中还会提供：
+
+```text
+pdf2plt-cli-linux-x64.tar.gz
+pdf2plt_0.1.9_amd64.AppImage
+pdf2plt_0.1.9_amd64.AppImage.sig
+pdf2plt_0.1.9_amd64.deb
+latest.json
+SHA256SUMS
+```
+
+`latest.json` 同时包含 Windows 安装器和 Linux AppImage 更新入口。Linux AppImage
+签名使用与 `tauri.conf.json` 中公钥配对的 `TAURI_SIGNING_PRIVATE_KEY`；该私钥
+只配置在 GitHub Actions Secret 中，不进入仓库。
 
 每次二进制发布还必须从同一 Git 提交生成并发布对应源码：
 
 ```bash
 git archive --format=tar.gz \
-  --prefix=pdf2plt-0.1.8-source/ \
-  --output=dist/release/pdf2plt-0.1.8-source.tar.gz HEAD
+  --prefix=pdf2plt-0.1.9-source/ \
+  --output=dist/release/pdf2plt-0.1.9-source.tar.gz HEAD
 sha256sum dist/release/*
 ```
 

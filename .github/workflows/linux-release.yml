@@ -1,0 +1,100 @@
+name: Linux release
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  build-linux-x64:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.17.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Tauri Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            patchelf
+
+      - name: Verify release version
+        id: version
+        run: node --input-type=module -e 'import { releaseVersion } from "./scripts/release-utils.mjs"; console.log("value=" + releaseVersion())' >> "$GITHUB_OUTPUT"
+
+      - name: Install and verify source
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm typecheck
+          pnpm test
+          cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+      - name: Build signed Linux release
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          VITE_BAIDU_TONGJI_SITE_ID: 3e8ed92b699635e1e97b269e145ab9e0
+        run: |
+          pnpm release:cli
+          node scripts/build-desktop-release.mjs linux --signed
+
+      - name: Collect and inspect release artifacts
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist/release
+          cp apps/desktop/src-tauri/target/release/bundle/appimage/pdf2plt_${RELEASE_VERSION}_amd64.AppImage dist/release/
+          cp apps/desktop/src-tauri/target/release/bundle/appimage/pdf2plt_${RELEASE_VERSION}_amd64.AppImage.sig dist/release/
+          cp apps/desktop/src-tauri/target/release/bundle/deb/pdf2plt_${RELEASE_VERSION}_amd64.deb dist/release/
+
+          pnpm --filter @pdf2plt/cli verify:release -- linux-x64
+          chmod +x "dist/release/pdf2plt_${RELEASE_VERSION}_amd64.AppImage"
+          scripts/check-appimage-compat.sh "dist/release/pdf2plt_${RELEASE_VERSION}_amd64.AppImage"
+          test -s "dist/release/pdf2plt_${RELEASE_VERSION}_amd64.AppImage"
+          test -s "dist/release/pdf2plt_${RELEASE_VERSION}_amd64.AppImage.sig"
+          test -s "dist/release/pdf2plt_${RELEASE_VERSION}_amd64.deb"
+          tar -tzf dist/release/pdf2plt-cli-linux-x64.tar.gz | grep -q '/LICENSE$'
+          tar -tzf dist/release/pdf2plt-cli-linux-x64.tar.gz | grep -q '/SOURCE_OFFER.md$'
+          dpkg-deb --info "dist/release/pdf2plt_${RELEASE_VERSION}_amd64.deb"
+          file \
+            "dist/release/pdf2plt_${RELEASE_VERSION}_amd64.AppImage" \
+            "dist/release/pdf2plt_${RELEASE_VERSION}_amd64.deb" \
+            dist/release/pdf2plt-cli-linux-x64/pdf-pattern-svg
+          sha256sum \
+            dist/release/pdf2plt_${RELEASE_VERSION}_amd64.AppImage \
+            dist/release/pdf2plt_${RELEASE_VERSION}_amd64.deb \
+            dist/release/pdf2plt-cli-linux-x64.tar.gz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pdf2plt-linux-x64
+          path: |
+            dist/release/pdf2plt-cli-linux-x64.tar.gz
+            dist/release/pdf2plt_*.AppImage
+            dist/release/pdf2plt_*.AppImage.sig
+            dist/release/pdf2plt_*.deb
+          if-no-files-found: error

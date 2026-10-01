@@ -14,7 +14,8 @@ NSIS、MSI 和同提交源码归档，验证所有更新包签名，再发布 Gi
 的版本一致。预发布标签生成 prerelease，不替换稳定版更新入口。
 
 普通 main push / PR 运行类型检查、测试及前端构建。手动运行 Release 工作流时，
-选择分支只构建附件，选择版本标签才发布 Release。Linux 不参与 CI 发布。
+选择分支只构建附件，选择版本标签才发布 Release。Linux 由同一个 Release 工作流
+并行构建，并与 Windows 产物合并到同一个 GitHub Release。
 
 GitHub Actions 配置：
 
@@ -59,7 +60,7 @@ pnpm release:desktop:windows:cross
 ```
 
 该命令会缓存 Windows SDK 与 Rust 构建结果，并把安装包复制到
-`dist/release/pdf2plt_0.1.8_x64-setup.exe`。缓存默认位于
+`dist/release/pdf2plt_0.1.9_x64-setup.exe`。缓存默认位于
 `/tmp/pdf2plt-xwin-cache` 和 `/tmp/pdf2plt-windows-target`；可分别通过
 `PDF2PLT_XWIN_CACHE_DIR` 与 `PDF2PLT_WINDOWS_TARGET_DIR` 修改。交叉构建只生成
 NSIS `.exe`，不生成 WiX `.msi`，也不替代 Windows 10/11 实机验收。
@@ -73,11 +74,11 @@ Linux 上交叉编译。
 
 ```text
 dist/release/
-  pdf2plt_0.1.8_x64-setup.exe
-  pdf2plt-0.1.8-source.tar.gz
+  pdf2plt_0.1.9_x64-setup.exe
+  pdf2plt-0.1.9-source.tar.gz
 apps/desktop/src-tauri/target/release/bundle/
-  nsis/pdf2plt_0.1.8_x64-setup.exe
-  msi/pdf2plt_0.1.8_x64_en-US.msi
+  nsis/pdf2plt_0.1.9_x64-setup.exe
+  msi/pdf2plt_0.1.9_x64_en-US.msi
 ```
 
 普通用户优先使用 NSIS `.exe`；需要 MSI 部署的环境可使用 `.msi`。当前自动

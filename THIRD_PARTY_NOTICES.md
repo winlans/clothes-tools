@@ -1,6 +1,6 @@
 # 第三方软件声明
 
-pdf2plt 0.1.8 包含或使用以下主要第三方组件。确切的直接与传递依赖版本记录在
+pdf2plt 0.1.9 包含或使用以下主要第三方组件。确切的直接与传递依赖版本记录在
 `pnpm-lock.yaml` 和 `apps/desktop/src-tauri/Cargo.lock` 中。
 
 ## MuPDF / MuPDF.js 1.28.0

@@ -571,7 +571,7 @@ onBeforeUnmount(() => {
     <Dialog v-model:open="showLegalNotice">
       <DialogContent class="legal-dialog">
         <DialogHeader>
-          <Badge variant="secondary" class="w-fit">pdf2plt 0.1.8</Badge>
+          <Badge variant="secondary" class="w-fit">pdf2plt 0.1.9</Badge>
           <DialogTitle>关于与许可证</DialogTitle>
         </DialogHeader>
         <DialogDescription>

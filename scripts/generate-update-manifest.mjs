@@ -33,7 +33,11 @@ export function generateManifest({ directory, repository, version, notes = "", d
   if (!/^[\w.-]+\/[\w.-]+$/.test(repository)) throw new Error("Invalid release repository");
   const files = readdirSync(directory, { withFileTypes: true }).filter((file) => file.isFile()).map((file) => file.name);
   const platforms = {};
-  for (const [target, suffix] of [["windows-x86_64-nsis", "-setup.exe"], ["windows-x86_64-msi", ".msi"]]) {
+  for (const [target, suffix] of [
+    ["windows-x86_64-nsis", "-setup.exe"],
+    ["windows-x86_64-msi", ".msi"],
+    ["linux-x86_64", ".AppImage"],
+  ]) {
     const matches = files.filter((name) => name.endsWith(suffix) && name.includes(`_${version}_`));
     if (matches.length !== 1) throw new Error(`Expected exactly one ${target} artifact for ${version}`);
     const name = matches[0];
