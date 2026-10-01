@@ -14,7 +14,7 @@ afterEach(() => { document.body.innerHTML = ""; });
 it("shows version notes, disables unsafe installation and locks dismissal only during installation", async () => {
   let finishInstall!: () => void;
   const pending = {
-    version: "0.1.9", currentVersion: "0.1.8", body: "修复导出\n改进排版",
+    version: "0.1.10", currentVersion: "0.1.9", body: "修复导出\n改进排版",
     download: vi.fn(async () => {}), close: vi.fn(async () => {}),
     install: vi.fn(() => new Promise<void>((resolve) => { finishInstall = resolve; })),
   };
@@ -27,7 +27,7 @@ it("shows version notes, disables unsafe installation and locks dismissal only d
   } }), { attachTo: document.body });
   await updater.checkForUpdates(); await updater.downloadUpdate(); await flushPromises();
   const body = new DOMWrapper(document.body);
-  expect(body.text()).toMatch(/0\.1\.8\s+→ 0\.1\.9/);
+  expect(body.text()).toMatch(/0\.1\.9\s+→ 0\.1\.10/);
   expect(body.text()).toContain("修复导出");
   const installButton = () => body.findAll("button").find((button) => button.text().includes("重启并更新"))!;
   expect(installButton().attributes("disabled")).toBeDefined();

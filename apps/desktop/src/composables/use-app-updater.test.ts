@@ -17,7 +17,7 @@ function create(blockReason = () => "") {
 }
 function resource() {
   return {
-    version: "0.1.9", currentVersion: "0.1.8", body: "修复导出问题",
+    version: "0.1.10", currentVersion: "0.1.9", body: "修复导出问题",
     download: vi.fn(async (_callback?: (event: DownloadEvent) => void) => {}),
     install: vi.fn(async () => {}), close: vi.fn(async () => {}),
   };
@@ -123,7 +123,7 @@ describe("application updates", () => {
   it("disposes results that arrive after unmount and never proxies native resources", async () => {
     class NativeUpdate {
       #valid = true;
-      version = "0.1.9";
+      version = "0.1.10";
       async close() { expect(this.#valid).toBe(true); }
       async download() { expect(this.#valid).toBe(true); }
     }

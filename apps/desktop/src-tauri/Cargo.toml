@@ -1,6 +1,6 @@
 [package]
 name = "pdf2plt"
-version = "0.1.9"
+version = "0.1.10"
 description = "Visual PDF sewing-pattern layout tool"
 authors = ["pdf2plt contributors"]
 edition = "2021"

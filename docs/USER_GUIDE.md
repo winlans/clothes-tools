@@ -1,28 +1,28 @@
-# pdf2plt 0.1.9 使用说明
+# pdf2plt 0.1.10 使用说明
 
 ## 桌面应用
 
 ### Windows 10/11 x64
 
-普通用户运行 `pdf2plt_0.1.9_x64-setup.exe` 安装；需要 MSI 部署时使用
-`pdf2plt_0.1.9_x64_en-US.msi`。应用依赖 Microsoft Edge WebView2，系统缺失时
+普通用户运行 `pdf2plt_0.1.10_x64-setup.exe` 安装；需要 MSI 部署时使用
+`pdf2plt_0.1.10_x64_en-US.msi`。应用依赖 Microsoft Edge WebView2，系统缺失时
 安装器会联网安装。当前未签名的自动构建包可能显示“未知发布者”，请先核对
 发布页提供的 SHA-256；正式发行版应使用有效的 Authenticode 签名。
 
 ### Linux AppImage
 
 ```bash
-chmod +x pdf2plt_0.1.9_amd64.AppImage
-./pdf2plt_0.1.9_amd64.AppImage
+chmod +x pdf2plt_0.1.10_amd64.AppImage
+./pdf2plt_0.1.10_amd64.AppImage
 ```
 
 如果系统没有 FUSE，可用
-`APPIMAGE_EXTRACT_AND_RUN=1 ./pdf2plt_0.1.9_amd64.AppImage` 启动。
+`APPIMAGE_EXTRACT_AND_RUN=1 ./pdf2plt_0.1.10_amd64.AppImage` 启动。
 
 ### Linux Debian / Ubuntu
 
 ```bash
-sudo apt install ./pdf2plt_0.1.9_amd64.deb
+sudo apt install ./pdf2plt_0.1.10_amd64.deb
 pdf2plt
 ```
 
@@ -119,7 +119,7 @@ PDF point，`72 pt = 1 inch`。
 ## 故障排查
 
 - `pdf-pattern-svg.exe` 是命令行转换器，不会打开图形界面；Windows 图形版请运行
-  `pdf2plt_0.1.9_x64-setup.exe` 或安装 `.msi`。
+  `pdf2plt_0.1.10_x64-setup.exe` 或安装 `.msi`。
 - 自动辅助线检测失败：应用会在颜色与跨页几何模式均无法形成可靠布局时尝试内容匹配；置信度不足时，
   直接填写缺少的四边裁切量，或关闭“裁切页间接缝”。
 - 开启“删除辅助线”时，预览和 SVG/PLT 导出会按检测坐标移除红色、蓝色等线型元素；

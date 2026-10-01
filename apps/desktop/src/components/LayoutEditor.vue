@@ -53,6 +53,7 @@ const { documentStore, layoutStore, guideStore, projectStore } = session;
 const previewAppearance = usePreviewAppearanceStore();
 const canvas = ref<InstanceType<typeof LayoutCanvas>>();
 const fullscreenCanvas = ref<InstanceType<typeof LayoutCanvas>>();
+const fullscreenPreview = ref<HTMLElement>();
 const draftPagesPerColumn = ref(String(layoutStore.pagesPerColumn));
 const zoom = ref(1);
 const fullscreenZoom = ref(1);
@@ -72,6 +73,8 @@ let brushRevision = 0;
 let nextBrushRuleId = 1;
 let nativeWindowFullscreenActive = false;
 let fullscreenTransition = 0;
+let fullscreenFitFrame: number | undefined;
+let fullscreenResizeObserver: ResizeObserver | undefined;
 const resolvedSettings = useResolvedSettings(() => props.pageSize, () => session);
 
 const layoutSummary = computed(() => {
@@ -333,12 +336,28 @@ function rotateOutput(direction: -1 | 1) {
   session.markDirty();
 }
 
+function scheduleFullscreenFit() {
+  if (!fullscreenPreviewOpen.value) return;
+  if (fullscreenFitFrame !== undefined) cancelAnimationFrame(fullscreenFitFrame);
+  // Native fullscreen changes the WebView size asynchronously. Wait until
+  // LayoutCanvas has applied its own ResizeObserver update before fitting.
+  fullscreenFitFrame = requestAnimationFrame(() => {
+    fullscreenFitFrame = undefined;
+    fullscreenCanvas.value?.fitContent();
+  });
+}
+
 async function openFullscreenPreview() {
   const transition = ++fullscreenTransition;
   fullscreenPreviewOpen.value = true;
   document.body.classList.add("fullscreen-preview-open");
   await nextTick();
+  if (fullscreenPreview.value) {
+    fullscreenResizeObserver?.disconnect();
+    fullscreenResizeObserver?.observe(fullscreenPreview.value);
+  }
   fullscreenCanvas.value?.fitContent();
+  scheduleFullscreenFit();
 
   try {
     await getCurrentWindow().setFullscreen(true);
@@ -349,6 +368,7 @@ async function openFullscreenPreview() {
     nativeWindowFullscreenActive = true;
     await nextTick();
     fullscreenCanvas.value?.fitContent();
+    scheduleFullscreenFit();
   } catch {
     nativeWindowFullscreenActive = false;
   }
@@ -367,6 +387,7 @@ async function closeFullscreenPreview() {
   }
   fullscreenPreviewOpen.value = false;
   document.body.classList.remove("fullscreen-preview-open");
+  fullscreenResizeObserver?.disconnect();
 }
 
 function handlePreviewKeyDown(event: KeyboardEvent) {
@@ -401,10 +422,13 @@ watch(
 
 onMounted(() => {
   window.addEventListener("keydown", handlePreviewKeyDown);
+  fullscreenResizeObserver = new ResizeObserver(scheduleFullscreenFit);
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", handlePreviewKeyDown);
+  fullscreenResizeObserver?.disconnect();
+  if (fullscreenFitFrame !== undefined) cancelAnimationFrame(fullscreenFitFrame);
   document.body.classList.remove("fullscreen-preview-open");
   fullscreenTransition += 1;
   brushRevision += 1;
@@ -781,6 +805,7 @@ onBeforeUnmount(() => {
 
     <section
       v-if="fullscreenPreviewOpen && layoutStore.layout"
+      ref="fullscreenPreview"
       class="fullscreen-preview"
       role="dialog"
       aria-modal="true"

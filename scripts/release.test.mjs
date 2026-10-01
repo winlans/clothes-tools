@@ -37,22 +37,22 @@ test("generates Windows and Linux update entries only after validating every sig
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const key = signingKey();
   const artifacts = [
-    "pdf2plt_0.1.9_x64-setup.exe",
-    "pdf2plt_0.1.9_x64_en-US.msi",
-    "pdf2plt_0.1.9_amd64.AppImage",
+    "pdf2plt_0.1.10_x64-setup.exe",
+    "pdf2plt_0.1.10_x64_en-US.msi",
+    "pdf2plt_0.1.10_amd64.AppImage",
   ];
   for (const name of artifacts) {
     const bytes = Buffer.from(name);
     writeFileSync(join(directory, name), bytes);
     writeFileSync(join(directory, `${name}.sig`), key.sign(bytes));
   }
-  const options = { directory, repository: "winlans/clothes-tools", version: "0.1.9", publicKey: key.encodedPublicKey, notes: "修复导出" };
+  const options = { directory, repository: "winlans/clothes-tools", version: "0.1.10", publicKey: key.encodedPublicKey, notes: "修复导出" };
   const manifest = generateManifest(options);
-  assert.equal(manifest.version, "0.1.9");
+  assert.equal(manifest.version, "0.1.10");
   assert.equal(manifest.notes, "修复导出");
   assert.equal(Object.keys(manifest.platforms).length, 4);
-  assert.match(manifest.platforms["linux-x86_64"].url, /\/v0\.1\.9\/pdf2plt_0\.1\.9_amd64\.AppImage$/);
-  assert.match(manifest.platforms["windows-x86_64-msi"].url, /\/v0\.1\.9\/pdf2plt_0\.1\.9_x64_en-US\.msi$/);
+  assert.match(manifest.platforms["linux-x86_64"].url, /\/v0\.1\.10\/pdf2plt_0\.1\.10_amd64\.AppImage$/);
+  assert.match(manifest.platforms["windows-x86_64-msi"].url, /\/v0\.1\.10\/pdf2plt_0\.1\.10_x64_en-US\.msi$/);
   assert.deepEqual(manifest.platforms["windows-x86_64"], manifest.platforms["windows-x86_64-nsis"]);
   const original = readFileSync(join(directory, artifacts[0]));
   writeFileSync(join(directory, artifacts[0]), Buffer.concat([original, Buffer.from("tampered")]));

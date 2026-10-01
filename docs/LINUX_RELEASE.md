@@ -32,17 +32,17 @@ dist/release/
     SOURCE_OFFER.md
     USER_GUIDE.md
 apps/desktop/src-tauri/target/release/bundle/
-  appimage/pdf2plt_0.1.9_amd64.AppImage
-  deb/pdf2plt_0.1.9_amd64.deb
+  appimage/pdf2plt_0.1.10_amd64.AppImage
+  deb/pdf2plt_0.1.10_amd64.deb
 ```
 
 GitHub Release 中还会提供：
 
 ```text
 pdf2plt-cli-linux-x64.tar.gz
-pdf2plt_0.1.9_amd64.AppImage
-pdf2plt_0.1.9_amd64.AppImage.sig
-pdf2plt_0.1.9_amd64.deb
+pdf2plt_0.1.10_amd64.AppImage
+pdf2plt_0.1.10_amd64.AppImage.sig
+pdf2plt_0.1.10_amd64.deb
 latest.json
 SHA256SUMS
 ```
@@ -55,8 +55,8 @@ SHA256SUMS
 
 ```bash
 git archive --format=tar.gz \
-  --prefix=pdf2plt-0.1.9-source/ \
-  --output=dist/release/pdf2plt-0.1.9-source.tar.gz HEAD
+  --prefix=pdf2plt-0.1.10-source/ \
+  --output=dist/release/pdf2plt-0.1.10-source.tar.gz HEAD
 sha256sum dist/release/*
 ```
 
