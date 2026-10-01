@@ -20,8 +20,9 @@ GitHub Actions 配置：
 
 - Secret `TAURI_SIGNING_PRIVATE_KEY`：Tauri updater 私钥，与 tauri.conf.json 公钥配对。
 - Secret `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`：私钥密码；无密码时可以不设置。
-- Variable `VITE_BAIDU_TONGJI_SITE_ID`：百度统计 hm.js 后的 32 位站点 ID。
-  没有配置时构建成功，但统计保持关闭。
+- `VITE_BAIDU_TONGJI_SITE_ID`：百度统计 hm.js 后的 32 位站点 ID，当前 Windows
+  发布工作流使用 `3e8ed92b699635e1e97b269e145ab9e0`。这是公开站点 ID，不是访问
+  密钥；本地 `.env` 留空可关闭统计，未配置时生产构建仍使用项目默认值。
 
 私钥不进入源码。签名配置通过临时构建配置启用，本地常规构建不要求私钥。
 `scripts/generate-update-manifest.mjs` 会校验 NSIS / MSI 的最终文件和可信注释签名，

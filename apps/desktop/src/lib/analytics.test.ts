@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 vi.mock("@tauri-apps/api/core", () => ({ isTauri: () => true }));
+const SITE_ID = "3e8ed92b699635e1e97b269e145ab9e0";
 beforeEach(() => {
   vi.resetModules(); document.head.innerHTML = ""; delete window._hmt;
-  vi.stubEnv("PROD", true); vi.stubEnv("VITE_BAIDU_TONGJI_SITE_ID", "a".repeat(32));
+  vi.stubEnv("PROD", true); vi.stubEnv("VITE_BAIDU_TONGJI_SITE_ID", SITE_ID);
 });
 afterEach(() => vi.unstubAllEnvs());
 it("initializes once, uses a fixed page path and queues events before the script loads", async () => {
@@ -27,4 +28,10 @@ it("does not throw or grow an event queue after loading fails", async () => {
   initializeAnalytics(); document.getElementById("baidu-tongji")!.dispatchEvent(new Event("error"));
   expect(() => trackEvent("pdf", "import_failed")).not.toThrow();
   expect(window._hmt).toBeUndefined();
+});
+it("uses the configured public site ID", async () => {
+  const { initializeAnalytics } = await import("./analytics");
+  initializeAnalytics();
+  expect(document.getElementById("baidu-tongji")?.getAttribute("src"))
+    .toBe(`https://hm.baidu.com/hm.js?${SITE_ID}`);
 });

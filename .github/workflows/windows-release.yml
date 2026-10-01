@@ -54,7 +54,10 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          VITE_BAIDU_TONGJI_SITE_ID: ${{ vars.VITE_BAIDU_TONGJI_SITE_ID }}
+          # This is a public Baidu site ID, not a secret. Keep it explicit so
+          # releases do not silently disable analytics when the repository
+          # variable has not been configured.
+          VITE_BAIDU_TONGJI_SITE_ID: 3e8ed92b699635e1e97b269e145ab9e0
         run: node scripts/build-desktop-release.mjs windows --signed
 
       - name: Collect and inspect release artifacts

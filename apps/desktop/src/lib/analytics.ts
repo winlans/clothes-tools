@@ -6,6 +6,7 @@ declare global {
   interface Window { _hmt?: { push(command: AnalyticsCommand): unknown } }
 }
 let enabled = false;
+const DEFAULT_SITE_ID = "3e8ed92b699635e1e97b269e145ab9e0";
 
 /** Use fixed event names and counts, never paths, document contents or error text. */
 export function trackEvent(category: AnalyticsCategory, action: string, label = "", value?: number) {
@@ -18,7 +19,10 @@ export function trackEvent(category: AnalyticsCategory, action: string, label = 
 }
 
 export function initializeAnalytics() {
-  const siteId = import.meta.env.VITE_BAIDU_TONGJI_SITE_ID?.trim();
+  // Keep the public site ID usable in local production builds while allowing
+  // CI or a local .env file to override it (an empty value disables tracking).
+  const configuredSiteId = import.meta.env.VITE_BAIDU_TONGJI_SITE_ID;
+  const siteId = configuredSiteId === undefined ? DEFAULT_SITE_ID : configuredSiteId.trim();
   if (enabled || !import.meta.env.PROD || !/^[a-f0-9]{32}$/i.test(siteId ?? "")) return;
   try {
     window._hmt ??= [];
