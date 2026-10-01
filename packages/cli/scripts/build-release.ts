@@ -1,4 +1,5 @@
 import { chmod, copyFile, mkdir, rm } from "node:fs/promises";
+import { homedir } from "node:os";
 import { resolve } from "node:path";
 
 const packageDirectory = resolve(import.meta.dir, "..");
@@ -60,20 +61,43 @@ async function createWindowsZip() {
   await run(["zip", "-rq", archivePath, bundleName], releaseRoot);
 }
 
+async function compileStandalone() {
+  const command = [
+    "bun",
+    "build",
+    "--compile",
+    `--target=${target.bunTarget}`,
+    resolve(packageDirectory, "src/index.ts"),
+    "--outfile",
+    executablePath,
+  ];
+
+  try {
+    await run(command);
+  } catch (error) {
+    // Bun caches downloaded cross-target runtimes without an extension. A
+    // transient download can leave a truncated file that makes every retry
+    // fail until it is removed.
+    if (releaseTarget !== "windows-x64") throw error;
+    const bunInstall = process.env.BUN_INSTALL || resolve(homedir(), ".bun");
+    const cachedRuntime = resolve(
+      bunInstall,
+      "install",
+      "cache",
+      `${target.bunTarget}-v${Bun.version}`,
+    );
+    await rm(cachedRuntime, { force: true });
+    console.warn(`Bun 目标运行时缓存可能损坏，已清理并重试：${cachedRuntime}`);
+    await run(command);
+  }
+}
+
 await mkdir(releaseRoot, { recursive: true });
 await rm(bundleDirectory, { recursive: true, force: true });
 await rm(archivePath, { force: true });
 await mkdir(bundleDirectory, { recursive: true });
 
-await run([
-  "bun",
-  "build",
-  "--compile",
-  `--target=${target.bunTarget}`,
-  resolve(packageDirectory, "src/index.ts"),
-  "--outfile",
-  executablePath,
-]);
+await compileStandalone();
 if (releaseTarget === "linux-x64") await chmod(executablePath, 0o755);
 
 for (const [source, destination] of [
