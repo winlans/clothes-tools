@@ -4,7 +4,41 @@
 
 正式 Windows 发布使用 GitHub Actions 的 Windows Server 2022 x64、Node.js
 22、pnpm 11.17.0、Bun 1.3.14、稳定版 Rust MSVC 工具链。可执行定义位于
-`.github/workflows/windows-release.yml`。
+`.github/workflows/windows-release.yml`，由 `.github/workflows/release.yml` 统一调用。
+
+## CI 发布与自动更新
+
+公开发布仓库为 `winlans/clothes-tools`。推送 `v*` 标签后自动构建 Windows
+NSIS、MSI、CLI ZIP 和同提交源码归档，验证所有更新包签名，再发布 GitHub Release。
+标签必须与根目录、desktop/core/cli package.json、Cargo.toml 和 tauri.conf.json
+的版本一致。预发布标签生成 prerelease，不替换稳定版更新入口。
+
+普通 main push / PR 运行类型检查、测试及前端构建。手动运行 Release 工作流时，
+选择分支只构建附件，选择版本标签才发布 Release。Linux 不参与 CI 发布。
+
+GitHub Actions 配置：
+
+- Secret `TAURI_SIGNING_PRIVATE_KEY`：Tauri updater 私钥，与 tauri.conf.json 公钥配对。
+- Secret `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`：私钥密码；无密码时可以不设置。
+- Variable `VITE_BAIDU_TONGJI_SITE_ID`：百度统计 hm.js 后的 32 位站点 ID。
+  没有配置时构建成功，但统计保持关闭。
+
+私钥不进入源码。签名配置通过临时构建配置启用，本地常规构建不要求私钥。
+`scripts/generate-update-manifest.mjs` 会校验 NSIS / MSI 的最终文件和可信注释签名，
+生成同时支持两种安装方式的 `latest.json` 及 `SHA256SUMS`。构建失败、版本不符、
+签名缺失或不匹配均不会发布更新清单；已发布版本拒绝覆盖，修复需使用新版本号。
+
+更新入口：
+`https://github.com/winlans/clothes-tools/releases/latest/download/latest.json`。
+正式桌面版启动 3 秒后检查，每小时复查；检查失败按 1、5、15 分钟重试。
+发现新版本后后台下载并验证签名，下载完成弹窗提示，由用户点击“重启并更新”。
+“更多 → 检查更新”可以手动检查；“忽略此版本”只影响自动提醒，手动检查仍可更新。
+未保存的排版、正在导入/计算/导出的任务会阻止安装。开发模式不自动更新。
+下载缓存只保留在当前进程，退出后需重新下载。
+
+百度统计只在配置站点 ID 的生产构建启用，记录启动、PDF 导入成功/失败、
+SVG/PLT 导出成功/失败、更新检查/下载/安装等事件。使用固定事件名、格式和页数，
+不发送文件名、文件路径、PDF 内容或原始错误。统计加载失败不影响应用。
 
 Windows 本机需安装 Visual Studio 2022 Build Tools（Desktop development with
 C++）、Rust MSVC、Node.js、pnpm 和 Bun，然后运行：

@@ -41,6 +41,7 @@ import {
   detailPreviewLongEdge,
   visibleDetailPreviewPages,
 } from "../canvas/detail-preview";
+import { spacerAppearance } from "../canvas/spacer-appearance";
 import {
   adjustMagnifierScale,
   calculateMagnifierFrame,
@@ -942,11 +943,16 @@ function createPageGroup(
 
 function createSpacerGroup(spacerId: string, source: GridPosition): Konva.Group {
   const frame = frameForCell(source);
+  const appearance = spacerAppearance(props.backgroundColor);
   const group = new Konva.Group({
     x: frame.x,
     y: frame.y,
     width: frame.width,
     height: frame.height,
+    clipX: 0,
+    clipY: 0,
+    clipWidth: frame.width,
+    clipHeight: frame.height,
     draggable: props.editable && !props.brushEnabled,
     name: "layout-item layout-spacer",
   });
@@ -956,25 +962,75 @@ function createSpacerGroup(spacerId: string, source: GridPosition): Konva.Group 
       height: frame.height,
       fill: props.backgroundColor,
       strokeScaleEnabled: false,
-      ...(props.showGrid
-        ? { stroke: "#8d867c", strokeWidth: 2, dash: [18, 12] }
-        : { strokeWidth: 0 }),
+      name: "spacer-hit-area",
     }),
   );
-  if (props.showGrid) {
-    group.add(
-      new Konva.Text({
-        width: frame.width,
-        height: frame.height,
-        text: "空白占位",
-        align: "center",
-        verticalAlign: "middle",
-        fill: "#625d55",
-        fontSize: 42,
-        listening: false,
-      }),
-    );
-  }
+  const wash = new Konva.Rect({
+    width: frame.width,
+    height: frame.height,
+    fill: appearance.accentColor,
+    opacity: appearance.washOpacity,
+    listening: false,
+    name: "spacer-wash",
+  });
+  group.add(wash);
+
+  const hatchSpacing = 56;
+  const hatching = new Konva.Shape({
+    width: frame.width,
+    height: frame.height,
+    stroke: appearance.accentColor,
+    strokeWidth: 1,
+    strokeScaleEnabled: false,
+    opacity: appearance.hatchOpacity,
+    listening: false,
+    name: "spacer-hatching",
+    sceneFunc: (context, shape) => {
+      context.beginPath();
+      for (
+        let offset = -frame.height;
+        offset <= frame.width;
+        offset += hatchSpacing
+      ) {
+        context.moveTo(offset, frame.height);
+        context.lineTo(offset + frame.height, 0);
+      }
+      context.fillStrokeShape(shape);
+    },
+  });
+  group.add(hatching);
+
+  const inset = Math.max(4, Math.min(10, frame.width * 0.04, frame.height * 0.04));
+  const border = new Konva.Rect({
+    x: inset,
+    y: inset,
+    width: Math.max(0, frame.width - inset * 2),
+    height: Math.max(0, frame.height - inset * 2),
+    cornerRadius: 7,
+    stroke: appearance.accentColor,
+    strokeWidth: 1.5,
+    strokeScaleEnabled: false,
+    dash: [11, 9],
+    opacity: appearance.borderOpacity,
+    listening: false,
+    name: "spacer-border",
+  });
+  group.add(border);
+
+  const setEmphasized = (emphasized: boolean) => {
+    wash.opacity(appearance.washOpacity * (emphasized ? 2 : 1));
+    hatching.opacity(appearance.hatchOpacity * (emphasized ? 1.45 : 1));
+    border.opacity(Math.min(1, appearance.borderOpacity * (emphasized ? 1.45 : 1)));
+    border.strokeWidth(emphasized ? 2.25 : 1.5);
+    group.getLayer()?.batchDraw();
+  };
+  group.on("mouseenter", () => setEmphasized(true));
+  group.on("mouseleave", () => {
+    if (activeDrag?.group !== group) setEmphasized(false);
+  });
+  group.on("dragstart", () => setEmphasized(true));
+  group.on("dragend", () => setEmphasized(false));
+
   if (props.editable && !props.brushEnabled) {
     group.on("dblclick dbltap", () => emit("deleteSpacer", spacerId));
     bindCellDrag(group, { kind: "spacer", spacerId }, source);

@@ -81,6 +81,7 @@ export interface VectorExclusionDevice {
 const IDENTITY: Matrix = [1, 0, 0, 1, 0, 0];
 const GEOMETRY_TOLERANCE_PT = 0.35;
 const BACKGROUND_AREA_FRACTION = 0.9;
+const NEAR_WHITE_COMPONENT = 0.98;
 const EPSILON = 1e-7;
 
 function transformPoint(matrix: Matrix, point: VectorPoint): VectorPoint {
@@ -372,6 +373,29 @@ function isPageBackground(candidate: Candidate, pageArea: number): boolean {
     rectArea(candidate.bounds) >= pageArea * BACKGROUND_AREA_FRACTION;
 }
 
+function isInvisibleBackgroundFill(
+  colorspace: InstanceType<MuPdfModule["ColorSpace"]>,
+  color: Color,
+  alpha: number,
+): boolean {
+  if (alpha <= EPSILON) return true;
+  const components = color as readonly number[];
+  if (colorspace.isGray()) {
+    return (components[0] ?? 0) >= NEAR_WHITE_COMPONENT;
+  }
+  if (colorspace.isRGB() || colorspace.getType() === "BGR") {
+    return [0, 1, 2].every(
+      (index) => (components[index] ?? 0) >= NEAR_WHITE_COMPONENT,
+    );
+  }
+  if (colorspace.isCMYK()) {
+    return [0, 1, 2, 3].every(
+      (index) => (components[index] ?? 1) <= 1 - NEAR_WHITE_COMPONENT,
+    );
+  }
+  return false;
+}
+
 export function createVectorExclusionDevice(
   mupdf: MuPdfModule,
   target: Device | undefined,
@@ -407,8 +431,15 @@ export function createVectorExclusionDevice(
     pageToDevice,
   ));
 
-  const inspect = (candidate: Candidate | undefined): boolean => {
-    if (!candidate || isPageBackground(candidate, devicePageArea)) return false;
+  const inspect = (
+    candidate: Candidate | undefined,
+    invisibleBackgroundFill = false,
+  ): boolean => {
+    if (
+      !candidate ||
+      isPageBackground(candidate, devicePageArea) ||
+      invisibleBackgroundFill
+    ) return false;
     const selected = candidateSelected(candidate, pageNumber, deviceRules);
     if (selected) selectedObjects.push(matchFromCandidate(candidate));
     return selected;
@@ -418,7 +449,10 @@ export function createVectorExclusionDevice(
 
   const device = new mupdf.Device({
     fillPath(path, evenOdd, ctm, colorspace, color, alpha) {
-      const selected = inspect(pathCandidate(nextObjectId++, path, ctm, true));
+      const selected = inspect(
+        pathCandidate(nextObjectId++, path, ctm, true),
+        isInvisibleBackgroundFill(colorspace, color as Color, alpha),
+      );
       if (!target || !shouldForward(selected)) return;
       target.fillPath(
         path,

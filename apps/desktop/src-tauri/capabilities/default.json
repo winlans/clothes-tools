@@ -5,14 +5,23 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
+    "core:window:allow-close",
     "core:window:allow-destroy",
+    "core:window:allow-is-maximized",
+    "core:window:allow-maximize",
+    "core:window:allow-minimize",
+    "core:window:allow-start-dragging",
     "core:window:allow-set-fullscreen",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-unmaximize",
     "dialog:allow-open",
     "dialog:allow-save",
     "fs:allow-exists",
     "fs:allow-read-file",
     "fs:allow-read-text-file",
     "fs:allow-write-file",
-    "fs:allow-write-text-file"
+    "fs:allow-write-text-file",
+    "process:default",
+    "updater:default"
   ]
 }

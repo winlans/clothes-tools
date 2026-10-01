@@ -4,6 +4,7 @@ import { join } from "@tauri-apps/api/path";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { exists, writeFile } from "@tauri-apps/plugin-fs";
 import { toValue, type MaybeRefOrGetter } from "vue";
+import { trackEvent } from "../lib/analytics";
 
 import { useResolvedSettings } from "./use-resolved-settings";
 import { detectedGuideCoordinates, guideSettingsFromLines } from "../project/guide-settings";
@@ -161,8 +162,10 @@ export function useVectorExport(sessionSource?: MaybeRefOrGetter<DocumentSession
         const result = await generateSessionVector(current, format);
         if (selectedPath) await writeFile(selectedPath, result.bytes);
         else downloadBytes(result.bytes, fileName, format);
+        trackEvent("export", "success", format);
       } catch (error) {
         if (current.documentStore.exportStatus === "cancelled") return;
+        trackEvent("export", "failed", format);
         current.documentStore.exportStatus = "error";
         current.documentStore.exportErrorMessage =
           error instanceof Error ? error.message : `${details.label} 导出失败。`;
@@ -198,8 +201,10 @@ export function useVectorExport(sessionSource?: MaybeRefOrGetter<DocumentSession
       });
       if (selectedPath) await writeFile(selectedPath, result.bytes);
       else downloadBytes(result.bytes, fileName, format);
+      trackEvent("export", "success", format);
     } catch (error) {
       if (documentStore.exportStatus === "cancelled") return;
+      trackEvent("export", "failed", format);
       documentStore.exportStatus = "error";
       documentStore.exportErrorMessage =
         error instanceof Error ? error.message : `${details.label} 导出失败。`;
@@ -248,6 +253,7 @@ export function useVectorExport(sessionSource?: MaybeRefOrGetter<DocumentSession
           downloadBytes(generated.bytes, entry.fileName, format);
         }
         result.exported.push(entry.fileName);
+        trackEvent("export", "success", format);
         result.warnings.push(
           ...generated.warnings.map((warning) => `${entry.fileName}：${warning}`),
         );
@@ -256,6 +262,7 @@ export function useVectorExport(sessionSource?: MaybeRefOrGetter<DocumentSession
           result.errors.push(`${entry.fileName}：导出已取消。`);
         } else {
           const message = error instanceof Error ? error.message : "导出失败。";
+          trackEvent("export", "failed", format);
           entry.session.documentStore.exportStatus = "error";
           entry.session.documentStore.exportErrorMessage = message;
           result.errors.push(`${entry.fileName}：${message}`);

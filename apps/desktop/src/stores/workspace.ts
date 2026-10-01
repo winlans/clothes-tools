@@ -1,5 +1,6 @@
 import { defineStore } from "pinia";
 import { computed, shallowRef, watch } from "vue";
+import { trackEvent } from "../lib/analytics";
 
 import {
   createDocumentSession,
@@ -133,10 +134,14 @@ export const useWorkspaceStore = defineStore("workspace", () => {
         session.source.sourceKey = fingerprintKey;
       }
       await waitForInitialLoad(session);
-      if (!session.ui.disposed) session.ui.loadStatus = "ready";
+      if (!session.ui.disposed) {
+        session.ui.loadStatus = "ready";
+        trackEvent("pdf", "import_success", "pages", session.documentStore.info?.pageCount);
+      }
     } catch (error) {
       if (session.ui.disposed) return;
       session.ui.loadStatus = "error";
+      trackEvent("pdf", "import_failed");
       session.documentStore.status = "error";
       session.documentStore.errorMessage =
         error instanceof Error ? error.message : "PDF 导入失败。";

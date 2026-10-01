@@ -133,6 +133,46 @@ describe("vector object brush exclusions", () => {
     background.destroy();
   });
 
+  it("ignores a partial white background while selecting artwork above it", () => {
+    const filter = createVectorExclusionDevice(
+      mupdf,
+      undefined,
+      1,
+      pageSize,
+      [rule([{ operation: "add", radiusPt: 5, points: [{ x: 100, y: 50 }] }])],
+      "inspect",
+    );
+    const background = new mupdf.Path();
+    background.rect(0, 0, 200, 100);
+    const artwork = linePath(50);
+    const stroke = strokeState();
+
+    filter.device.fillPath(
+      background,
+      false,
+      identity,
+      mupdf.ColorSpace.DeviceRGB,
+      [1, 1, 1],
+      1,
+    );
+    filter.device.strokePath(
+      artwork,
+      stroke,
+      identity,
+      mupdf.ColorSpace.DeviceRGB,
+      black,
+      1,
+    );
+
+    expect(filter.selectedObjects).toEqual([
+      expect.objectContaining({ objectId: 2, kind: "path" }),
+    ]);
+    filter.destroy();
+    stroke.destroy();
+    artwork.destroy();
+    background.destroy();
+  });
+
   it("selects a complete text paint operation by its transformed bounds", () => {
     const filter = createVectorExclusionDevice(
       mupdf,

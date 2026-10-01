@@ -3,8 +3,8 @@
 ## 构建基线
 
 正式 Linux 发布使用 Ubuntu 22.04 x86_64、Node.js 22、pnpm 11.17.0、
-Bun 1.3.14 和稳定版 Rust。`.github/workflows/linux-release.yml` 是可执行的
-发布构建定义；版本依赖由 `pnpm-lock.yaml` 和 Rust `Cargo.lock` 固定。
+Bun 1.3.14 和稳定版 Rust。Linux 只提供本地构建，当前 CI 仅发布 Windows；
+版本依赖由 `pnpm-lock.yaml` 和 Rust `Cargo.lock` 固定。
 
 ```bash
 pnpm install --frozen-lockfile

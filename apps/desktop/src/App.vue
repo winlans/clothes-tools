@@ -9,12 +9,15 @@ import {
   InfoIcon,
   MoreHorizontalIcon,
   PlusIcon,
+  RefreshCwIcon,
   XIcon,
 } from "@lucide/vue";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 
 import DocumentWorkspace from "./components/DocumentWorkspace.vue";
 import IconButton from "./components/IconButton.vue";
+import UpdateDialog from "./components/UpdateDialog.vue";
+import WindowTitlebar from "./components/WindowTitlebar.vue";
 import { Alert, AlertDescription } from "./components/ui/alert";
 import {
   AlertDialog,
@@ -49,6 +52,7 @@ import {
 import { Input } from "./components/ui/input";
 import { Separator } from "./components/ui/separator";
 import { usePdfImport } from "./composables/use-pdf-import";
+import { useAppUpdater } from "./composables/use-app-updater";
 import { useResolvedSettings } from "./composables/use-resolved-settings";
 import {
   defaultExportName,
@@ -76,7 +80,17 @@ const exportRows = ref<Array<{
   validationError: string;
 }>>([]);
 const workspace = useWorkspaceStore();
-const pdfImport = usePdfImport();
+const pdfImport = usePdfImport({ canImport: () => !updater.isInstalling.value });
+const updater = useAppUpdater({
+  installationBlockReason: () => {
+    if (batchExporting.value || workspace.tabs.some((tab) =>
+      tab.ui.loadStatus === "queued" || tab.ui.loadStatus === "loading" ||
+      tab.documentStore.exportStatus === "running" || tab.documentStore.detectionStatus === "running"
+    )) return "请等待 PDF 导入、计算或导出完成后再安装更新。";
+    if (workspace.hasDirtyTabs) return "仍有未保存的排版修改，请保存工程或关闭相应标签后再安装更新。";
+    return "";
+  },
+});
 const activeSession = computed(() => workspace.activeSession);
 const resolvedSettings = useResolvedSettings(
   () => activeSession.value?.documentStore.info?.pageSizePt,
@@ -84,6 +98,7 @@ const resolvedSettings = useResolvedSettings(
 );
 const vectorExport = useVectorExport(() => activeSession.value);
 let unlistenCloseRequested: (() => void) | undefined;
+let disposed = false;
 
 const activeDocument = computed(() => activeSession.value?.documentStore);
 const canExportAnySession = computed(() =>
@@ -304,6 +319,7 @@ function openAbout() {
 }
 
 function handleApplicationKeyDown(event: KeyboardEvent) {
+  if (updater.dialogOpen.value) return;
   if (event.code === "Escape" && exportDialogOpen.value) {
     event.preventDefault();
     closeExportDialog();
@@ -361,19 +377,26 @@ function scrollDocumentTabs(event: WheelEvent) {
 }
 
 onMounted(async () => {
-  await pdfImport.startNativeDragDrop();
+  updater.start();
+  void pdfImport.startNativeDragDrop().catch(() => {
+    pdfImport.importNotice.value = "拖放暂不可用，请使用“打开 PDF”导入文件。";
+  });
   window.addEventListener("beforeunload", handleBeforeUnload);
   window.addEventListener("keydown", handleApplicationKeyDown);
   if (pdfImport.isDesktop) {
-    unlistenCloseRequested = await getCurrentWindow().onCloseRequested((event) => {
+    const unlisten = await getCurrentWindow().onCloseRequested((event) => {
+      if (updater.isInstalling.value) { event.preventDefault(); return; }
       if (!hasUnsafeTabs()) return;
       event.preventDefault();
       closeRequest.value = { kind: "application" };
     });
+    if (disposed) unlisten();
+    else unlistenCloseRequested = unlisten;
   }
 });
 
 onBeforeUnmount(() => {
+  disposed = true;
   pdfImport.stopNativeDragDrop();
   unlistenCloseRequested?.();
   window.removeEventListener("beforeunload", handleBeforeUnload);
@@ -390,9 +413,8 @@ onBeforeUnmount(() => {
     @drop="pdfImport.handleBrowserDrop"
   >
     <div class="app-top-chrome">
+      <WindowTitlebar :close-disabled="updater.isInstalling.value" />
       <header class="app-commandbar">
-      <strong class="app-commandbar__brand">pdf2plt</strong>
-      <Separator orientation="vertical" class="app-commandbar__separator" />
       <nav class="app-commandbar__commands" aria-label="应用命令">
         <Button variant="ghost" class="app-command" title="打开 PDF（Ctrl+O）" @click="choosePdf">
           <FolderOpenIcon data-icon="inline-start" />
@@ -476,6 +498,11 @@ onBeforeUnmount(() => {
               <Badge v-if="activeSession?.guideStore.previewMode === 'full'" variant="secondary" class="ml-auto">当前</Badge>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
+            <DropdownMenuItem v-if="updater.desktop" @select="updater.checkForUpdates(false)">
+              <RefreshCwIcon />
+              检查更新
+              <Badge v-if="updater.hasUpdate.value" variant="secondary" class="ml-auto">新版本</Badge>
+            </DropdownMenuItem>
             <DropdownMenuItem @select="openAbout">
               <InfoIcon />
               关于与许可证
@@ -573,10 +600,9 @@ onBeforeUnmount(() => {
       </DialogContent>
     </Dialog>
 
-    <AlertDialog
-      :open="Boolean(closeRequest)"
-      @update:open="(open) => { if (!open) closeRequest = undefined }"
-    >
+    <UpdateDialog :updater="updater" />
+
+    <AlertDialog :open="Boolean(closeRequest)">
       <AlertDialogContent class="close-dialog">
         <AlertDialogHeader>
           <Badge variant="secondary" class="w-fit">确认关闭</Badge>
@@ -585,10 +611,8 @@ onBeforeUnmount(() => {
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel @click="closeRequest = undefined">取消</AlertDialogCancel>
-          <AlertDialogAction as-child>
-            <Button variant="destructive" @click="confirmClose">
+          <AlertDialogAction variant="destructive" @click="confirmClose">
             {{ closeRequest?.kind === 'application' ? '放弃并退出' : '放弃并关闭' }}
-            </Button>
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

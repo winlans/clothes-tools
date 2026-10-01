@@ -538,6 +538,7 @@ onBeforeUnmount(() => {
             <ToggleGroup
               type="single"
               variant="outline"
+              class="preview-mode-toggle"
               :model-value="guideStore.previewMode"
               aria-label="预览模式"
               @update:model-value="setPreviewMode"
@@ -794,6 +795,7 @@ onBeforeUnmount(() => {
           <ToggleGroup
             type="single"
             variant="outline"
+            class="preview-mode-toggle"
             :model-value="guideStore.previewMode"
             aria-label="全屏预览模式"
             @update:model-value="setPreviewMode"

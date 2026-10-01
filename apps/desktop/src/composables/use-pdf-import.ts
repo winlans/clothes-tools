@@ -33,13 +33,14 @@ function resultMessage(result: BatchImportResult): string {
   return parts.join("，");
 }
 
-export function usePdfImport() {
+export function usePdfImport(options: { canImport?: () => boolean } = {}) {
   const workspace = useWorkspaceStore();
   const desktop = isTauri();
   const dropActive = ref(false);
   const dropCount = ref(0);
   const importNotice = ref("");
   let unlistenDragDrop: (() => void) | undefined;
+  let dragDropStopped = false;
 
   function publishResult(result: BatchImportResult) {
     importNotice.value = resultMessage(result);
@@ -56,11 +57,13 @@ export function usePdfImport() {
   }
 
   async function openDesktopPaths(paths: string[]) {
+    if (options.canImport?.() === false) return;
     const pdfPaths = paths.filter(isPdfName);
     const settled = await Promise.allSettled(pdfPaths.map(desktopCandidate));
     const candidates = settled
       .filter((entry): entry is PromiseFulfilledResult<PdfImportCandidate> => entry.status === "fulfilled")
       .map((entry) => entry.value);
+    if (options.canImport?.() === false) return;
     const result = workspace.enqueueCandidates(candidates);
     result.skipped = paths.length - pdfPaths.length;
     result.failed = settled.filter((entry) => entry.status === "rejected").length;
@@ -69,6 +72,7 @@ export function usePdfImport() {
   }
 
   async function openTauriPdfs() {
+    if (options.canImport?.() === false) return;
     const selected = await open({
       multiple: true,
       directory: false,
@@ -87,6 +91,7 @@ export function usePdfImport() {
   }
 
   async function openBrowserPdfs(files: File[]) {
+    if (options.canImport?.() === false) return;
     const pdfFiles = files.filter((file) => isPdfName(file.name));
     const candidates: PdfImportCandidate[] = [];
     let failed = 0;
@@ -98,6 +103,7 @@ export function usePdfImport() {
         failed += 1;
       }
     }
+    if (options.canImport?.() === false) return;
     const result = workspace.enqueueCandidates(candidates);
     result.skipped = files.length - pdfFiles.length;
     result.failed = failed;
@@ -111,7 +117,9 @@ export function usePdfImport() {
 
   async function startNativeDragDrop() {
     if (!desktop || unlistenDragDrop) return;
-    unlistenDragDrop = await getCurrentWebview().onDragDropEvent((event) => {
+    dragDropStopped = false;
+    const unlisten = await getCurrentWebview().onDragDropEvent((event) => {
+      if (dragDropStopped) return;
       const payload = event.payload;
       if (payload.type === "enter") {
         dropCount.value = payload.paths.filter(isPdfName).length;
@@ -125,9 +133,12 @@ export function usePdfImport() {
         dropCount.value = 0;
       }
     });
+    if (dragDropStopped) unlisten();
+    else unlistenDragDrop = unlisten;
   }
 
   function stopNativeDragDrop() {
+    dragDropStopped = true;
     unlistenDragDrop?.();
     unlistenDragDrop = undefined;
   }

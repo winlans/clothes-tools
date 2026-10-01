@@ -101,11 +101,87 @@ button {
 
 .app-top-chrome {
   position: relative;
-  z-index: 60;
+  z-index: 40;
   flex: none;
   margin: 0 -18px;
   background: var(--card);
   box-shadow: 0 5px 14px rgb(0 0 0 / 18%);
+}
+
+.app-window-titlebar {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid color-mix(in oklch, var(--border) 74%, transparent);
+  padding-left: 14px;
+  color: var(--muted-foreground);
+  background: color-mix(in oklch, var(--card) 92%, var(--primary));
+  user-select: none;
+}
+
+.app-window-titlebar__brand {
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+}
+
+.app-window-titlebar__caption {
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-window-controls {
+  display: flex;
+  height: 34px;
+  margin-left: auto;
+  align-self: stretch;
+}
+
+.app-window-control {
+  display: grid;
+  width: 42px;
+  height: 34px;
+  place-items: center;
+  border: 0;
+  color: var(--muted-foreground);
+  background: transparent;
+  cursor: pointer;
+  transition: color 140ms ease, background 140ms ease;
+}
+
+.app-window-control svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.7;
+}
+
+.app-window-control:hover {
+  color: var(--foreground);
+  background: color-mix(in oklch, var(--foreground) 10%, transparent);
+}
+
+.app-window-control:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -3px;
+}
+
+.app-window-control:disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.app-window-titlebar__error {
+  color: var(--destructive);
+  font-size: 11px;
+}
+
+.app-window-control--close:hover {
+  color: white;
+  background: #c94d52;
 }
 
 .app-commandbar {
@@ -367,6 +443,67 @@ h1 {
   color: var(--popover-foreground);
   background: var(--popover);
   box-shadow: 0 24px 80px rgb(0 0 0 / 45%);
+}
+
+.update-dialog {
+  display: grid;
+  width: min(600px, calc(100% - 32px));
+  max-height: calc(100dvh - 48px);
+  gap: 0;
+  overflow: hidden;
+  border-color: var(--border);
+  padding: 0;
+  color: var(--popover-foreground);
+  background: var(--popover);
+  box-shadow: 0 24px 80px rgb(0 0 0 / 45%);
+}
+
+.update-dialog__header,
+.update-dialog__body,
+.update-dialog__footer {
+  padding: 18px 20px;
+}
+
+.update-dialog__header {
+  border-bottom: 1px solid var(--border);
+  padding-right: 44px;
+}
+
+.update-dialog__body {
+  display: grid;
+  gap: 14px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.update-dialog__footer {
+  margin: 0;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+}
+
+.update-dialog__notes {
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.update-dialog__progress {
+  display: grid;
+  gap: 8px;
+  border-radius: 7px;
+  padding: 10px 12px;
+  color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 12%, transparent);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 .legal-dialog h2 {
@@ -699,6 +836,23 @@ h1 {
 .workspace-control-row + .workspace-control-row {
   border-top: 1px solid var(--border);
   padding-top: 8px;
+}
+
+.preview-mode-toggle [data-slot="toggle-group-item"][data-state="on"] {
+  position: relative;
+  z-index: 1;
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+  background: var(--primary);
+  box-shadow:
+    0 0 0 1px color-mix(in oklch, var(--primary) 70%, transparent),
+    0 2px 7px color-mix(in oklch, var(--primary) 30%, transparent);
+  font-weight: 650;
+}
+
+.preview-mode-toggle [data-slot="toggle-group-item"][data-state="on"]:hover {
+  color: var(--primary-foreground);
+  background: color-mix(in oklch, var(--primary) 90%, var(--foreground));
 }
 
 .layout-toolbar {
@@ -1567,6 +1721,7 @@ h1 {
 }
 
 .dark {
+  color-scheme: dark;
   --background: oklch(0.16 0.012 245);
   --foreground: oklch(0.96 0.008 240);
   --card: oklch(0.19 0.014 245);
