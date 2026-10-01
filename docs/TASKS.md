@@ -18,7 +18,7 @@
 | 011 | [Linux 安装包与发布验收](../.scratch/tauri-vue-editor/011-linux-release.md) | HITL | 007–010 |
 | 012 | [从逐页红线自动识别每列页数](../.scratch/tauri-vue-editor/012-auto-column-height.md) | AFK | 002、005 |
 | 013 | [压缩文档栏并统一布局控件](../.scratch/tauri-vue-editor/013-ui-density-polish.md) | AFK | 002、004 |
-| 014 | [Windows x64 安装包与 CLI 发布](../.scratch/tauri-vue-editor/014-windows-release.md) | HITL | 007、010、013 |
+| 014 | [Windows x64 安装包发布](../.scratch/tauri-vue-editor/014-windows-release.md) | HITL | 007、010、013 |
 | 015 | [CLI 内嵌 MuPDF WASM](../.scratch/tauri-vue-editor/015-embedded-cli-wasm.md) | AFK | 007、011、014 |
 | 016 | [Linux 交叉生成 Windows 可视化安装包](../.scratch/tauri-vue-editor/016-windows-visual-nsis.md) | AFK | 014、015 |
 | 017 | [全屏预览与精确百分比缩放](../.scratch/tauri-vue-editor/017-fullscreen-precise-zoom.md) | AFK | 002、013 |

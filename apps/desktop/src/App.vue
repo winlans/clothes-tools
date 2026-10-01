@@ -413,111 +413,105 @@ onBeforeUnmount(() => {
     @drop="pdfImport.handleBrowserDrop"
   >
     <div class="app-top-chrome">
-      <WindowTitlebar :close-disabled="updater.isInstalling.value" />
-      <header class="app-commandbar">
-      <nav class="app-commandbar__commands" aria-label="应用命令">
-        <Button variant="ghost" class="app-command" title="打开 PDF（Ctrl+O）" @click="choosePdf">
-          <FolderOpenIcon data-icon="inline-start" />
-          打开 PDF
-        </Button>
+      <WindowTitlebar :close-disabled="updater.isInstalling.value">
+        <template #commands>
+          <nav class="app-commandbar__commands" aria-label="应用命令">
+            <Button variant="ghost" class="app-command" title="打开 PDF（Ctrl+O）" @click="choosePdf">
+              <FolderOpenIcon data-icon="inline-start" />
+              打开 PDF
+            </Button>
 
-        <Button
-          v-if="activeDocument?.exportStatus === 'running'"
-          variant="ghost"
-          class="app-command"
-          @click="activeDocument.cancelExport()"
-        >
-          <DownloadIcon data-icon="inline-start" />
-          取消导出
-        </Button>
-        <DropdownMenu v-else>
-          <DropdownMenuTrigger as-child>
             <Button
+              v-if="activeDocument?.exportStatus === 'running'"
               variant="ghost"
               class="app-command"
-              :disabled="
-                batchExporting ||
-                (workspace.tabs.length > 1
-                  ? !canExportAnySession
-                  : !activeDocument?.info || !resolvedSettings.canExport.value)
-              "
-              :title="
-                workspace.tabs.length > 1
-                  ? '选择标签并导出矢量文件'
-                  : resolvedSettings.validationError.value || '导出矢量文件'
-              "
+              @click="activeDocument.cancelExport()"
             >
               <DownloadIcon data-icon="inline-start" />
-              导出
-              <ChevronDownIcon data-icon="inline-end" />
+              取消导出
             </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent class="w-52">
-            <DropdownMenuLabel>矢量导出</DropdownMenuLabel>
-            <DropdownMenuItem @select="handleExportCommand('svg')">
-              <FileDownIcon />
-              导出 SVG
-            </DropdownMenuItem>
-            <DropdownMenuItem @select="handleExportCommand('plt')">
-              <FileDownIcon />
-              导出 PLT（CorelDRAW）
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+            <DropdownMenu v-else>
+              <DropdownMenuTrigger as-child>
+                <Button
+                  variant="ghost"
+                  class="app-command"
+                  :disabled="
+                    batchExporting ||
+                    (workspace.tabs.length > 1
+                      ? !canExportAnySession
+                      : !activeDocument?.info || !resolvedSettings.canExport.value)
+                  "
+                  :title="
+                    workspace.tabs.length > 1
+                      ? '选择标签并导出矢量文件'
+                      : resolvedSettings.validationError.value || '导出矢量文件'
+                  "
+                >
+                  <DownloadIcon data-icon="inline-start" />
+                  导出
+                  <ChevronDownIcon data-icon="inline-end" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent class="w-52">
+                <DropdownMenuLabel>矢量导出</DropdownMenuLabel>
+                <DropdownMenuItem @select="handleExportCommand('svg')">
+                  <FileDownIcon />
+                  导出 SVG
+                </DropdownMenuItem>
+                <DropdownMenuItem @select="handleExportCommand('plt')">
+                  <FileDownIcon />
+                  导出 PLT（CorelDRAW）
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger as-child>
-            <Button variant="ghost" class="app-command">
-              <MoreHorizontalIcon data-icon="inline-start" />
-              更多
-              <ChevronDownIcon data-icon="inline-end" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent class="w-52">
-            <DropdownMenuCheckboxItem
-              :model-value="activeSession?.ui.showGrid ?? false"
-              :disabled="!activeSession"
-              @select.prevent="toggleGrid"
-            >
-              <Grid2X2Icon />
-              显示栅格
-            </DropdownMenuCheckboxItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              :disabled="!activeSession || !resolvedSettings.resolved.value.value"
-              @select="selectPreviewMode('cropped')"
-            >
-              成品裁切
-              <Badge v-if="activeSession?.guideStore.previewMode === 'cropped'" variant="secondary" class="ml-auto">当前</Badge>
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              :disabled="!activeSession"
-              @select="selectPreviewMode('full')"
-            >
-              完整页面
-              <Badge v-if="activeSession?.guideStore.previewMode === 'full'" variant="secondary" class="ml-auto">当前</Badge>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem v-if="updater.desktop" @select="updater.checkForUpdates(false)">
-              <RefreshCwIcon />
-              检查更新
-              <Badge v-if="updater.hasUpdate.value" variant="secondary" class="ml-auto">新版本</Badge>
-            </DropdownMenuItem>
-            <DropdownMenuItem @select="openAbout">
-              <InfoIcon />
-              关于与许可证
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </nav>
-      <div v-if="activeDocument?.info" class="topbar__document">
-        <strong :title="activeDocument.fileName">{{ activeDocument.fileName }}</strong>
-        <span>
-          {{ activeDocument.info.pageCount }} 页 ·
-          {{ activeDocument.info.pageSizePt.width.toFixed(3) }} ×
-          {{ activeDocument.info.pageSizePt.height.toFixed(3) }} pt
-        </span>
-      </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger as-child>
+                <Button variant="ghost" class="app-command">
+                  <MoreHorizontalIcon data-icon="inline-start" />
+                  更多
+                  <ChevronDownIcon data-icon="inline-end" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent class="w-52">
+                <DropdownMenuCheckboxItem
+                  :model-value="activeSession?.ui.showGrid ?? false"
+                  :disabled="!activeSession"
+                  @select.prevent="toggleGrid"
+                >
+                  <Grid2X2Icon />
+                  显示栅格
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  :disabled="!activeSession || !resolvedSettings.resolved.value.value"
+                  @select="selectPreviewMode('cropped')"
+                >
+                  成品裁切
+                  <Badge v-if="activeSession?.guideStore.previewMode === 'cropped'" variant="secondary" class="ml-auto">当前</Badge>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  :disabled="!activeSession"
+                  @select="selectPreviewMode('full')"
+                >
+                  完整页面
+                  <Badge v-if="activeSession?.guideStore.previewMode === 'full'" variant="secondary" class="ml-auto">当前</Badge>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem v-if="updater.desktop" @select="updater.checkForUpdates(false)">
+                  <RefreshCwIcon />
+                  检查更新
+                  <Badge v-if="updater.hasUpdate.value" variant="secondary" class="ml-auto">新版本</Badge>
+                </DropdownMenuItem>
+                <DropdownMenuItem @select="openAbout">
+                  <InfoIcon />
+                  关于与许可证
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </nav>
+        </template>
+      </WindowTitlebar>
       <input
         ref="fileInput"
         class="visually-hidden"
@@ -526,7 +520,6 @@ onBeforeUnmount(() => {
         multiple
         @change="handleBrowserFiles"
       />
-      </header>
 
       <nav
         v-if="workspace.tabs.length"

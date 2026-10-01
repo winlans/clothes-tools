@@ -3,13 +3,13 @@
 ## 构建基线
 
 正式 Windows 发布使用 GitHub Actions 的 Windows Server 2022 x64、Node.js
-22、pnpm 11.17.0、Bun 1.3.14、稳定版 Rust MSVC 工具链。可执行定义位于
+22、pnpm 11.17.0 和稳定版 Rust MSVC 工具链。可执行定义位于
 `.github/workflows/windows-release.yml`，由 `.github/workflows/release.yml` 统一调用。
 
 ## CI 发布与自动更新
 
 公开发布仓库为 `winlans/clothes-tools`。推送 `v*` 标签后自动构建 Windows
-NSIS、MSI、CLI ZIP 和同提交源码归档，验证所有更新包签名，再发布 GitHub Release。
+NSIS、MSI 和同提交源码归档，验证所有更新包签名，再发布 GitHub Release。
 标签必须与根目录、desktop/core/cli package.json、Cargo.toml 和 tauri.conf.json
 的版本一致。预发布标签生成 prerelease，不替换稳定版更新入口。
 
@@ -42,13 +42,12 @@ SVG/PLT 导出成功/失败、更新检查/下载/安装等事件。使用固定
 不发送文件名、文件路径、PDF 内容或原始错误。统计加载失败不影响应用。
 
 Windows 本机需安装 Visual Studio 2022 Build Tools（Desktop development with
-C++）、Rust MSVC、Node.js、pnpm 和 Bun，然后运行：
+C++）、Rust MSVC、Node.js 和 pnpm，然后运行：
 
 ```powershell
 pnpm install --frozen-lockfile
 pnpm typecheck
 pnpm test
-pnpm release:cli:windows
 pnpm release:desktop:windows
 ```
 
@@ -75,13 +74,6 @@ Linux 上交叉编译。
 ```text
 dist/release/
   pdf2plt_0.1.8_x64-setup.exe
-  pdf2plt-cli-windows-x64.zip
-  pdf2plt-cli-windows-x64/
-    pdf-pattern-svg.exe
-    LICENSE
-    THIRD_PARTY_NOTICES.md
-    SOURCE_OFFER.md
-    USER_GUIDE.md
   pdf2plt-0.1.8-source.tar.gz
 apps/desktop/src-tauri/target/release/bundle/
   nsis/pdf2plt_0.1.8_x64-setup.exe
@@ -101,10 +93,8 @@ Tauri 安装器默认在系统缺少 WebView2 时下载 bootstrapper。离线部
 Windows CI 会执行以下检查：
 
 1. TypeScript、Vue 和 Rust 测试全部通过。
-2. Windows CLI 单独复制到无外部 WASM 的空目录后仍可执行 `--help`。
-3. CLI ZIP 包包含许可证、第三方声明、源码说明和用户文档。
-4. NSIS、MSI 和同提交源码归档均存在且非空。
-5. 输出安装包与 CLI ZIP 的 SHA-256。
+2. NSIS、MSI 和同提交源码归档均存在且非空。
+3. 输出安装包的 SHA-256 已记录。
 
 ## 人工验收
 

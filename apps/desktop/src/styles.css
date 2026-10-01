@@ -134,6 +134,11 @@ button {
   white-space: nowrap;
 }
 
+.app-window-titlebar__commands {
+  min-width: 0;
+  margin-left: 18px;
+}
+
 .app-window-controls {
   display: flex;
   height: 34px;
@@ -1664,14 +1669,6 @@ h1 {
 
   .app-commandbar {
     padding-inline: 8px;
-  }
-
-  .topbar__document {
-    max-width: 28%;
-  }
-
-  .topbar__document span {
-    display: none;
   }
 
   .app-command {

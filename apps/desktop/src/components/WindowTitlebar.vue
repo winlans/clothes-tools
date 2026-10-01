@@ -18,6 +18,9 @@ function handleMouseDown(event: MouseEvent) {
   <header class="app-window-titlebar" @mousedown="handleMouseDown">
     <strong class="app-window-titlebar__brand">clothes-tools</strong>
     <span class="app-window-titlebar__caption">PDF 版图排版与矢量导出</span>
+    <div v-if="$slots.commands" class="app-window-titlebar__commands">
+      <slot name="commands" />
+    </div>
     <span v-if="error" class="app-window-titlebar__error" role="alert">{{ error }}</span>
     <div v-if="desktop" class="app-window-controls" aria-label="窗口控制" @mousedown.stop @dblclick.stop>
       <button type="button" class="app-window-control" aria-label="最小化" title="最小化" @click="minimize">

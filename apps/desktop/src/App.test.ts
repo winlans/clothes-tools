@@ -124,11 +124,10 @@ describe("App", () => {
     await nextTick();
     expect(layoutStore.pagesPerColumn).toBe(3);
     const topChrome = wrapper.get(".app-top-chrome");
-    expect(topChrome.find(".app-commandbar").exists()).toBe(true);
+    expect(topChrome.find(".app-window-titlebar .app-commandbar__commands").exists()).toBe(true);
     expect(topChrome.find(".document-tabs").exists()).toBe(true);
     expect(wrapper.find(".document-summary").exists()).toBe(false);
-    expect(wrapper.get(".topbar__document").text()).toContain("8 页");
-    expect(wrapper.get(".topbar__document").text()).toContain("1190.000 × 842.000 pt");
+    expect(wrapper.find(".topbar__document").exists()).toBe(false);
 
     documentStore.guideDetection = {
       lines: {},
